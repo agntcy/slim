@@ -623,6 +623,9 @@ pub enum GroupUpdateOp {
     Add = 0,
     Remove = 1,
     Rejoin = 2,
+    /// periodic epoch refresh: no participant is added or removed, the commit
+    /// only carries a fresh path for forward secrecy / post-compromise security
+    Update = 3,
 }
 impl GroupUpdateOp {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -634,6 +637,7 @@ impl GroupUpdateOp {
             Self::Add => "ADD",
             Self::Remove => "REMOVE",
             Self::Rejoin => "REJOIN",
+            Self::Update => "UPDATE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -642,6 +646,7 @@ impl GroupUpdateOp {
             "ADD" => Some(Self::Add),
             "REMOVE" => Some(Self::Remove),
             "REJOIN" => Some(Self::Rejoin),
+            "UPDATE" => Some(Self::Update),
             _ => None,
         }
     }

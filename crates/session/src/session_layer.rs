@@ -1114,7 +1114,7 @@ mod tests {
     fn setup_session_layer() -> (TestSessionLayer, SlimReceiver, AppReceiver) {
         let app_name = make_name(&["test", "app", "v1"]);
         let identity_provider = MockTokenProvider;
-        let identity_verifier = MockVerifier;
+        let identity_verifier = MockVerifier::default();
         let conn_id = 12345u64;
 
         let (tx_slim, rx_slim) = mpsc::channel(16);
@@ -1157,7 +1157,7 @@ mod tests {
         let layer = Arc::new(SessionLayer::new_with_persistence(
             make_name(&["test", "app", "v1"]),
             MockTokenProvider,
-            MockVerifier,
+            MockVerifier::default(),
             999,
             tx_slim,
             tx_app,

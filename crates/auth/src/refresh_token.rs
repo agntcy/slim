@@ -73,10 +73,12 @@ pub struct RefreshTokenProvider {
     // Discovered once on first fetch; avoids repeated discovery round-trips.
     cached_token_endpoint: Arc<RwLock<Option<String>>>,
     client: ReqwestClient,
-    /// MLS signature key pair this identity is DPoP-bound to. Every renewal
-    /// proves it, so `cnf.jkt` survives rotation. `None` = plain bearer identity.
-    /// Shared across clones so the renewal task sees installs.
-    signature_keys: Arc<RwLock<Option<(Vec<u8>, Vec<u8>)>>>,
+    /// The identity key this credential is DPoP-bound to, plus the MLS leaf key
+    /// it attests. Every renewal proves the identity key, so `cnf.jkt` survives
+    /// token rotation; the leaf key is free to change independently. `None` =
+    /// plain bearer identity. Shared across clones so the renewal task and every
+    /// session see the same installs.
+    identity: Arc<RwLock<Option<crate::dpop::IdentityKey>>>,
 }
 
 impl RefreshTokenProvider {
@@ -97,7 +99,7 @@ impl RefreshTokenProvider {
             cached: Arc::new(RwLock::new(None)),
             cached_token_endpoint: Arc::new(RwLock::new(None)),
             client,
-            signature_keys: Arc::new(RwLock::new(None)),
+            identity: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -128,18 +130,55 @@ impl RefreshTokenProvider {
         Ok(token_endpoint)
     }
 
-    /// Install the MLS signature key pair this identity is DPoP-bound to, so
-    /// renewals re-prove it. Sync counterpart to
+    /// Install the identity key this credential is DPoP-bound to, so renewals
+    /// re-prove it and `cnf.jkt` stays the same across rotations.
+    pub fn install_identity_keys(
+        &self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        let mut guard = self.identity.write();
+        // Re-installing the same key is a no-op: replacing the struct here would
+        // discard any MLS leaf key already installed under it.
+        if guard.as_ref().is_some_and(|k| k.pop_keys().1 == public_key) {
+            return Ok(());
+        }
+        *guard = Some(crate::dpop::IdentityKey::new(private_key, public_key)?);
+        Ok(())
+    }
+
+    /// Take ownership of an identity key (and whatever leaf key it already
+    /// attests) from the provider that delegated renewal to us, so exactly one
+    /// copy exists.
+    pub(crate) fn adopt_identity_key(&self, identity: crate::dpop::IdentityKey) {
+        *self.identity.write() = Some(identity);
+    }
+
+    /// Whether a DPoP-bound identity key is installed.
+    pub fn identity_key_installed(&self) -> bool {
+        self.identity.read().is_some()
+    }
+
+    /// The MLS leaf key, but only once the MLS layer has installed its own.
+    /// See `OidcTokenProvider::mls_installed_leaf_keys`.
+    pub(crate) fn mls_installed_leaf_keys(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        let guard = self.identity.read();
+        let key = guard.as_ref()?;
+        key.leaf_installed_by_mls().then(|| key.leaf_keys())
+    }
+
+    /// Install the MLS leaf key to attest. Sync counterpart to
     /// [`TokenProvider::set_signature_keys`](crate::traits::TokenProvider::set_signature_keys).
     pub fn install_signature_keys(
         &self,
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
-        // Reject a key type DPoP cannot express now, rather than at every later
-        // verification once the credential is already in flight.
-        crate::dpop::jwk_thumbprint(&public_key)?;
-        *self.signature_keys.write() = Some((private_key, public_key));
+        self.identity
+            .write()
+            .as_mut()
+            .ok_or(AuthError::AttestationNoIdentityKey)?
+            .install_leaf(private_key, public_key);
         Ok(())
     }
 
@@ -218,9 +257,10 @@ impl RefreshTokenProvider {
             self.current_refresh_token.read().clone()
         };
 
-        // Carries a DPoP proof when keys are installed, so the renewed token keeps
-        // the same `cnf.jkt`. Error handling lives in the shared helper.
-        let keys = self.signature_keys.read().clone();
+        // Carries a DPoP proof over the *identity* key when one is installed, so
+        // the renewed token keeps the same `cnf.jkt`. The MLS leaf key is never
+        // sent to the token endpoint. Error handling lives in the shared helper.
+        let keys = self.identity.read().as_ref().map(|k| k.pop_keys().clone());
         let resp = crate::oidc::post_token_request_with_dpop(
             &self.client,
             &token_endpoint,
@@ -363,12 +403,18 @@ impl TokenProvider for RefreshTokenProvider {
             return Err(AuthError::GetTokenError);
         }
 
+        // Write lock: minting an attestation caches it, so this is one ECDSA
+        // operation per TTL rather than one per call.
+        let attestation = self
+            .identity
+            .write()
+            .as_mut()
+            .map(|k| k.attestation())
+            .transpose()?;
+
         Ok(crate::oidc::present_credential(
             &token,
-            self.signature_keys
-                .read()
-                .as_ref()
-                .map(|(_, public)| &**public),
+            attestation.as_deref(),
         ))
     }
 
@@ -378,14 +424,19 @@ impl TokenProvider for RefreshTokenProvider {
     }
 
     fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
-        self.signature_keys
+        // The MLS leaf key. The identity key is never handed to `mls-rs`.
+        self.identity
             .read()
-            .clone()
+            .as_ref()
+            .map(|k| k.leaf_keys())
             .ok_or(AuthError::MlsNotSupported)
     }
 
     fn mls_signature_keys_installed(&self) -> bool {
-        self.signature_keys.read().is_some()
+        self.identity
+            .read()
+            .as_ref()
+            .is_some_and(|k| k.leaf_installed_by_mls())
     }
 
     async fn set_signature_keys(

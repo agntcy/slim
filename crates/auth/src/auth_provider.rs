@@ -383,6 +383,18 @@ impl Verifier for AuthVerifier {
         }
     }
 
+    async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::JwtVerifier(verifier) => verifier.revalidate(token).await,
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
+            AuthVerifier::Spire(spire) => spire.revalidate(token).await,
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::Oidc(oidc) => oidc.revalidate(token).await,
+            AuthVerifier::SharedSecret(secret) => secret.revalidate(token).await,
+        }
+    }
+
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         match self {
             #[cfg(not(target_arch = "wasm32"))]

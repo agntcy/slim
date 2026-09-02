@@ -44,9 +44,9 @@ pub struct OidcCredentials {
     /// Written 0600: this is private key material, so the file is now the app's
     /// identity, not just its token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mls_private_key: Option<String>,
+    pub identity_private_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mls_public_key: Option<String>,
+    pub identity_public_key: Option<String>,
 }
 
 /// Merge a file-level `ClientConfig` with CLI overrides.
@@ -1101,8 +1101,8 @@ mod tests {
             client_id: "myclient".to_string(),
             issuer: "https://issuer.example.com".to_string(),
             token_endpoint: "https://issuer.example.com/token".to_string(),
-            mls_private_key: None,
-            mls_public_key: None,
+            identity_private_key: None,
+            identity_public_key: None,
         }
     }
 
@@ -1113,13 +1113,13 @@ mod tests {
         let mut creds = creds_with(Some("rt"));
         assert!(!serde_yaml::to_string(&creds).unwrap().contains("mls_"));
 
-        creds.mls_private_key = Some("cHJpdmF0ZQ==".to_string());
-        creds.mls_public_key = Some("cHVibGlj".to_string());
+        creds.identity_private_key = Some("cHJpdmF0ZQ==".to_string());
+        creds.identity_public_key = Some("cHVibGlj".to_string());
         let yaml = serde_yaml::to_string(&creds).unwrap();
 
         let parsed: OidcCredentials = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(parsed.mls_private_key.as_deref(), Some("cHJpdmF0ZQ=="));
-        assert_eq!(parsed.mls_public_key.as_deref(), Some("cHVibGlj"));
+        assert_eq!(parsed.identity_private_key.as_deref(), Some("cHJpdmF0ZQ=="));
+        assert_eq!(parsed.identity_public_key.as_deref(), Some("cHVibGlj"));
     }
 
     /// Files written before DPoP logins existed must still load.
@@ -1128,7 +1128,7 @@ mod tests {
         let parsed: OidcCredentials =
             serde_yaml::from_str("id_token: t\nclient_id: c\nissuer: https://i.example.com\n")
                 .unwrap();
-        assert!(parsed.mls_private_key.is_none());
+        assert!(parsed.identity_private_key.is_none());
     }
 
     #[test]

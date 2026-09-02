@@ -23,7 +23,6 @@ pub(crate) trait TaskUpdate {
     fn leave_complete(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
-    #[allow(dead_code)]
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn task_complete(&self) -> bool;
@@ -53,7 +52,6 @@ pub enum ModeratorTask {
     // here we don't need any state as the message and the
     // tx to the app is tracked in the PendingStatusUpdate struct
     UpdateLocalStatus(),
-    #[allow(dead_code)]
     Update(UpdateParticipant),
 }
 

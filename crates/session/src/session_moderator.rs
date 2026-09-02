@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use slim_auth::errors::AuthError;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -25,7 +26,7 @@ use crate::{
     mls_state::{MlsModeratorState, MlsState},
     moderator_task::{
         AddParticipant, ModeratorTask, NotifyParticipants, RejoinParticipant, RemoveParticipant,
-        TaskUpdate,
+        TaskUpdate, UpdateParticipant,
     },
     persistence,
     runtime::maybe_await,
@@ -34,8 +35,15 @@ use crate::{
     },
     session_settings::SessionSettings,
     subscription_manager::{SubscriptionManager, SubscriptionOps},
+    timer::{Timer, TimerType},
+    timer_factory::{TimerFactory, TimerSettings},
     traits::{MessageHandler, ProcessingState},
 };
+
+/// Interval between periodic, churn-independent epoch refreshes. Keeps a
+/// static group's epoch advancing even with no Add/Remove/Rejoin, which is
+/// what gives a per-epoch identity revalidation check something to run on.
+const EPOCH_REFRESH_INTERVAL: Duration = Duration::from_secs(600);
 
 pub struct SessionModerator<P, V, I, M = SubscriptionManager>
 where
@@ -71,6 +79,10 @@ where
     /// connection id to the remote node
     conn_id: Option<u64>,
 
+    /// Periodic timer that fires [`Self::trigger_epoch_refresh`]. `None` until
+    /// `init()` has an MLS group to refresh.
+    epoch_refresh_timer: Option<Timer>,
+
     /// Inner message handler
     inner: I,
 }
@@ -94,6 +106,7 @@ where
             postponed_message: None,
             subscribed: false,
             conn_id: None,
+            epoch_refresh_timer: None,
             inner,
         }
     }
@@ -118,6 +131,7 @@ where
             postponed_message: None,
             subscribed: false,
             conn_id: None,
+            epoch_refresh_timer: None,
             inner,
         }
     }
@@ -159,6 +173,22 @@ where
             // handles the None-group case and the record is overwritten with
             // the full state when join() fires.
             self.persist_state();
+        }
+
+        // Start the periodic epoch-refresh timer for any MLS-enabled
+        // moderator — fresh or restored — so a static, no-churn group still
+        // advances its epoch on a bounded cadence. `TimerType::Constant` with
+        // no `max_retries` fires forever on its own; no restart logic needed.
+        if self.mls_state.is_some() && self.epoch_refresh_timer.is_none() {
+            let factory = TimerFactory::new(
+                TimerSettings::new(EPOCH_REFRESH_INTERVAL, None, None, TimerType::Constant),
+                self.common.settings.tx_session.clone(),
+            );
+            self.epoch_refresh_timer = Some(factory.create_and_start_timer(
+                rand::random::<u32>(),
+                ProtoSessionMessageType::GroupUpdate,
+                None,
+            ));
         }
 
         Ok(())
@@ -248,7 +278,14 @@ where
                 name,
                 timeouts,
             } => {
-                if message_type.is_command_message() {
+                let is_epoch_refresh_timer = self
+                    .epoch_refresh_timer
+                    .as_ref()
+                    .is_some_and(|t| t.get_id() == message_id);
+
+                if is_epoch_refresh_timer {
+                    output.extend(self.trigger_epoch_refresh().await?);
+                } else if message_type.is_command_message() {
                     let current_epoch = match &self.mls_state {
                         Some(mls_state) => mls_state.common.mls.get_epoch(),
                         None => None,
@@ -719,6 +756,69 @@ where
         )?;
 
         Ok((msg_id, output))
+    }
+
+    /// Force a fresh epoch with no participant added or removed — a commit
+    /// with no proposals, which `mls-rs` sends with a fresh path regardless
+    /// (see `MlsModeratorState::process_local_pending_proposal`). Called by
+    /// [`Self::epoch_refresh_timer`] on a fixed interval so a static,
+    /// no-churn group still advances its epoch, which is what gives a
+    /// per-epoch identity revalidation check something to run on.
+    ///
+    /// Skips (does not queue) if the moderator is already busy with another
+    /// task — the next tick retries.
+    async fn trigger_epoch_refresh(&mut self) -> Result<SessionOutput, SessionError> {
+        if self.current_task.is_some() {
+            debug!("moderator busy, skip this epoch refresh tick");
+            return Ok(SessionOutput::new());
+        }
+
+        let Some(mls_state) = self.mls_state.as_mut() else {
+            return Ok(SessionOutput::new());
+        };
+
+        let mls_content = maybe_await!(mls_state.process_local_pending_proposal())
+            .map_err(|e| self.handle_task_error(e))?;
+        let commit_id = self.mls_state.as_mut().unwrap().get_next_mls_mgs_id();
+        let mls_payload = Some(MlsPayload {
+            commit_id,
+            mls_content,
+        });
+
+        let mut local_no_id = self.common.settings.source.clone();
+        local_no_id.reset_id();
+        let moderator_participant = self
+            .group_list
+            .get(&local_no_id)
+            .cloned()
+            .ok_or_else(|| self.handle_task_error(SessionError::ParticipantNotFound(
+                Box::new(local_no_id),
+            )))?;
+        let participants_vec: Vec<Participant> = self.group_list.values().cloned().collect();
+
+        self.current_task = Some(ModeratorTask::Update(UpdateParticipant::default()));
+        // No real proposal round-trip in this design (nothing is ever staged
+        // before the commit above) — self-satisfy the vestigial proposal
+        // phase so `task_complete()` depends only on the commit ack, the same
+        // "no round trip needed" shortcut already used for a 2-participant
+        // Remove above.
+        let task = self.current_task.as_mut().unwrap();
+        task.proposal_start(0)?;
+        task.update_phase_completed(0)?;
+
+        let (msg_id, output) = self
+            .send_group_update(
+                slim_datapath::api::GroupUpdateOp::Update,
+                moderator_participant,
+                participants_vec,
+                mls_payload,
+            )
+            .await?;
+        self.current_task.as_mut().unwrap().commit_start(msg_id)?;
+
+        self.persist_state();
+
+        Ok(output)
     }
 
     async fn process_control_message(
@@ -1742,6 +1842,73 @@ where
             id = %msg.get_id(),
             "received group ack",
         );
+
+        // Live identity revalidation, gated to epoch-advancing tasks: a
+        // revoked OIDC identity should not stay admitted to the group past
+        // the next epoch change. `CloseOrDisconnect`/`UpdateLocalStatus` are
+        // excluded — there's no group future left to protect there. Only a
+        // *confirmed* rejection triggers eviction; `revalidate` fails open on
+        // anything inconclusive (see its doc comment), so a transient IdP
+        // hiccup never causes a false eviction.
+        let is_epoch_advancing_task = matches!(
+            self.current_task,
+            Some(
+                ModeratorTask::Add(_)
+                    | ModeratorTask::Remove(_)
+                    | ModeratorTask::Rejoin(_)
+                    | ModeratorTask::Update(_)
+            )
+        );
+        if is_epoch_advancing_task {
+            let identity = msg.get_identity();
+            match self
+                .common
+                .settings
+                .identity_verifier
+                .revalidate(&identity)
+                .await
+            {
+                Ok(()) => {}
+                Err(AuthError::IdentityRevoked) => {
+                    tracing::warn!(
+                        participant = %msg.get_source(),
+                        "identity provider revoked this participant's identity, removing them from the group",
+                    );
+                    let kick = self.common.create_control_message(
+                        &msg.get_source(),
+                        ProtoSessionMessageType::LeaveRequest,
+                        rand::random::<u32>(),
+                        CommandPayload::builder().leave_request().as_content(),
+                        false,
+                    )?;
+                    // `current_task` is guaranteed `Some` here (we're
+                    // mid-processing its ack), so this lands in
+                    // `on_leave_request`'s existing busy queue
+                    // (`tasks_todo`) rather than running immediately.
+                    if let Err(e) =
+                        self.common
+                            .settings
+                            .tx_session
+                            .send(SessionMessage::OnMessage {
+                                message: kick,
+                                direction: MessageDirection::South,
+                                ack_tx: None,
+                            })
+                            .await
+                    {
+                        debug!(error = %e, "failed to enqueue revocation-triggered removal, session already closing");
+                    }
+                }
+                Err(e) => {
+                    debug!(
+                        error = %e,
+                        participant = %msg.get_source(),
+                        "identity revalidation inconclusive, not evicting",
+                    );
+                }
+            }
+        }
+
         // notify the sender
         let mut output = self.common.sender.on_message(&msg)?;
 
@@ -2039,7 +2206,7 @@ mod tests {
         let control = make_name(&["channel", "name", "v1"]).with_id(2);
 
         let identity_provider = MockTokenProvider;
-        let identity_verifier = MockVerifier;
+        let identity_verifier = MockVerifier::default();
 
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
@@ -2447,7 +2614,7 @@ mod tests {
         let destination = make_name(&["remote", "app", "v1"]).with_id(200);
 
         let identity_provider = MockTokenProvider;
-        let identity_verifier = MockVerifier;
+        let identity_verifier = MockVerifier::default();
 
         let (tx_slim, _rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
@@ -2531,7 +2698,7 @@ mod tests {
         let control = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(2);
 
         let identity_provider = MockTokenProvider;
-        let identity_verifier = MockVerifier;
+        let identity_verifier = MockVerifier::default();
 
         let (tx_slim, mut rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
@@ -2683,7 +2850,7 @@ mod tests {
         let control = ProtoName::from_strings(["agntcy", "ns", "chat"]).with_id(2);
 
         let identity_provider = MockTokenProvider;
-        let identity_verifier = MockVerifier;
+        let identity_verifier = MockVerifier::default();
 
         let (tx_slim, mut rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();
@@ -2903,6 +3070,236 @@ mod tests {
 
         // State is unchanged.
         assert!(moderator.current_task.is_none());
+    }
+
+    /// A confirmed IdP revocation surfaced by `revalidate` during an
+    /// epoch-advancing task's ack must resubmit a `LeaveRequest` targeting
+    /// the revoked participant, mirroring `SessionController::remove_participant`.
+    #[tokio::test]
+    async fn on_group_ack_kicks_a_participant_whose_identity_was_revoked() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let identity_verifier = moderator.common.settings.identity_verifier.clone();
+        let (tx_session, mut rx_session) = mpsc::channel(16);
+        moderator.common.settings.tx_session = tx_session;
+
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        moderator.group_list.insert(
+            other_key,
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        // Mid-flight on an epoch-advancing task — any task kind works, the
+        // check doesn't care which one. `commit_start(999)` matches the
+        // GroupAck's message id below, so the pre-existing ack bookkeeping
+        // downstream of our hook completes cleanly too.
+        let mut task = ModeratorTask::Update(UpdateParticipant::default());
+        task.commit_start(999).unwrap();
+        moderator.current_task = Some(task);
+        identity_verifier.set_revoked(true);
+
+        let destination = moderator.common.settings.source.clone();
+        let group_ack = Message::builder()
+            .source(other.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(1)
+            .message_id(999)
+            .payload(CommandPayload::builder().group_ack().as_content())
+            .build_publish()
+            .unwrap();
+
+        moderator.on_group_ack(group_ack).await.unwrap();
+
+        let resubmitted = rx_session
+            .try_recv()
+            .expect("expected a resubmitted LeaveRequest");
+        match resubmitted {
+            SessionMessage::OnMessage {
+                message, direction, ..
+            } => {
+                assert_eq!(direction, MessageDirection::South);
+                assert_eq!(
+                    message.get_session_message_type(),
+                    ProtoSessionMessageType::LeaveRequest
+                );
+                assert_eq!(message.get_dst(), other);
+            }
+            other => panic!("expected OnMessage, got {other:?}"),
+        }
+    }
+
+    /// A revalidation the verifier can't confirm either way (not
+    /// `IdentityRevoked`) must not evict anyone.
+    #[tokio::test]
+    async fn on_group_ack_does_not_kick_on_inconclusive_revalidation() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let (tx_session, mut rx_session) = mpsc::channel(16);
+        moderator.common.settings.tx_session = tx_session;
+
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        moderator.group_list.insert(
+            other_key,
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        let mut task = ModeratorTask::Update(UpdateParticipant::default());
+        task.commit_start(999).unwrap();
+        moderator.current_task = Some(task);
+        // MockVerifier::default() never reports revoked.
+
+        let destination = moderator.common.settings.source.clone();
+        let group_ack = Message::builder()
+            .source(other.clone())
+            .destination(destination)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::GroupAck)
+            .session_id(1)
+            .message_id(999)
+            .payload(CommandPayload::builder().group_ack().as_content())
+            .build_publish()
+            .unwrap();
+
+        moderator.on_group_ack(group_ack).await.unwrap();
+
+        assert!(
+            rx_session.try_recv().is_err(),
+            "no message should have been resubmitted"
+        );
+    }
+
+    /// The periodic epoch-refresh trigger must broadcast a commit under the
+    /// new `Update` op (no participant added or removed) and track it as a
+    /// real `ModeratorTask::Update`.
+    #[tokio::test]
+    async fn trigger_epoch_refresh_broadcasts_a_commit_with_no_membership_change() {
+        use slim_auth::shared_secret::SharedSecret;
+
+        const SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(1);
+        let control = make_name(&["channel", "name", "v1"]).with_id(2);
+
+        let identity_provider = SharedSecret::new("test", SECRET).unwrap();
+        let identity_verifier = SharedSecret::new("test", SECRET).unwrap();
+
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_settings: Some(MlsSettings {
+                header_integrity_validation_percent: 0,
+                max_seen_control_message_ids_size: None,
+            }),
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let settings = SessionSettings {
+            id: 1,
+            source: source.clone(),
+            destination,
+            control,
+            config,
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider,
+            identity_verifier,
+            graceful_shutdown_timeout: None,
+            subscription_manager,
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
+            enforce_pqc: false,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+        moderator
+            .mls_state
+            .as_mut()
+            .unwrap()
+            .init_moderator()
+            .await
+            .unwrap();
+
+        // Mirrors the "add ourself to the participants" step `join()` does.
+        let mut local_no_id = source.clone();
+        local_no_id.reset_id();
+        moderator.group_list.insert(
+            local_no_id,
+            Participant::new(source.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        // `trigger_epoch_refresh` returns the broadcast as a `SessionOutput`
+        // directly; dispatching it onto `slim_tx` is the processing loop's
+        // job (not exercised here), so assert on the returned output rather
+        // than `rx_slim`.
+        let output = moderator.trigger_epoch_refresh().await.unwrap();
+
+        assert!(
+            matches!(moderator.current_task, Some(ModeratorTask::Update(_))),
+            "expected an in-flight Update task"
+        );
+
+        let sent = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                crate::common::OutboundMessage::ToSlim(m) => Some(m),
+                _ => None,
+            })
+            .expect("expected a broadcast GroupUpdate message");
+        assert_eq!(
+            sent.get_session_message_type(),
+            ProtoSessionMessageType::GroupUpdate
+        );
+        let payload = sent.extract_group_update().unwrap();
+        assert_eq!(payload.op, GroupUpdateOp::Update as i32);
+
+        // Nothing was pushed straight to the wire by this call.
+        assert!(rx_slim.try_recv().is_err());
+    }
+
+    /// A second tick while the moderator is already busy must be a no-op,
+    /// not a queued task — the next tick retries.
+    #[tokio::test]
+    async fn trigger_epoch_refresh_skips_when_busy() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+        moderator.current_task = Some(ModeratorTask::Update(UpdateParticipant::default()));
+
+        moderator.trigger_epoch_refresh().await.unwrap();
+
+        assert!(moderator.tasks_todo.is_empty());
     }
 
     // --- UpdateParticipantState Tests ---

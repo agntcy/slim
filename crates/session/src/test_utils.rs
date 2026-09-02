@@ -10,6 +10,7 @@ use slim_auth::errors::AuthError;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{Participant, ProtoName};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::SessionError;
 use crate::common::{SessionMessage, SessionOutput};
@@ -42,8 +43,21 @@ impl TokenProvider for MockTokenProvider {
 }
 
 /// Mock verifier for testing.
+///
+/// `revoked` is shared across clones (`Arc`), so a test can flip it via one
+/// handle and have every clone the moderator holds observe it — used to
+/// simulate `revalidate` finding a confirmed IdP revocation.
 #[derive(Clone, Default)]
-pub struct MockVerifier;
+pub struct MockVerifier {
+    revoked: Arc<AtomicBool>,
+}
+
+impl MockVerifier {
+    /// Make every subsequent `revalidate` call report a confirmed revocation.
+    pub fn set_revoked(&self, revoked: bool) {
+        self.revoked.store(revoked, Ordering::SeqCst);
+    }
+}
 
 impl Verifier for MockVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
@@ -52,6 +66,14 @@ impl Verifier for MockVerifier {
 
     async fn verify(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
         Ok(())
+    }
+
+    async fn revalidate(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+        if self.revoked.load(Ordering::SeqCst) {
+            Err(AuthError::IdentityRevoked)
+        } else {
+            Ok(())
+        }
     }
 
     fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {

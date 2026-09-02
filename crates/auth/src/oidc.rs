@@ -5,9 +5,9 @@ use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
 use crate::refresh_token::{RefreshTokenProvider, RefreshTokenProviderConfig};
 use crate::resolver::JwksCache;
-use crate::traits::{TokenProvider, Verifier};
+use crate::traits::{ExportedIdentity, TokenProvider, Verifier};
 use base64::Engine;
-use base64::engine::general_purpose::{STANDARD as BASE64_STD, URL_SAFE_NO_PAD as BASE64_URL};
+use base64::engine::general_purpose::STANDARD as BASE64_STD;
 use display_error_chain::ErrorChainExt;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet, KeyAlgorithm};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
@@ -17,6 +17,7 @@ use crate::resolver::same_origin;
 use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
 use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
+use reqwest::StatusCode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -85,23 +86,33 @@ pub(crate) fn discovery_url(issuer: &Url) -> String {
 // Default token refresh buffer (60 seconds before expiry)
 const REFRESH_BUFFER_SECONDS: u64 = 60;
 
-/// Separates the access token from the base64url MLS public key in the
-/// credential providers hand out.
+/// Attempts `OidcVerifier::revalidate` makes against the userinfo endpoint
+/// before treating a run of failures as inconclusive rather than confirmed
+/// revocation.
+const REVALIDATE_ATTEMPTS: u32 = 3;
+/// Delay between `revalidate` attempts.
+const REVALIDATE_RETRY_DELAY: Duration = Duration::from_millis(250);
+
+/// Separates the access token from the MLS key attestation in the credential
+/// providers hand out.
 ///
-/// `cnf.jkt` is a one-way hash but the MLS layer needs the key itself, so the
-/// holder presents it and the verifier re-hashes it against `cnf.jkt` — the
-/// check an RFC 9449 resource server does on a proof's `jwk` header. Riding in
-/// `SLIMHeader.identity`, already an opaque provider string, avoids a new proto
-/// field that older relays would strip when re-encoding.
+/// `cnf.jkt` is a one-way hash of the *identity* key, and the MLS layer needs a
+/// *leaf* key that the identity key vouches for, so the holder presents an
+/// attestation carrying both: the identity key inline as the JWS `jwk` header
+/// (which the verifier re-hashes against `cnf.jkt`, the check an RFC 9449
+/// resource server does on a proof) and the leaf key in the signed payload.
+/// Riding in `SLIMHeader.identity`, already an opaque provider string, avoids a
+/// new proto field that older relays would strip when re-encoding.
 ///
-/// `~` is outside the JWT alphabet, so it cannot occur in either half.
+/// `~` is outside the JWT and base64url alphabets, so it cannot occur in either
+/// half.
 const DPOP_KEY_SEPARATOR: char = '~';
 
-/// Split a credential into `(access_token, presented_mls_public_key)`. Without
-/// the separator it is a plain bearer token and passes through untouched.
+/// Split a credential into `(access_token, key_attestation)`. Without the
+/// separator it is a plain bearer token and passes through untouched.
 pub(crate) fn split_credential(credential: &str) -> (&str, Option<&str>) {
     match credential.split_once(DPOP_KEY_SEPARATOR) {
-        Some((token, key)) => (token, Some(key)),
+        Some((token, attestation)) => (token, Some(attestation)),
         None => (credential, None),
     }
 }
@@ -109,44 +120,48 @@ pub(crate) fn split_credential(credential: &str) -> (&str, Option<&str>) {
 /// Inverse of [`split_credential`]. Both DPoP-capable providers go through here
 /// so the format cannot drift between the grant that mints the binding and the
 /// one that renews it.
-pub(crate) fn present_credential(access_token: &str, public_key: Option<&[u8]>) -> String {
-    // Only present a key the token commits to. MLS installs its own pair
-    // whenever none is present, and pairing that with an unbound token would be
-    // rejected by every peer on every message.
-    let public_key = public_key.filter(|_| crate::dpop::token_confirmation(access_token).is_some());
+pub(crate) fn present_credential(access_token: &str, attestation: Option<&str>) -> String {
+    // Only present an attestation the token commits to. A token with no
+    // `cnf.jkt` cannot name the signer, so every peer would reject the pair;
+    // serving the bare bearer token instead keeps the transport path working
+    // and fails MLS admission loudly at `PublicKeyNotFound` rather than
+    // obscurely at a thumbprint comparison.
+    let attestation =
+        attestation.filter(|_| crate::dpop::token_confirmation(access_token).is_some());
 
-    match public_key {
-        Some(public_key) => format!(
-            "{access_token}{DPOP_KEY_SEPARATOR}{}",
-            BASE64_URL.encode(public_key)
-        ),
+    match attestation {
+        Some(attestation) => format!("{access_token}{DPOP_KEY_SEPARATOR}{attestation}"),
         None => access_token.to_string(),
     }
 }
 
-/// Confirm a presented MLS public key is the one its token was bound to, then
-/// surface it as a `pubkey` claim so everything downstream stays DPoP-unaware.
-/// Written only after the thumbprint matches.
-fn bind_presented_key(
-    claims: &mut serde_json::Value,
-    presented_key_b64url: &str,
-) -> Result<(), AuthError> {
-    let key = BASE64_URL.decode(presented_key_b64url)?;
-
+/// Verify a key attestation against the token that carries it, then surface the
+/// attested MLS key as a `pubkey` claim so everything downstream stays
+/// attestation-unaware.
+///
+/// Two links are checked here, and neither is sufficient alone:
+///
+/// 1. the attestation verifies under the key in its own `jwk` header, and
+/// 2. that key's thumbprint is the token's `cnf.jkt`, so the IdP vouched for it.
+///
+/// Without (2) this would prove possession of an arbitrary key — which any group
+/// member can do with a credential read off a peer's leaf.
+fn bind_presented_key(claims: &mut serde_json::Value, attestation: &str) -> Result<(), AuthError> {
     let expected = claims
         .get("cnf")
         .and_then(|cnf| cnf.get("jkt"))
         .and_then(|jkt| jkt.as_str())
         .ok_or(AuthError::DpopMissingConfirmation)?;
 
-    if crate::dpop::jwk_thumbprint(&key)? != expected {
+    let attested = crate::dpop::verify_key_attestation(attestation)?;
+    if attested.signer_jkt != expected {
         return Err(AuthError::DpopThumbprintMismatch);
     }
 
     if let Some(obj) = claims.as_object_mut() {
         obj.insert(
             crate::identity_claims::claim_keys::PUBKEY.to_string(),
-            serde_json::Value::String(BASE64_STD.encode(&key)),
+            serde_json::Value::String(BASE64_STD.encode(&attested.leaf_public_key)),
         );
     }
     Ok(())
@@ -285,10 +300,12 @@ pub struct OidcTokenProvider {
     shutdown_tx: Arc<watch::Sender<bool>>,
     /// Handle to the background refresh task
     refresh_task: Arc<parking_lot::Mutex<Option<JoinHandle<()>>>>,
-    /// MLS signature key pair `(secret, public)`. Shared across clones so a
+    /// The DPoP-bound identity key this credential is confirmed for, plus the
+    /// MLS leaf key it currently attests. Shared across clones so an MLS key
     /// rotation is visible to every session cloned from the same app. `None`
-    /// keeps this a plain bearer token source.
-    signature_keys: Arc<RwLock<Option<(Vec<u8>, Vec<u8>)>>>,
+    /// keeps this a plain bearer token source — which is what the transport
+    /// path wants, and why `create_provider` deliberately does not seed it.
+    identity: Arc<RwLock<Option<crate::dpop::IdentityKey>>>,
     /// Renewal delegate for a *user* identity; `None` means client credentials.
     ///
     /// Renewal, its schedule, persistence and the cross-process rotation lock
@@ -323,7 +340,7 @@ impl OidcTokenProvider {
             client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
-            signature_keys: Arc::new(RwLock::new(None)),
+            identity: Arc::new(RwLock::new(None)),
             refresh: Arc::new(RwLock::new(None)),
             delegate_started: Arc::new(AsyncMutex::new(false)),
         })
@@ -457,15 +474,17 @@ impl OidcTokenProvider {
         Ok(access_token.to_string())
     }
 
-    /// POST a form to the token endpoint, carrying a DPoP proof when MLS keys
-    /// are installed. Only caller is [`Self::exchange_authorization_code`], so
-    /// this is never the refresh grant.
+    /// POST a form to the token endpoint, carrying a DPoP proof when an identity
+    /// key is installed. Only caller is [`Self::exchange_authorization_code`],
+    /// so this is never the refresh grant.
     async fn post_token_request(
         &self,
         token_endpoint: &str,
         form: &[(&str, &str)],
     ) -> Result<serde_json::Value, AuthError> {
-        let keys = self.signature_keys.read().clone();
+        // The proof is over the *identity* key: it is what the IdP will name in
+        // `cnf.jkt`, and the MLS leaf key must never reach the token endpoint.
+        let keys = self.identity.read().as_ref().map(|k| k.pop_keys().clone());
         post_token_request_with_dpop(&self.client, token_endpoint, form, keys.as_ref(), false).await
     }
 
@@ -598,24 +617,22 @@ impl OidcTokenProvider {
         result
     }
 
-    /// Install the MLS signature key pair the credential is bound to.
+    /// Install the DPoP-bound *identity* key (`K_pop`) this credential is
+    /// confirmed for — the key `slimctl login` proved at the token exchange.
     ///
-    /// Sync counterpart to
-    /// [`TokenProvider::set_signature_keys`](crate::traits::TokenProvider::set_signature_keys),
-    /// so config can seed keys minted by `slimctl login` outside an async context.
-    pub fn install_signature_keys(
+    /// Sync, so config can seed it outside an async context. Refuses a key the
+    /// live token was not issued for: `cnf.jkt` cannot be re-bound locally, so a
+    /// mismatch here means the store and the token came from different logins
+    /// and every peer would reject the pair.
+    pub fn install_identity_keys(
         &self,
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
         // Reject a key type DPoP cannot express now, rather than at every later
-        // verification once the credential is already in flight.
+        // signing attempt once a credential is already in flight.
         let thumbprint = crate::dpop::jwk_thumbprint(&public_key)?;
 
-        // Refuse a key the live token was not issued for. `cnf.jkt` cannot be
-        // re-bound locally, so swapping the key under it (an MLS rotation, say)
-        // would break the identity for every peer, silently. Rotating an OIDC
-        // identity's key means signing in again.
         if let Some(bound) = self.bound_thumbprint()
             && bound != thumbprint
         {
@@ -623,13 +640,50 @@ impl OidcTokenProvider {
         }
 
         // Once a delegate exists, it renews and so it is the single source of
-        // truth for the key — write only there, rather than keeping a second
+        // truth for the keys — write only there, rather than keeping a second
         // copy here that nothing reads but that could still drift out of sync.
+        if let Some(delegate) = self.refresh.read().as_ref() {
+            return delegate.install_identity_keys(private_key, public_key);
+        }
+
+        let mut guard = self.identity.write();
+        // Re-installing the same key is a no-op: replacing the struct here would
+        // discard any MLS leaf key already installed under it.
+        if guard.as_ref().is_some_and(|k| k.pop_keys().1 == public_key) {
+            return Ok(());
+        }
+        *guard = Some(crate::dpop::IdentityKey::new(private_key, public_key)?);
+        Ok(())
+    }
+
+    /// Install the MLS leaf key the MLS layer generated, to be attested under
+    /// the identity key.
+    ///
+    /// Sync counterpart to
+    /// [`TokenProvider::set_signature_keys`](crate::traits::TokenProvider::set_signature_keys).
+    ///
+    /// Unlike the identity key this is *unconditional*: the leaf key is not what
+    /// `cnf.jkt` names, so it may be replaced as often as `mls-rs` likes — a
+    /// rotation, a restored snapshot, or a per-session key all just produce a
+    /// new attestation. Requiring a login per MLS key was the whole cost this
+    /// indirection removes.
+    pub fn install_signature_keys(
+        &self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
         if let Some(delegate) = self.refresh.read().as_ref() {
             return delegate.install_signature_keys(private_key, public_key);
         }
 
-        *self.signature_keys.write() = Some((private_key, public_key));
+        // No identity key means nothing can vouch for this leaf key, and a
+        // credential that presents an unattested key is rejected by every peer.
+        // Fail here, naming the fix, rather than at the first MLS handshake.
+        self.identity
+            .write()
+            .as_mut()
+            .ok_or(AuthError::AttestationNoIdentityKey)?
+            .install_leaf(private_key, public_key);
         Ok(())
     }
 
@@ -662,10 +716,10 @@ impl OidcTokenProvider {
             lock_and_reload: None,
         })?;
 
-        // Move any installed key into the delegate — it becomes the sole owner
-        // of the key from here on, so no second copy can drift out of sync.
-        if let Some((secret, public)) = self.signature_keys.write().take() {
-            delegate.install_signature_keys(secret, public)?;
+        // Move any installed keys into the delegate — it becomes the sole owner
+        // from here on, so no second copy can drift out of sync.
+        if let Some(identity) = self.identity.write().take() {
+            delegate.adopt_identity_key(identity);
         }
 
         *self.refresh.write() = Some(delegate);
@@ -684,10 +738,40 @@ impl OidcTokenProvider {
         Ok(())
     }
 
+    /// Whether a DPoP-bound identity key is installed, i.e. whether this
+    /// provider can attest an MLS key at all.
+    ///
+    /// Distinct from `mls_signature_keys_installed`, which reports the *leaf*
+    /// key and stays false until the MLS layer generates one. Config checks this
+    /// at construction: a store with no identity key builds fine and then fails
+    /// on a peer's machine at the first group join.
+    pub fn identity_key_installed(&self) -> bool {
+        if let Some(delegate) = self.refresh.read().as_ref() {
+            return delegate.identity_key_installed();
+        }
+        self.identity.read().is_some()
+    }
+
+    /// The MLS leaf key, but only once the MLS layer has installed its own —
+    /// never the pair seeded at construction.
+    ///
+    /// `session_layer` persists whatever `export_identity` returns, and a
+    /// placeholder persisted there would come back on restore looking like a key
+    /// the MLS layer had chosen: `build_client` would adopt it instead of
+    /// generating a ciphersuite-correct one.
+    fn mls_installed_leaf_keys(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        if let Some(delegate) = self.refresh.read().as_ref() {
+            return delegate.mls_installed_leaf_keys();
+        }
+        let guard = self.identity.read();
+        let key = guard.as_ref()?;
+        key.leaf_installed_by_mls().then(|| key.leaf_keys())
+    }
+
     /// Whether a refresh-token delegate has been adopted, i.e. this is a *user*
     /// identity that can renew itself. Config uses this to catch, at
-    /// construction, a stored login that installed an MLS key but never got a
-    /// usable refresh token (e.g. the IdP granted no `offline_access`) — such a
+    /// construction, a stored login that installed an identity key but never got
+    /// a usable refresh token (e.g. the IdP granted no `offline_access`) — such a
     /// provider would otherwise build fine and only fail at the first token
     /// fetch, behind a swallowed warning.
     pub fn has_refresh_delegate(&self) -> bool {
@@ -727,30 +811,35 @@ impl TokenProvider for OidcTokenProvider {
             .map(|entry| entry.token.clone())
             .ok_or(AuthError::GetTokenError)?;
 
-        Ok(present_credential(
-            &token,
-            self.signature_keys
-                .read()
-                .as_ref()
-                .map(|(_, public)| &**public),
-        ))
+        // Write lock: minting an attestation caches it, and the cache is what
+        // keeps this to one ECDSA operation per TTL rather than one per call.
+        let attestation = self
+            .identity
+            .write()
+            .as_mut()
+            .map(|k| k.attestation())
+            .transpose()?;
+
+        Ok(present_credential(&token, attestation.as_deref()))
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
         let credential = self.get_token()?;
-        // Parse the access token, not the presented-key suffix.
+        // Parse the access token, not the attestation suffix.
         extract_sub_claim_unsafe(split_credential(&credential).0)
     }
 
     fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
-        // Once a delegate exists it is the sole owner of the key (see
-        // `install_signature_keys`/`adopt_refresh_token`).
+        // Once a delegate exists it is the sole owner of the keys (see
+        // `install_signature_keys`/`adopt_refresh_token`). Returns the MLS leaf
+        // key: the identity key is never handed to `mls-rs`.
         if let Some(delegate) = self.refresh.read().as_ref() {
             return delegate.get_signature_keys();
         }
-        self.signature_keys
+        self.identity
             .read()
-            .clone()
+            .as_ref()
+            .map(|k| k.leaf_keys())
             .ok_or(AuthError::MlsNotSupported)
     }
 
@@ -758,7 +847,16 @@ impl TokenProvider for OidcTokenProvider {
         if let Some(delegate) = self.refresh.read().as_ref() {
             return delegate.mls_signature_keys_installed();
         }
-        self.signature_keys.read().is_some()
+        // Reports whether the *MLS layer* installed its key, not whether a key
+        // exists — one is always seeded at construction so control messages can
+        // be signed before any group exists. The MLS layer branches on this to
+        // decide adopt-vs-generate (`crates/mls/src/mls.rs`), and it must
+        // generate: the seeded key follows the compile-time curve, MLS's follows
+        // the runtime ciphersuite.
+        self.identity
+            .read()
+            .as_ref()
+            .is_some_and(|k| k.leaf_installed_by_mls())
     }
 
     async fn set_signature_keys(
@@ -767,6 +865,36 @@ impl TokenProvider for OidcTokenProvider {
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
         self.install_signature_keys(private_key, public_key)
+    }
+
+    fn export_identity(&self) -> Option<ExportedIdentity> {
+        // The token and the identity key both come back from the credentials
+        // store on restart, so only the MLS keypair needs persisting. This was
+        // impossible while the credential bound the MLS key directly: a restored
+        // key was, by construction, not the one the live token named.
+        let (secret, public) = self.mls_installed_leaf_keys()?;
+        Some(ExportedIdentity {
+            // Informational: `sub` comes from the token, not the snapshot.
+            id: self.get_id().unwrap_or_default(),
+            credential: Vec::new(),
+            signature_secret_key: secret,
+            signature_public_key: public,
+        })
+    }
+
+    fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError> {
+        // Reinstall the persisted MLS keypair so a restored group's signer still
+        // matches its leaf. Marked as MLS-installed, so `build_client` adopts it
+        // rather than generating a fresh one — the whole point of persisting it.
+        //
+        // The identity key is deliberately not restored: it belongs to the
+        // credentials store, and a snapshot's copy could be from an older login
+        // whose token is long gone.
+        if identity.signature_secret_key.is_empty() || identity.signature_public_key.is_empty() {
+            return Ok(self);
+        }
+        self.install_signature_keys(identity.signature_secret_key, identity.signature_public_key)?;
+        Ok(self)
     }
 }
 
@@ -891,7 +1019,12 @@ impl OidcVerifier {
             issuer_url: issuer_url.into(),
             audience: audience.into(),
             keys: Arc::new(RwLock::new(None)),
-            http_client: reqwest::Client::new(),
+            // A bounded timeout matters here specifically for `revalidate`'s
+            // retry loop — a hung request must not stall an attempt forever.
+            http_client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .expect("failed to build reqwest client"),
             jwks_ttl: Duration::from_secs(3600), // Default 1 hour
             userinfo_endpoint: Arc::new(std::sync::OnceLock::new()),
             claim_cache: None,
@@ -1074,6 +1207,61 @@ impl OidcVerifier {
         }
     }
 
+    /// Confirm the identity provider hasn't revoked this token, retrying a
+    /// bounded number of times before giving up. Unlike [`Self::userinfo_claims`],
+    /// this does not swallow the outcome: a definitive rejection (401/403) is
+    /// [`AuthError::IdentityRevoked`], but anything that stops the check from
+    /// completing at all — no endpoint discovered yet, a connection error, a
+    /// timeout, a 5xx — is inconclusive and returns `Ok(())`, since evicting
+    /// someone over a network blip would be worse than the check that never
+    /// ran.
+    async fn check_not_revoked(&self, credential: &str) -> Result<(), AuthError> {
+        let (access_token, _) = split_credential(credential);
+
+        let Some(endpoint) = self.userinfo_endpoint.get() else {
+            tracing::debug!("revalidate: userinfo_endpoint not discovered yet, skipping");
+            return Ok(());
+        };
+
+        for attempt in 1..=REVALIDATE_ATTEMPTS {
+            match self
+                .http_client
+                .get(endpoint)
+                .bearer_auth(access_token)
+                .send()
+                .await
+            {
+                Ok(resp) if resp.status().is_success() => return Ok(()),
+                Ok(resp)
+                    if resp.status() == StatusCode::UNAUTHORIZED
+                        || resp.status() == StatusCode::FORBIDDEN =>
+                {
+                    tracing::warn!(
+                        status = %resp.status(),
+                        "revalidate: identity provider rejected the token"
+                    );
+                    return Err(AuthError::IdentityRevoked);
+                }
+                Ok(resp) => {
+                    tracing::debug!(
+                        status = %resp.status(), attempt,
+                        "revalidate: unexpected status, retrying"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, attempt, "revalidate: request failed, retrying");
+                }
+            }
+
+            if attempt < REVALIDATE_ATTEMPTS {
+                tokio::time::sleep(REVALIDATE_RETRY_DELAY).await;
+            }
+        }
+
+        tracing::warn!("revalidate: identity provider unreachable after retries, not evicting");
+        Ok(())
+    }
+
     /// Verify a JWT token and enrich claims from userinfo.
     async fn verify_token<Claims>(&self, token: &str) -> Result<Claims, AuthError>
     where
@@ -1145,6 +1333,24 @@ impl Verifier for OidcVerifier {
         Ok(())
     }
 
+    /// Confirm the token is still good *right now*, not just that it once
+    /// verified. Unlike [`Self::verify`]/[`Self::get_claims`], this bypasses
+    /// the claim cache and always contacts the identity provider — including
+    /// for a DPoP-presented credential, which the per-message path
+    /// deliberately skips (see the module-level comment on `verify_token`).
+    /// Acceptable only because the caller is expected to call this rarely
+    /// (e.g. once per participant per MLS epoch change), not per message.
+    async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+        let token = token.as_ref();
+
+        // Signature/`exp`/DPoP-thumbprint problems are locally detectable and
+        // not a network call — surface them as-is, no retry.
+        let keys = self.verification_keys().await?;
+        self.verify_token_util(token, &keys)?;
+
+        self.check_not_revoked(token).await
+    }
+
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         let keys = self
             .cached_verification_keys()
@@ -1210,6 +1416,7 @@ impl Verifier for OidcVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL;
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde_json::json;
     use wiremock::matchers::{method, path};
@@ -1351,6 +1558,99 @@ mod tests {
         let verified_claims: TestClaims = verifier.get_claims(token).await.unwrap();
         assert_eq!(verified_claims.sub, "user123");
         assert_eq!(verified_claims.aud, "test-audience");
+    }
+
+    /// Builds a verifier + signed token against `setup_test_jwt_resolver`'s
+    /// mock server, with `userinfo_endpoint` wired to that same server so
+    /// `revalidate` has somewhere to call.
+    async fn verifier_and_token_for_revalidate() -> (OidcVerifier, wiremock::MockServer, String) {
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims::new("user123", issuer_url.clone(), "test-audience");
+        let header = Header::new(Algorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
+        verifier
+            .userinfo_endpoint
+            .set(format!("{issuer_url}/userinfo"))
+            .unwrap();
+
+        (verifier, mock_server, token)
+    }
+
+    /// A definitive rejection from the identity provider must be reported as
+    /// a confirmed revocation, not retried away.
+    #[tokio::test]
+    async fn revalidate_returns_identity_revoked_on_401() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let _guard = AllowInsecureIssuerForTest::new();
+        let (verifier, mock_server, token) = verifier_and_token_for_revalidate().await;
+
+        Mock::given(method("GET"))
+            .and(path("/userinfo"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&mock_server)
+            .await;
+
+        assert!(matches!(
+            verifier.revalidate(token).await,
+            Err(AuthError::IdentityRevoked)
+        ));
+    }
+
+    /// Transient failures (5xx here) must be retried, and a subsequent
+    /// success must not be reported as revoked.
+    #[tokio::test]
+    async fn revalidate_retries_transient_errors_then_succeeds() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let _guard = AllowInsecureIssuerForTest::new();
+        let (verifier, mock_server, token) = verifier_and_token_for_revalidate().await;
+
+        // First two attempts see a 5xx; only the third (lower priority,
+        // unlimited) sees success.
+        Mock::given(method("GET"))
+            .and(path("/userinfo"))
+            .respond_with(ResponseTemplate::new(500))
+            .up_to_n_times(2)
+            .with_priority(1)
+            .mount(&mock_server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/userinfo"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .with_priority(2)
+            .mount(&mock_server)
+            .await;
+
+        assert!(verifier.revalidate(token).await.is_ok());
+    }
+
+    /// An identity provider that can't be reached at all is inconclusive —
+    /// evicting someone over a network blip would be worse than not checking,
+    /// so this must fail open rather than report a revocation.
+    #[tokio::test]
+    async fn revalidate_fails_open_when_identity_provider_unreachable() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let _guard = AllowInsecureIssuerForTest::new();
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims::new("user123", issuer_url.clone(), "test-audience");
+        let header = Header::new(Algorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
+        // Nothing listens here — every attempt fails to connect.
+        verifier
+            .userinfo_endpoint
+            .set("http://127.0.0.1:1/userinfo".to_string())
+            .unwrap();
+
+        assert!(verifier.revalidate(token).await.is_ok());
     }
 
     #[tokio::test]
@@ -1683,7 +1983,7 @@ mod tests {
             client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
-            signature_keys: Arc::new(RwLock::new(None)),
+            identity: Arc::new(RwLock::new(None)),
             refresh: Arc::new(RwLock::new(None)),
             delegate_started: Arc::new(AsyncMutex::new(false)),
         };
@@ -1774,7 +2074,7 @@ mod tests {
             client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
-            signature_keys: Arc::new(RwLock::new(None)),
+            identity: Arc::new(RwLock::new(None)),
             refresh: Arc::new(RwLock::new(None)),
             delegate_started: Arc::new(AsyncMutex::new(false)),
         };
@@ -2018,30 +2318,31 @@ mod tests {
     /// The one legitimate `pubkey` must survive stripping.
     #[test]
     fn bound_pubkey_is_not_stripped() {
-        let (_, public_key) = crate::utils::generate_mls_signature_keys().unwrap();
+        let pop = crate::utils::generate_identity_signature_keys().unwrap();
+        let (_, leaf_public) = crate::utils::generate_mls_signature_keys().unwrap();
         let mut claims = json!({
             "sub": "user",
-            "cnf": { "jkt": crate::dpop::jwk_thumbprint(&public_key).unwrap() },
+            "cnf": { "jkt": crate::dpop::jwk_thumbprint(&pop.1).unwrap() },
         });
-        bind_presented_key(&mut claims, &BASE64_URL.encode(&public_key)).unwrap();
+        let attestation = crate::dpop::build_key_attestation(&pop.0, &pop.1, &leaf_public).unwrap();
+        bind_presented_key(&mut claims, &attestation).unwrap();
 
         let parsed = crate::identity_claims::IdentityClaims::from_json(&claims).unwrap();
-        assert_eq!(parsed.public_key, BASE64_STD.encode(&public_key));
+        assert_eq!(parsed.public_key, BASE64_STD.encode(&leaf_public));
     }
 
-    /// `cnf.jkt` cannot be re-bound locally, so swapping the key under a live
-    /// token would break the identity for every peer, silently.
+    /// The thumbprint gate lives on the *identity* key, where `cnf.jkt` still
+    /// cannot be re-bound locally: a store whose identity key is not the one the
+    /// live token names came from a different login, and every peer would reject
+    /// the pair.
     #[tokio::test]
-    async fn install_signature_keys_refuses_to_break_a_live_binding() {
+    async fn install_identity_keys_refuses_a_key_the_live_token_is_not_bound_to() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
         let _guard = AllowInsecureIssuerForTest::new();
 
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
-        let jkt = crate::dpop::jwk_thumbprint(&public).unwrap();
-        // A token whose cnf.jkt binds the key installed below.
-        let claims = BASE64_URL.encode(json!({ "sub": "u", "cnf": { "jkt": jkt } }).to_string());
-        let access_token = format!("h.{claims}.s");
+        let pop = identity_keys();
+        let access_token = bound_token(&pop.1);
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2053,27 +2354,148 @@ mod tests {
 
         let provider = provider_for(&issuer);
         provider
-            .install_signature_keys(secret.clone(), public.clone())
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
             .unwrap();
         provider
             .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
             .await
             .unwrap();
 
-        // An MLS key rotation would land here.
-        let (other_secret, other_public) = crate::utils::generate_mls_signature_keys().unwrap();
+        let other = identity_keys();
         assert!(matches!(
-            provider.install_signature_keys(other_secret, other_public),
+            provider.install_identity_keys(other.0, other.1),
             Err(AuthError::DpopThumbprintMismatch)
         ));
+
+        // MLS has since installed its leaf key.
+        let leaf = identity_keys();
+        provider
+            .install_signature_keys(leaf.0.clone(), leaf.1.clone())
+            .unwrap();
 
         // Re-installing the same key is not a change and stays allowed.
         // Asserted without formatting the operands: a failing test must not
         // print private key bytes into CI output.
         assert!(
-            provider.install_signature_keys(secret, public).is_ok(),
+            provider.install_identity_keys(pop.0, pop.1).is_ok(),
             "re-installing the key the live token is bound to must be allowed"
         );
+
+        // ...and must not discard the leaf key already installed under it.
+        assert!(provider.mls_signature_keys_installed());
+        assert_eq!(provider.get_signature_keys().unwrap(), leaf);
+    }
+
+    /// The regression test for the attestation chain: rotating the MLS key is a
+    /// new attestation, not a new login. Every one of these installs returned
+    /// `DpopThumbprintMismatch` when the credential bound the MLS key directly.
+    #[tokio::test]
+    async fn mls_key_rotation_needs_no_new_login() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
+
+        let pop = identity_keys();
+        let access_token = bound_token(&pop.1);
+
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": access_token.clone(), "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        let mut provider = provider_for(&issuer);
+        provider
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
+            .unwrap();
+        provider
+            .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
+            .await
+            .unwrap();
+
+        // Three successive rotations, as `rotate_identity_key` would drive them.
+        for _ in 0..3 {
+            let (leaf_secret, leaf_public) = leaf_keys();
+            provider
+                .set_signature_keys(leaf_secret, leaf_public.clone())
+                .await
+                .expect("an MLS rotation must not need a new login");
+
+            // ...and the credential now attests the key just installed.
+            let credential = provider.get_token().unwrap();
+            let (access, attestation) = split_credential(&credential);
+            assert_eq!(access, access_token);
+
+            let mut claims = claims_bound_to(&pop);
+            bind_presented_key(&mut claims, attestation.expect("attestation")).unwrap();
+            assert_eq!(
+                claims["pubkey"].as_str().unwrap(),
+                BASE64_STD.encode(&leaf_public),
+                "the credential must attest the freshly rotated key"
+            );
+        }
+    }
+
+    /// An MLS ciphersuite whose keys have no JOSE mapping is fine for the leaf
+    /// key: it rides inside the attestation payload as opaque bytes. Under the
+    /// single-key model this combination could not be expressed at all.
+    #[tokio::test]
+    async fn leaf_key_needs_no_jose_mapping() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
+
+        let pop = identity_keys();
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": bound_token(&pop.1), "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        let mut provider = provider_for(&issuer);
+        provider
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
+            .unwrap();
+        provider
+            .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
+            .await
+            .unwrap();
+
+        // 48 bytes: not a length `KeyCurve` recognises, so `jwk_thumbprint`
+        // would reject it. Only the identity key has to be JOSE-expressible.
+        let odd_leaf = vec![7u8; 48];
+        provider
+            .set_signature_keys(vec![9u8; 48], odd_leaf.clone())
+            .await
+            .expect("a leaf key with no JOSE mapping must still be attestable");
+
+        let credential = provider.get_token().unwrap();
+        let mut claims = claims_bound_to(&pop);
+        bind_presented_key(&mut claims, split_credential(&credential).1.unwrap()).unwrap();
+        assert_eq!(
+            claims["pubkey"].as_str().unwrap(),
+            BASE64_STD.encode(&odd_leaf)
+        );
+    }
+
+    /// A leaf key with nothing to vouch for it must fail where the fix is
+    /// obvious, not at a peer's thumbprint comparison.
+    #[tokio::test]
+    async fn leaf_key_without_an_identity_key_is_refused() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (_server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
+
+        let mut provider = provider_for(&issuer);
+        let (leaf_secret, leaf_public) = leaf_keys();
+        assert!(matches!(
+            provider.set_signature_keys(leaf_secret, leaf_public).await,
+            Err(AuthError::AttestationNoIdentityKey)
+        ));
     }
 
     /// Once a delegate exists it is the sole owner of the key: installing after
@@ -2083,6 +2505,11 @@ mod tests {
     fn signature_keys_have_a_single_owner_once_delegated() {
         slim_config::tls::provider::initialize_crypto_provider();
         let provider = provider_for("https://idp.example.com");
+
+        // The order `apply_stored_credentials` uses: identity key first, then
+        // the refresh token, which moves the key into the delegate.
+        let pop = identity_keys();
+        provider.install_identity_keys(pop.0, pop.1).unwrap();
         provider.adopt_refresh_token("rt", None, None).unwrap();
 
         assert!(!provider.mls_signature_keys_installed());
@@ -2150,59 +2577,109 @@ mod tests {
     /// A matching key is surfaced as `pubkey`, keeping consumers DPoP-unaware.
     #[test]
     fn bind_presented_key_injects_pubkey_when_thumbprint_matches() {
-        let (_, public_key) = crate::utils::generate_mls_signature_keys().unwrap();
-        let jkt = crate::dpop::jwk_thumbprint(&public_key).unwrap();
+        let pop = identity_keys();
+        let (_, leaf_public) = leaf_keys();
 
-        let mut claims = json!({ "sub": "user-id", "cnf": { "jkt": jkt } });
-        bind_presented_key(&mut claims, &BASE64_URL.encode(&public_key)).unwrap();
+        let mut claims = claims_bound_to(&pop);
+        bind_presented_key(&mut claims, &attest(&pop, &leaf_public)).unwrap();
 
         assert_eq!(
             claims["pubkey"].as_str().unwrap(),
-            BASE64_STD.encode(&public_key),
-            "verified key must be surfaced in the encoding IdentityClaims expects"
+            BASE64_STD.encode(&leaf_public),
+            "attested key must be surfaced in the encoding IdentityClaims expects"
         );
     }
 
-    /// Credential theft: a valid token replayed with the attacker's own key.
+    /// The forgery the whole design exists to stop. Every group member holds the
+    /// ratchet tree, so an attacker has the victim's token verbatim; she signs a
+    /// perfectly valid attestation over her own MLS key, with her own identity
+    /// key, and staples it to the victim's token.
     #[test]
-    fn bind_presented_key_rejects_key_the_token_is_not_bound_to() {
-        let (_, victim_key) = crate::utils::generate_mls_signature_keys().unwrap();
-        let (_, attacker_key) = crate::utils::generate_mls_signature_keys().unwrap();
+    fn bind_presented_key_rejects_an_attestation_from_another_identity_key() {
+        let victim = identity_keys();
+        let attacker = identity_keys();
+        let (_, attacker_leaf) = leaf_keys();
 
         let mut claims = json!({
             "sub": "victim",
-            "cnf": { "jkt": crate::dpop::jwk_thumbprint(&victim_key).unwrap() }
+            "cnf": { "jkt": crate::dpop::jwk_thumbprint(&victim.1).unwrap() }
         });
 
-        let result = bind_presented_key(&mut claims, &BASE64_URL.encode(&attacker_key));
+        // Self-consistent: it verifies under the key it advertises. What it
+        // cannot do is be the key the IdP named for this subject.
+        let forged = attest(&attacker, &attacker_leaf);
+        let result = bind_presented_key(&mut claims, &forged);
         assert!(matches!(result, Err(AuthError::DpopThumbprintMismatch)));
         assert!(
             claims.get("pubkey").is_none(),
-            "a rejected key must never leave a pubkey claim behind"
+            "a rejected attestation must never leave a pubkey claim behind"
         );
+    }
+
+    /// The same forgery from the other direction: the attacker keeps the
+    /// victim's identity key in the header — so the thumbprint matches — but has
+    /// no private half to sign a payload naming her own key.
+    #[test]
+    fn bind_presented_key_rejects_an_attestation_signed_by_the_wrong_key() {
+        let victim = identity_keys();
+        let attacker = identity_keys();
+        let (_, attacker_leaf) = leaf_keys();
+
+        // Header advertises the victim's key, signature is the attacker's.
+        let genuine = attest(&victim, &attacker_leaf);
+        let forged_sig = attest(&attacker, &attacker_leaf);
+        let mut parts = genuine.split('.');
+        let header = parts.next().unwrap();
+        let payload = parts.next().unwrap();
+        let stolen_signature = forged_sig.split('.').nth(2).unwrap();
+        let spliced = format!("{header}.{payload}.{stolen_signature}");
+
+        let mut claims = claims_bound_to(&victim);
+        assert!(matches!(
+            bind_presented_key(&mut claims, &spliced),
+            Err(AuthError::AttestationSignatureInvalid)
+        ));
     }
 
     /// No `cnf` means nothing to bind against; accepting would trust the key on
     /// the holder's say-so.
     #[test]
     fn bind_presented_key_rejects_token_without_confirmation_claim() {
-        let (_, public_key) = crate::utils::generate_mls_signature_keys().unwrap();
+        let pop = identity_keys();
+        let (_, leaf_public) = leaf_keys();
         let mut claims = json!({ "sub": "user-id" });
 
-        let result = bind_presented_key(&mut claims, &BASE64_URL.encode(&public_key));
+        let result = bind_presented_key(&mut claims, &attest(&pop, &leaf_public));
         assert!(matches!(result, Err(AuthError::DpopMissingConfirmation)));
     }
 
     /// Attacker-controlled input reaching this before any check has passed.
     #[test]
-    fn bind_presented_key_rejects_malformed_key() {
-        let mut claims = json!({ "sub": "user-id", "cnf": { "jkt": "whatever" } });
-        assert!(bind_presented_key(&mut claims, "not!base64url").is_err());
+    fn bind_presented_key_rejects_malformed_attestation() {
+        for garbage in ["", "not-a-jws", "a.b", "a.b.c.d", "not!base64.x.y"] {
+            let mut claims = json!({ "sub": "user-id", "cnf": { "jkt": "whatever" } });
+            assert!(
+                bind_presented_key(&mut claims, garbage).is_err(),
+                "accepted {garbage:?}"
+            );
+            assert!(claims.get("pubkey").is_none());
+        }
+    }
 
-        let mut claims = json!({ "sub": "user-id", "cnf": { "jkt": "whatever" } });
-        // Valid base64url, but not a key length DPoP can express.
-        let result = bind_presented_key(&mut claims, &BASE64_URL.encode([0u8; 20]));
-        assert!(matches!(result, Err(AuthError::DpopUnsupportedKeyType)));
+    /// A DPoP proof is a JWS with a `jwk` header over the same key, so without
+    /// the `typ` check one captured from a token request would pass as an
+    /// attestation — and its payload names no key at all.
+    #[test]
+    fn bind_presented_key_rejects_a_dpop_proof_replayed_as_an_attestation() {
+        let pop = identity_keys();
+        let proof =
+            crate::dpop::build_proof(&pop.0, &pop.1, "POST", "https://idp/token", None).unwrap();
+
+        let mut claims = claims_bound_to(&pop);
+        assert!(matches!(
+            bind_presented_key(&mut claims, &proof),
+            Err(AuthError::AttestationMalformed(_))
+        ));
     }
 
     /// What `get_token` emits must be what `bind_presented_key` accepts.
@@ -2212,8 +2689,9 @@ mod tests {
         let (server, issuer) = mock_issuer().await;
         let _guard = AllowInsecureIssuerForTest::new();
 
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
-        let access_token = bound_token(&public);
+        let pop = identity_keys();
+        let (leaf_secret, leaf_public) = leaf_keys();
+        let access_token = bound_token(&pop.1);
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2224,29 +2702,31 @@ mod tests {
             .await;
 
         let mut provider = provider_for(&issuer);
-        // Before MLS installs keys the credential is a plain bearer token.
+        provider
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
+            .unwrap();
         provider.fetch_new_token().await.unwrap();
-        assert_eq!(provider.get_token().unwrap(), access_token);
+        // A leaf key is seeded at construction, so the credential already
+        // attests one — control messages must be signable before any MLS group
+        // exists. What is *not* yet true is that the MLS layer chose it.
+        assert!(split_credential(&provider.get_token().unwrap()).1.is_some());
         assert!(!provider.mls_signature_keys_installed());
 
         provider
-            .set_signature_keys(secret, public.clone())
+            .set_signature_keys(leaf_secret, leaf_public.clone())
             .await
             .unwrap();
         assert!(provider.mls_signature_keys_installed());
 
         let credential = provider.get_token().unwrap();
-        let (token, presented) = split_credential(&credential);
+        let (token, attestation) = split_credential(&credential);
         assert_eq!(token, access_token);
 
-        let mut claims = json!({
-            "sub": "user-id",
-            "cnf": { "jkt": crate::dpop::jwk_thumbprint(&public).unwrap() }
-        });
-        bind_presented_key(&mut claims, presented.unwrap()).unwrap();
+        let mut claims = claims_bound_to(&pop);
+        bind_presented_key(&mut claims, attestation.unwrap()).unwrap();
         assert_eq!(
             claims["pubkey"].as_str().unwrap(),
-            BASE64_STD.encode(&public)
+            BASE64_STD.encode(&leaf_public)
         );
     }
 
@@ -2276,14 +2756,15 @@ mod tests {
         assert_eq!(verified.sub, "user123");
     }
 
-    /// Refused at install time, not on every later verification.
+    /// Refused at install time, not on every later signing attempt. Applies to
+    /// the identity key only — it is the one that has to become a JWK.
     #[tokio::test]
-    async fn set_signature_keys_rejects_unmappable_key_type() {
+    async fn install_identity_keys_rejects_unmappable_key_type() {
         slim_config::tls::provider::initialize_crypto_provider();
 
         let (_mock_server, issuer_url, _) = setup_oidc_mock_server().await;
         let _guard = AllowInsecureIssuerForTest::new();
-        let mut provider = OidcTokenProvider::new(OidcProviderConfig {
+        let provider = OidcTokenProvider::new(OidcProviderConfig {
             client_id: "c".to_string(),
             client_secret: "s".to_string(),
             issuer_url,
@@ -2292,9 +2773,7 @@ mod tests {
         })
         .unwrap();
 
-        let result = provider
-            .set_signature_keys(vec![0u8; 32], vec![0u8; 20])
-            .await;
+        let result = provider.install_identity_keys(vec![0u8; 32], vec![0u8; 20]);
         assert!(matches!(result, Err(AuthError::DpopUnsupportedKeyType)));
         assert!(!provider.mls_signature_keys_installed());
     }
@@ -2328,6 +2807,32 @@ mod tests {
         format!("header.{claims}.signature")
     }
 
+    /// `(secret, public)` for a DPoP-bound identity key (`K_pop`) — always
+    /// P-256, whatever the MLS ciphersuite is.
+    fn identity_keys() -> (Vec<u8>, Vec<u8>) {
+        crate::utils::generate_identity_signature_keys().unwrap()
+    }
+
+    /// `(secret, public)` for an MLS leaf key (`K_leaf`), as `mls-rs` hands one
+    /// over through `set_signature_keys`.
+    fn leaf_keys() -> (Vec<u8>, Vec<u8>) {
+        crate::utils::generate_mls_signature_keys().unwrap()
+    }
+
+    /// An attestation of `leaf_public` signed by `pop`, exactly as a peer
+    /// receives it in the credential.
+    fn attest(pop: &(Vec<u8>, Vec<u8>), leaf_public: &[u8]) -> String {
+        crate::dpop::build_key_attestation(&pop.0, &pop.1, leaf_public).unwrap()
+    }
+
+    /// Claims as a peer's verifier sees them for a token bound to `pop`.
+    fn claims_bound_to(pop: &(Vec<u8>, Vec<u8>)) -> serde_json::Value {
+        json!({
+            "sub": "user-id",
+            "cnf": { "jkt": crate::dpop::jwk_thumbprint(&pop.1).unwrap() },
+        })
+    }
+
     fn provider_for(issuer: &str) -> OidcTokenProvider {
         OidcTokenProvider::new(OidcProviderConfig {
             client_id: "slim-app".to_string(),
@@ -2339,15 +2844,16 @@ mod tests {
         .unwrap()
     }
 
-    /// Without a proof signed by the MLS key the IdP has nothing to bind.
+    /// Without a proof signed by the identity key the IdP has nothing to bind.
     #[tokio::test]
     async fn authorization_code_exchange_sends_dpop_proof() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
         let _guard = AllowInsecureIssuerForTest::new();
 
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
-        let access_token = bound_token(&public);
+        let pop = identity_keys();
+        let (leaf_secret, leaf_public) = leaf_keys();
+        let access_token = bound_token(&pop.1);
 
         Mock::given(method("POST"))
             .and(path("/token"))
@@ -2362,8 +2868,7 @@ mod tests {
 
         let mut provider = provider_for(&issuer);
         provider
-            .set_signature_keys(secret, public.clone())
-            .await
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
             .unwrap();
 
         let token = provider
@@ -2372,11 +2877,263 @@ mod tests {
             .unwrap();
         assert_eq!(token, access_token);
 
-        // The credential handed onward presents the key the proof was signed with.
+        // The credential handed onward attests the MLS key under the identity key
+        // the proof was signed with.
+        provider
+            .set_signature_keys(leaf_secret, leaf_public.clone())
+            .await
+            .unwrap();
         let credential = provider.get_token().unwrap();
-        let (access, presented) = split_credential(&credential);
+        let (access, attestation) = split_credential(&credential);
         assert_eq!(access, access_token);
-        assert_eq!(presented, Some(BASE64_URL.encode(&public).as_str()));
+
+        let attested = crate::dpop::verify_key_attestation(attestation.unwrap()).unwrap();
+        assert_eq!(attested.leaf_public_key, leaf_public);
+        assert_eq!(
+            attested.signer_jkt,
+            crate::dpop::jwk_thumbprint(&pop.1).unwrap()
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Snapshot round-trip
+    // ---------------------------------------------------------------------
+
+    /// A restarted app must sign with the key its persisted group already has in
+    /// its leaf. Impossible while the credential bound the MLS key directly: a
+    /// restored key was, by construction, not the one the live token named.
+    #[tokio::test]
+    async fn snapshot_round_trips_the_mls_key() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
+
+        let pop = identity_keys();
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": bound_token(&pop.1),
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        let mut provider = provider_for(&issuer);
+        provider
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
+            .unwrap();
+        provider.fetch_new_token().await.unwrap();
+
+        // Nothing to persist before MLS installs its own key: exporting the pair
+        // seeded at construction would come back looking like MLS's choice.
+        assert!(
+            provider.export_identity().is_none(),
+            "the construction-time placeholder must never be persisted"
+        );
+
+        let (leaf_secret, leaf_public) = leaf_keys();
+        provider
+            .set_signature_keys(leaf_secret.clone(), leaf_public.clone())
+            .await
+            .unwrap();
+
+        let exported = provider
+            .export_identity()
+            .expect("an MLS-installed key must be persisted");
+        assert!(
+            exported.credential.is_empty(),
+            "the token comes back from the credentials store, not the snapshot"
+        );
+        // `==` rather than assert_eq!: the latter Debug-formats both sides on
+        // failure, which would put the private key in the panic message.
+        assert!(
+            exported.signature_secret_key == leaf_secret
+                && exported.signature_public_key == leaf_public,
+            "the exported keypair must be the one MLS installed"
+        );
+
+        // Restart: a fresh provider, seeded from the same store, then restored.
+        let fresh = provider_for(&issuer);
+        fresh
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
+            .unwrap();
+        assert!(!fresh.mls_signature_keys_installed());
+
+        let restored = fresh.with_restored_identity(exported).unwrap();
+        assert!(
+            restored.mls_signature_keys_installed(),
+            "a restored key must look installed, or build_client generates a new \
+             one and the persisted group's leaf no longer matches its signer"
+        );
+        assert!(restored.get_signature_keys().unwrap() == (leaf_secret, leaf_public));
+    }
+
+    /// A snapshot with no keys in it is a no-op, not a failure.
+    #[tokio::test]
+    async fn an_empty_snapshot_leaves_the_provider_alone() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (_server, issuer) = mock_issuer().await;
+        let _guard = AllowInsecureIssuerForTest::new();
+
+        let pop = identity_keys();
+        let provider = provider_for(&issuer);
+        provider.install_identity_keys(pop.0, pop.1).unwrap();
+
+        let restored = provider
+            .with_restored_identity(ExportedIdentity {
+                id: String::new(),
+                credential: Vec::new(),
+                signature_secret_key: Vec::new(),
+                signature_public_key: Vec::new(),
+            })
+            .unwrap();
+        assert!(!restored.mls_signature_keys_installed());
+    }
+
+    // ---------------------------------------------------------------------
+    // Full chain, with real signature verification at every link
+    // ---------------------------------------------------------------------
+
+    /// Claims as a DPoP-enabled IdP issues them, so the test can sign a real
+    /// token carrying `cnf.jkt` with the mock JWKS key.
+    #[derive(serde::Serialize)]
+    struct BoundTokenClaims {
+        sub: String,
+        iss: String,
+        aud: String,
+        exp: u64,
+        iat: u64,
+        cnf: serde_json::Value,
+    }
+
+    /// A provider serving a token that is genuinely signed by `jwks_server`'s
+    /// key and bound to `pop`, plus a verifier that fetches that JWKS. Nothing
+    /// between the two is stubbed.
+    /// The mock servers ride along in the return value: dropping a `MockServer`
+    /// stops it, so the caller has to hold them for the length of the test.
+    async fn bound_provider_and_verifier(
+        pop: &(Vec<u8>, Vec<u8>),
+    ) -> (
+        OidcTokenProvider,
+        OidcVerifier,
+        String,
+        (MockServer, MockServer),
+    ) {
+        slim_config::tls::provider::initialize_crypto_provider();
+
+        let (private_key, jwks_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let idp_issuer = jwks_server.uri();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let claims = BoundTokenClaims {
+            sub: "alice".to_string(),
+            iss: idp_issuer.clone(),
+            aud: "test-audience".to_string(),
+            exp: now + 3600,
+            iat: now,
+            cnf: json!({ "jkt": crate::dpop::jwk_thumbprint(&pop.1).unwrap() }),
+        };
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let access_token = encode(&Header::new(Algorithm::RS256), &claims, &encoding_key).unwrap();
+
+        // A second server stands in for the token endpoint: the provider never
+        // verifies what it is handed, so it needs no relationship to the JWKS.
+        let (token_server, token_issuer) = mock_issuer().await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": access_token.clone(),
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            })))
+            .mount(&token_server)
+            .await;
+
+        let provider = provider_for(&token_issuer);
+        provider
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
+            .unwrap();
+        provider.fetch_new_token().await.unwrap();
+
+        let verifier = OidcVerifier::new(idp_issuer, "test-audience");
+        (
+            provider,
+            verifier,
+            access_token,
+            (jwks_server, token_server),
+        )
+    }
+
+    /// End to end through every link, three rotations deep: an IdP-signed token
+    /// verified against a real JWKS, an attestation minted by the provider, and
+    /// `OidcVerifier` resolving it to the key the MLS layer installed — which
+    /// `IdentityClaims` then hands to `validate_member`.
+    ///
+    /// Under the single-key model each rotation failed at the *first* step, in
+    /// `set_signature_keys`.
+    #[tokio::test]
+    async fn full_chain_survives_mls_key_rotation() {
+        let _guard = AllowInsecureIssuerForTest::new();
+        let pop = identity_keys();
+        let (mut provider, verifier, access_token, _servers) =
+            bound_provider_and_verifier(&pop).await;
+
+        for round in 0..3 {
+            let (leaf_secret, leaf_public) = leaf_keys();
+            provider
+                .set_signature_keys(leaf_secret, leaf_public.clone())
+                .await
+                .unwrap_or_else(|e| panic!("rotation {round} refused: {e}"));
+
+            let credential = provider.get_token().unwrap();
+            assert_eq!(split_credential(&credential).0, access_token);
+
+            // Real JWKS verification, real attestation verification.
+            let claims: serde_json::Value =
+                Verifier::get_claims(&verifier, &credential).await.unwrap();
+            let parsed = crate::identity_claims::IdentityClaims::from_json(&claims).unwrap();
+
+            assert_eq!(parsed.subject, "alice", "the person must not change");
+            assert_eq!(
+                parsed.public_key,
+                BASE64_STD.encode(&leaf_public),
+                "rotation {round}: the verifier must resolve the newly installed key"
+            );
+        }
+    }
+
+    /// The same chain, attacked: an authenticated group member holds the
+    /// victim's credential verbatim and swaps in an attestation over her own MLS
+    /// key, signed by her own identity key. Rejected by the real verifier.
+    #[tokio::test]
+    async fn full_chain_rejects_a_credential_re_attested_by_an_onlooker() {
+        let _guard = AllowInsecureIssuerForTest::new();
+        let victim = identity_keys();
+        let (mut provider, verifier, access_token, _servers) =
+            bound_provider_and_verifier(&victim).await;
+
+        let (leaf_secret, leaf_public) = leaf_keys();
+        provider
+            .set_signature_keys(leaf_secret, leaf_public)
+            .await
+            .unwrap();
+        // Precondition: the genuine credential verifies.
+        let genuine = provider.get_token().unwrap();
+        Verifier::get_claims::<serde_json::Value>(&verifier, &genuine)
+            .await
+            .expect("the genuine credential must verify");
+
+        let attacker = identity_keys();
+        let (_, attacker_leaf) = leaf_keys();
+        let forged = format!("{access_token}~{}", attest(&attacker, &attacker_leaf));
+
+        assert!(matches!(
+            Verifier::get_claims::<serde_json::Value>(&verifier, &forged).await,
+            Err(AuthError::DpopThumbprintMismatch)
+        ));
     }
 
     /// A response that carries a refresh token must never populate the
@@ -2428,15 +3185,21 @@ mod tests {
             .await;
 
         let mut provider = provider_for(&issuer);
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
-        provider.set_signature_keys(secret, public).await.unwrap();
+        let pop = identity_keys();
+        provider.install_identity_keys(pop.0, pop.1).unwrap();
+        let (leaf_secret, leaf_public) = leaf_keys();
+        provider
+            .set_signature_keys(leaf_secret, leaf_public)
+            .await
+            .unwrap();
         provider.fetch_new_token().await.unwrap();
 
         let credential = provider.get_token().unwrap();
         assert_eq!(
             split_credential(&credential).1,
             None,
-            "an unbound token must not carry a presented key"
+            "an unbound token has no cnf.jkt to name the signer, so presenting an \
+             attestation would only fail obscurely at every peer"
         );
     }
 
@@ -2455,11 +3218,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let mut provider = provider_for(&issuer);
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
+        let provider = provider_for(&issuer);
+        let pop = identity_keys();
+        let public = pop.1.clone();
         provider
-            .set_signature_keys(secret, public.clone())
-            .await
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
             .unwrap();
         provider
             .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
@@ -2474,7 +3237,8 @@ mod tests {
         let header: serde_json::Value =
             serde_json::from_slice(&BASE64_URL.decode(parts[0]).unwrap()).unwrap();
         assert_eq!(header["typ"], "dpop+jwt");
-        // Advertised key is the MLS key the token will be bound to.
+        // Advertised key is the identity key the token will be bound to — never
+        // the MLS key, which must not reach the token endpoint.
         assert_eq!(
             BASE64_URL.encode(<sha2::Sha256 as sha2::Digest>::digest(
                 serde_json::to_string(&header["jwk"]).unwrap().as_bytes()
@@ -2528,9 +3292,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let mut provider = provider_for(&issuer);
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
-        provider.set_signature_keys(secret, public).await.unwrap();
+        let provider = provider_for(&issuer);
+        let pop = identity_keys();
+        provider.install_identity_keys(pop.0, pop.1).unwrap();
 
         let token = provider
             .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
@@ -2567,9 +3331,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let mut provider = provider_for(&issuer);
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
-        provider.set_signature_keys(secret, public).await.unwrap();
+        let provider = provider_for(&issuer);
+        let pop = identity_keys();
+        provider.install_identity_keys(pop.0, pop.1).unwrap();
 
         let result = provider
             .exchange_authorization_code("c", "v", "http://127.0.0.1/cb")
@@ -2607,14 +3371,15 @@ mod tests {
         ));
     }
 
-    /// Reusing the key keeps `cnf.jkt` unchanged across renewal.
+    /// Re-proving the identity key keeps `cnf.jkt` unchanged across renewal, so
+    /// attestations minted before and after a refresh are equally valid.
     #[tokio::test]
-    async fn refresh_reuses_the_same_mls_key() {
+    async fn refresh_reproves_the_same_identity_key() {
         slim_config::tls::provider::initialize_crypto_provider();
         let (server, issuer) = mock_issuer().await;
         let _guard = AllowInsecureIssuerForTest::new();
-        let (secret, public) = crate::utils::generate_mls_signature_keys().unwrap();
-        let renewed_public = public.clone();
+        let pop = identity_keys();
+        let (leaf_secret, leaf_public) = leaf_keys();
 
         // The DPoP header is required by the mock: a renewal that dropped the
         // proof would return an unbound token and silently break the identity.
@@ -2625,7 +3390,7 @@ mod tests {
             ))
             .and(wiremock::matchers::header_exists("DPoP"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "access_token": bound_token(&renewed_public),
+                "access_token": bound_token(&pop.1),
                 "refresh_token": "rt-2",
                 "expires_in": 3600,
             })))
@@ -2634,18 +3399,30 @@ mod tests {
 
         let mut provider = provider_for(&issuer);
         provider
-            .set_signature_keys(secret, public.clone())
-            .await
+            .install_identity_keys(pop.0.clone(), pop.1.clone())
             .unwrap();
         provider.adopt_refresh_token("rt-1", None, None).unwrap();
+        // Installed after adoption, so it lands in the delegate that now owns
+        // the identity key — the MLS layer does not know a delegate exists.
+        provider
+            .set_signature_keys(leaf_secret, leaf_public.clone())
+            .await
+            .unwrap();
 
         TokenProvider::initialize(&mut provider).await.unwrap();
 
-        // Same key still presented, so the thumbprint the IdP bound is still valid.
+        // Same identity key re-proved, so the thumbprint the IdP bound still
+        // matches and the attestation over the MLS key still verifies.
         let credential = provider.get_token().unwrap();
-        let (access, presented) = split_credential(&credential);
-        assert_eq!(access, bound_token(&public));
-        assert_eq!(presented, Some(BASE64_URL.encode(&public).as_str()));
+        let (access, attestation) = split_credential(&credential);
+        assert_eq!(access, bound_token(&pop.1));
+
+        let mut claims = claims_bound_to(&pop);
+        bind_presented_key(&mut claims, attestation.unwrap()).unwrap();
+        assert_eq!(
+            claims["pubkey"].as_str().unwrap(),
+            BASE64_STD.encode(&leaf_public)
+        );
     }
 
     /// Client credentials would swap in the service account's `sub` and break

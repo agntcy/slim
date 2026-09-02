@@ -84,6 +84,19 @@ pub trait Verifier {
     fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
+
+    /// A fresh, non-cached check that the token is still valid — for the rare
+    /// call site where accepting a revoked identity has a real, ongoing cost
+    /// (e.g. it stays admitted to a group), unlike the routine per-message
+    /// [`Self::verify`]/[`Self::get_claims`] path.
+    ///
+    /// No default body: `#[trait_variant::make(Send)]` does not correctly
+    /// desugar a default `async fn` (it drops `asyncness` from the signature
+    /// but leaves the body's `.await` untouched, which fails to compile), so
+    /// every implementor provides its own — identical to [`Self::verify`]
+    /// except in [`crate::oidc::OidcVerifier`], which actually contacts the
+    /// IdP.
+    async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError>;
 }
 
 /// Trait for signing JWT claims

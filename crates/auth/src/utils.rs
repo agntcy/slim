@@ -78,6 +78,39 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
     }
 }
 
+/// Generate the DPoP-bound *identity* key (`K_pop`), always P-256.
+///
+/// Deliberately not [`generate_mls_signature_keys`]: this key never reaches
+/// `mls-rs`, so the MLS ciphersuite has no say in it and the `curve25519`
+/// build feature must not change it. Only JOSE constrains it, and `ES256` is
+/// the best-supported DPoP algorithm. Decoupling the two is what removes the
+/// `enforce_pqc`/`curve25519` interaction from the identity path entirely.
+pub fn generate_identity_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let crypto_provider = AwsLcCryptoProvider::default();
+        let cipher_suite_provider = crypto_provider
+            .cipher_suite_provider(mls_rs_core::crypto::CipherSuite::P256_AES128)
+            .ok_or(crate::errors::AuthError::MlsKeyGenerationFailed)?;
+
+        let (secret_key, public_key) = cipher_suite_provider
+            .signature_key_generate()
+            .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
+
+        Ok((
+            secret_key.as_bytes().to_vec(),
+            public_key.as_bytes().to_vec(),
+        ))
+    }
+
+    // The wasm branch of `generate_mls_signature_keys` is already P-256-only, so
+    // it is the identity key generator there too.
+    #[cfg(target_arch = "wasm32")]
+    {
+        generate_mls_signature_keys()
+    }
+}
+
 /// Which MLS signature key type a public key's encoding identifies, from its
 /// length alone: 32 bytes for Ed25519, 33 (compressed) or 65 (uncompressed)
 /// SEC1 bytes for P-256. The one place this dispatch is defined — every
