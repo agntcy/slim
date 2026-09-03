@@ -26,15 +26,18 @@ on:
         default: ""
 
 # The effective token permission is the intersection of this declaration and the
-# caller's job permissions, so this only needs to cover the most privileged mode
+# caller's job permissions. Top level stays read-only per least-privilege
+# best practice; the job below declares the write permission it actually needs
 # (deploy-release, which needs contents: write for mike --push).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   docs:
     name: Docs (${{ inputs.mode }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # GITHUB_TOKEN permissions are controlled by the caller:
     #   docs-ci.yaml  -> contents: read (lint/build only)
     #   docs-deploy.yml deploy job -> contents: write (mike --push, root files)
