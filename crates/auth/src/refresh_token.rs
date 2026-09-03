@@ -12,7 +12,7 @@ use crate::errors::AuthError;
 use crate::jwt::{
     extract_exp_claim_unsafe, extract_exp_iat_claims_unsafe, extract_sub_claim_unsafe,
 };
-use crate::resolver::same_origin;
+use crate::resolver::{require_https, same_origin};
 use crate::traits::TokenProvider;
 
 const REFRESH_BUFFER_SECS: u64 = 60;
@@ -109,7 +109,7 @@ impl RefreshTokenProvider {
         if let Some(ep) = self.cached_token_endpoint.read().clone() {
             return Ok(ep);
         }
-        let issuer_parsed = url::Url::parse(&self.config.issuer_url)?;
+        let issuer_parsed = require_https(&self.config.issuer_url)?;
         let discovery_url = format!(
             "{}/.well-known/openid-configuration",
             self.config.issuer_url
