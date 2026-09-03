@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [2.0.1](https://github.com/agntcy/slim/compare/helm-slim-spire-v2.0.0...helm-slim-spire-v2.0.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* update SPIRE to 1.15.3 ([#2001](https://github.com/agntcy/slim/issues/2001)) ([16914fd](https://github.com/agntcy/slim/commit/16914fd7b0d764674a13be6830eaeaccaa53f515))
+
 ## [2.0.0](https://github.com/agntcy/slim/compare/helm-slim-spire-v1.4.0...helm-slim-spire-v2.0.0) (2026-08-07)
 
 
