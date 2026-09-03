@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Authenticate with GitHub App Bot
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0 # zizmor: ignore[github-app] token is scoped to the current repo; narrowing permission-* requires coordination with the app's installed permissions
         with:
           client-id: ${{ secrets.PROJECT_APP_ID }}
           private-key: ${{ secrets.PROJECT_APP_KEY }}

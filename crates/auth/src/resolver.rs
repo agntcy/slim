@@ -22,6 +22,19 @@ pub(crate) fn same_origin(base: &Url, candidate: &Url) -> bool {
         && base.port_or_known_default() == candidate.port_or_known_default()
 }
 
+/// Returns an error if `url` does not use `https`, unless the host is localhost.
+pub(crate) fn require_https(url: &str) -> Result<Url, AuthError> {
+    let parsed = Url::parse(url)?;
+    let is_loopback = matches!(
+        parsed.host_str(),
+        Some("localhost") | Some("127.0.0.1") | Some("::1")
+    );
+    if parsed.scheme() != "https" && !is_loopback {
+        return Err(AuthError::OidcInsecureIssuerUrl(url.to_string()));
+    }
+    Ok(parsed)
+}
+
 /// Cache entry for a JWKS.
 ///
 /// `by_kid` is a precomputed index (`kid` -> JWK) built once when the entry is

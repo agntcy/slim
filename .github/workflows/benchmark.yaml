@@ -53,6 +53,8 @@ on:
         default: '3'
         type: string
 
+permissions: {}
+
 jobs:
   benchmark:
     name: Data plane benchmark
