@@ -156,6 +156,5 @@ jobs:
         run: |
           set -euo pipefail
           echo "Installing dependencies for issue creation script";
-          npm init -y >/dev/null 2>&1 || true
-          npm install @octokit/rest@21 glob >/dev/null 2>&1
+          npm ci --prefix .github/workflows/scripts/security
           node .github/workflows/scripts/security/create_critical_cve_issues.js

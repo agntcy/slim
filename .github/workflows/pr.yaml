@@ -3,7 +3,7 @@
 
 name: ci-validate-pr-title
 
-on:
+on: # zizmor: ignore[dangerous-triggers] no PR checkout/code execution occurs; only lints the PR title and posts a comment
   pull_request_target:
     types:
       - opened

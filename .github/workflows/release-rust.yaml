@@ -9,6 +9,8 @@ on:
     branches:
       - main
 
+permissions: {}
+
 jobs:
   # Release unpublished packages.
   release-crates:

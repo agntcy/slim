@@ -21,18 +21,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use url::Url;
 
-/// Returns an error if `url` does not use `https`, unless the host is localhost.
-fn require_https(url: &str) -> Result<Url, AuthError> {
-    let parsed = Url::parse(url)?;
-    let is_loopback = matches!(
-        parsed.host_str(),
-        Some("localhost") | Some("127.0.0.1") | Some("::1")
-    );
-    if parsed.scheme() != "https" && !is_loopback {
-        return Err(AuthError::OidcInsecureIssuerUrl(url.to_string()));
-    }
-    Ok(parsed)
-}
+use crate::resolver::require_https;
 
 // Default token refresh buffer (60 seconds before expiry)
 const REFRESH_BUFFER_SECONDS: u64 = 60;

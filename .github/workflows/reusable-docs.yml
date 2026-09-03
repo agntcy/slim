@@ -25,6 +25,12 @@ on:
         type: string
         default: ""
 
+# The effective token permission is the intersection of this declaration and the
+# caller's job permissions, so this only needs to cover the most privileged mode
+# (deploy-release, which needs contents: write for mike --push).
+permissions:
+  contents: write
+
 jobs:
   docs:
     name: Docs (${{ inputs.mode }})
