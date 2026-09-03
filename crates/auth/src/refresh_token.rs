@@ -165,7 +165,8 @@ impl RefreshTokenProvider {
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
-        self.identity.install_signature_keys(private_key, public_key)
+        self.identity
+            .install_signature_keys(private_key, public_key)
     }
 
     /// Replace the refresh token to exchange next, for one obtained by a fresh

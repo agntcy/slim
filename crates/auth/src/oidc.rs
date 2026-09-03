@@ -691,7 +691,8 @@ impl OidcTokenProvider {
         // No identity key means nothing can vouch for this leaf key, and a
         // credential that presents an unattested key is rejected by every peer.
         // Fail here, naming the fix, rather than at the first MLS handshake.
-        self.identity.install_signature_keys(private_key, public_key)
+        self.identity
+            .install_signature_keys(private_key, public_key)
     }
 
     /// The `cnf.jkt` of the currently served token, if it is DPoP-bound.

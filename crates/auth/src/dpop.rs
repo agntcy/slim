@@ -616,7 +616,10 @@ impl IdentitySlot {
     /// Whether the *MLS layer* installed its own leaf key, as opposed to the
     /// pair seeded at construction.
     pub(crate) fn mls_signature_keys_installed(&self) -> bool {
-        self.0.read().as_ref().is_some_and(|k| k.leaf_installed_by_mls())
+        self.0
+            .read()
+            .as_ref()
+            .is_some_and(|k| k.leaf_installed_by_mls())
     }
 
     /// `K_pop`, for proofing a token request. `None` for a plain bearer

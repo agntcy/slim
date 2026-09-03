@@ -1855,6 +1855,38 @@ where
             return Ok(SessionOutput::new());
         }
 
+        // Live identity revalidation before re-admission — the same gap
+        // `on_join_reply` closes for a fresh join. Without this, an identity
+        // revoked at the IdP during the offline period would be re-admitted
+        // here on the strength of a merely-still-valid signature, and only
+        // caught afterward by `on_group_ack`'s revalidation of the ack this
+        // rejoin's own `GroupUpdate` broadcast expects from them. Fails open
+        // on anything inconclusive, same policy as `on_join_reply`/`on_group_ack`.
+        let identity = msg.get_identity();
+        match self
+            .common
+            .settings
+            .identity_verifier
+            .revalidate(&identity)
+            .await
+        {
+            Ok(()) => {}
+            Err(AuthError::IdentityRevoked) => {
+                tracing::warn!(
+                    from = %participant_name,
+                    "identity provider revoked this participant's identity, ignoring rejoin request",
+                );
+                return Ok(SessionOutput::new());
+            }
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    from = %participant_name,
+                    "identity revalidation inconclusive at rejoin, admitting anyway",
+                );
+            }
+        }
+
         // 4. Set current task to Rejoin
         self.current_task = Some(ModeratorTask::Rejoin(RejoinParticipant::new()));
 
@@ -2004,7 +2036,9 @@ where
                             "identity provider revoked this participant's identity, removing them from the group",
                         );
                         if let Err(e) = tx_session
-                            .send(SessionMessage::IdentityRevalidationFailed { participant: source })
+                            .send(SessionMessage::IdentityRevalidationFailed {
+                                participant: source,
+                            })
                             .await
                         {
                             debug!(error = %e, "failed to report revocation-triggered removal, session already closing");
@@ -4147,6 +4181,67 @@ mod tests {
         assert_eq!(
             moderator.group_list.get(&other_key).unwrap().status,
             ParticipantState::Online as i32
+        );
+    }
+
+    /// A confirmed IdP revocation must block re-admission at rejoin time —
+    /// mirroring `on_join_reply`'s check for a fresh join — not just get
+    /// caught afterward by `on_group_ack`. No RejoinReply/Welcome is issued
+    /// and the participant stays `Offline`.
+    #[tokio::test]
+    async fn test_on_rejoin_request_rejects_revoked_identity() {
+        let (mut moderator, mut rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let identity_verifier = moderator.common.settings.identity_verifier.clone();
+        identity_verifier.set_revoked(true);
+
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        let mut offline_participant =
+            Participant::new(other.clone(), ParticipantSettings::bidirectional());
+        offline_participant.status = ParticipantState::Offline as i32;
+        moderator
+            .group_list
+            .insert(other_key.clone(), offline_participant);
+
+        let msg = Message::builder()
+            .source(other.clone())
+            .destination(moderator.common.settings.source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(ProtoSessionMessageType::RejoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .rejoin_request(other.clone(), vec![1, 2, 3])
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let result = run_with_acks(
+            moderator.process_control_message(msg, MessageDirection::North, None),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await;
+        assert!(result.is_ok());
+        assert!(
+            result.unwrap().messages.is_empty(),
+            "no RejoinReply/GroupUpdate should be sent for a revoked identity"
+        );
+
+        // No task was started, and the participant is still offline.
+        assert!(moderator.current_task.is_none());
+        assert_eq!(
+            moderator.group_list.get(&other_key).unwrap().status,
+            ParticipantState::Offline as i32
         );
     }
 
