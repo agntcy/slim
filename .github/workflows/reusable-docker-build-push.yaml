@@ -30,6 +30,9 @@ on:
         description: "github token"
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   build-and-push:
     name: Build and Push
