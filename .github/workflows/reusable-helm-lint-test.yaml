@@ -22,6 +22,8 @@ on:
         default: ""
         type: string
 
+permissions:
+  contents: read
 
 jobs:
   lint-test:

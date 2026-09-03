@@ -153,3 +153,5 @@ docs/.task/
 # MkDocs GitHub metrics cache (generated at build time)
 docs/mkdocs/.cache/
 docs/content/javascripts/slim-repobeats-data.js
+
+node_modules/

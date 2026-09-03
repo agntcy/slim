@@ -18,6 +18,8 @@ on:
     - cron: '42 5 * * 6'
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
