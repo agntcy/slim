@@ -69,8 +69,43 @@ impl super::RouteService {
             .map(|n| n.domain_name.as_deref().unwrap_or(""))
             .collect();
 
-        let snapshot = {
-            let mut current_segments = self.0.segment_graphs.write().await;
+        // Fast path: if this exact domain set is the one that failed to render
+        // last time, don't re-run the full template compile+render+YAML-parse
+        // and don't log another error. Without this, a single
+        // persistently-failing domain would cause every subsequent unrelated
+        // node register/deregister event to retry and fail indefinitely,
+        // spamming the logs.
+        if self.0.last_failed_domains.lock().await.as_ref().is_some_and(
+            |last| last.len() == new_domains.len() && new_domains.iter().all(|d| last.contains(*d)),
+        ) {
+            tracing::debug!(
+                "skipping topology rebuild; domain set matches the last known failing set"
+            );
+            return false;
+        }
+
+        // Render outside the write lock: template compile+render+YAML-parse is
+        // the expensive part and needs no exclusive access.
+        let domain_vec: Vec<&str> = new_domains.iter().copied().collect();
+        let rebuilt = match self.0.topology.build_graph(&domain_vec) {
+            Ok(segments) => segments,
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    "failed to render configured topology; retaining the last valid segment graph"
+                );
+                *self.0.last_failed_domains.lock().await =
+                    Some(new_domains.iter().map(|d| d.to_string()).collect());
+                return false;
+            }
+        };
+        *self.0.last_failed_domains.lock().await = None;
+
+        // Compare against the live domain set under a read lock so concurrent
+        // readers (allowed_link_pairs, expand_wildcard, ...) are not blocked
+        // for the common no-op case.
+        {
+            let current_segments = self.0.segment_graphs.read().await;
             let current_domains: HashSet<&str> = current_segments
                 .iter()
                 .flat_map(|(_, g)| g.node_indices().map(|idx| g[idx].as_str()))
@@ -79,18 +114,10 @@ impl super::RouteService {
             if new_domains == current_domains {
                 return false;
             }
+        }
 
-            let domain_vec: Vec<&str> = new_domains.into_iter().collect();
-            let rebuilt = match self.0.topology.build_graph(&domain_vec) {
-                Ok(segments) => segments,
-                Err(error) => {
-                    tracing::error!(
-                        %error,
-                        "failed to render configured topology; retaining the last valid segment graph"
-                    );
-                    return false;
-                }
-            };
+        let snapshot = {
+            let mut current_segments = self.0.segment_graphs.write().await;
             *current_segments = rebuilt;
             current_segments.clone()
             // write guard dropped here
@@ -978,6 +1005,75 @@ not-a-segment-list: true
         assert_eq!(segments[0].0, "stable");
         assert_eq!(segments[0].1.node_count(), 2);
         assert_eq!(segments[0].1.edge_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn rebuild_link_graph_caches_last_failed_domain_set() {
+        let db = InMemoryDb::shared();
+        db.save_node(make_node("node-a", Some("domain-a"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("node-b", Some("domain-b"), vec![]))
+            .await
+            .unwrap();
+
+        let topology = TopologyConfig::SegmentsTemplate(
+            r#"
+{% if "invalid" in groups %}
+not-a-segment-list: true
+{% else %}
+- name: stable
+  links:
+    - domain: domain-a
+      neighbors: [domain-b]
+{% endif %}
+"#
+            .to_string(),
+        );
+        let svc = make_route_service_with_topology(db.clone(), topology);
+        assert!(
+            svc.rebuild_link_graph(&db.list_nodes().await.unwrap())
+                .await
+        );
+        assert!(
+            svc.0.last_failed_domains.lock().await.is_none(),
+            "successful render should not leave a stale failed-set entry"
+        );
+
+        // Register a node whose domain makes the template render invalid.
+        db.save_node(make_node("invalid-node", Some("invalid"), vec![]))
+            .await
+            .unwrap();
+        let failing_nodes = db.list_nodes().await.unwrap();
+        assert!(!svc.rebuild_link_graph(&failing_nodes).await);
+        {
+            let last_failed = svc.0.last_failed_domains.lock().await;
+            let last_failed = last_failed.as_ref().expect("failure should be recorded");
+            let expected: HashSet<String> = ["domain-a", "domain-b", "invalid"]
+                .into_iter()
+                .map(String::from)
+                .collect();
+            assert_eq!(*last_failed, expected);
+        }
+
+        // Same failing domain set presented again (e.g. an unrelated node
+        // register/deregister event elsewhere): fast-return path, no change
+        // to the cached failed set.
+        assert!(!svc.rebuild_link_graph(&failing_nodes).await);
+        assert!(svc.0.last_failed_domains.lock().await.is_some());
+
+        // Replacing the offending node with a well-behaved one yields a new,
+        // renderable domain set — the cached failed-set entry must be cleared.
+        db.delete_node("invalid-node").await.unwrap();
+        db.save_node(make_node("node-c", Some("domain-c"), vec![]))
+            .await
+            .unwrap();
+        let healthy_nodes = db.list_nodes().await.unwrap();
+        assert!(svc.rebuild_link_graph(&healthy_nodes).await);
+        assert!(
+            svc.0.last_failed_domains.lock().await.is_none(),
+            "recovering from failure should clear the cached failed-set entry"
+        );
     }
 
     #[tokio::test]

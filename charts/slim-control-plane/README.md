@@ -249,7 +249,7 @@ config:
   topology:
     segments-template: |
       - name: segment-customer-a
-      links:
+        links:
       {% for group in groups %}
       {% if group is startingwith("customer-a-") %}
           - domain: {{ "{{ group }}" }}
