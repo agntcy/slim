@@ -1335,7 +1335,7 @@ mod tests {
         let path_str = path.to_str().unwrap();
 
         let mut existing = ClientConfig::with_endpoint("myhost:50051");
-        existing.auth = AuthenticationConfig::Basic(BasicAuthConfig::new("u", "p")); // codeql[rust/hard-coded-cryptographic-value] test fixture, not a real credential
+        existing.auth = AuthenticationConfig::Basic(BasicAuthConfig::new("u", "p"));
         save_config(&existing, Some(path_str)).unwrap();
 
         save_login_auth(&creds_with(Some("the-refresh-token")), Some(path_str), None).unwrap();

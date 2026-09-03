@@ -1103,7 +1103,7 @@ mod tests {
 
         // Test with Basic auth
         let core_config = CoreClientConfig {
-            auth: CoreAuthConfig::Basic(BasicAuthConfig::new("test_user", "test_pass")), // codeql[rust/hard-coded-cryptographic-value] test fixture, not a real credential
+            auth: CoreAuthConfig::Basic(BasicAuthConfig::new("test_user", "test_pass")),
             ..Default::default()
         };
 

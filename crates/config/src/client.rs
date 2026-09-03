@@ -767,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_client_config_with_proxy() {
-        let test_password: String = format!("test-{}-{}", std::process::id(), line!()); // pragma: allowlist secret // codeql[rust/hard-coded-cryptographic-value] generated per-run, not a real credential
+        let test_password: String = format!("test-{}-{}", std::process::id(), line!()); // pragma: allowlist secret
         let proxy =
             ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", &test_password);
         let client = ClientConfig::with_endpoint("http://localhost:8080").with_proxy(proxy.clone());

@@ -725,7 +725,7 @@ mod tests {
         assert!(channel.is_ok());
 
         // Set proxy with authentication
-        client.proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass"); // codeql[rust/hard-coded-cryptographic-value] test fixture, not a real credential
+        client.proxy = ProxyConfig::new("http://proxy.example.com:8080").with_auth("user", "pass");
         channel = client.to_grpc_channel_lazy().await;
         assert!(channel.is_ok());
 
@@ -743,7 +743,7 @@ mod tests {
         assert!(channel.is_ok());
 
         // Set HTTPS proxy with authentication
-        client.proxy = ProxyConfig::new("https://proxy.example.com:8080").with_auth("user", "pass"); // codeql[rust/hard-coded-cryptographic-value] test fixture, not a real credential
+        client.proxy = ProxyConfig::new("https://proxy.example.com:8080").with_auth("user", "pass");
         channel = client.to_grpc_channel_lazy().await;
         assert!(channel.is_ok());
 
