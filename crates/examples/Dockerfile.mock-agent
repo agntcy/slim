@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container
-FROM --platform=${BUILDPLATFORM} rust:1.87-slim-bookworm AS rust
+FROM --platform=${BUILDPLATFORM} rust:1.87-slim-bookworm@sha256:437507c3e719e4f968033b88d851ffa9f5aceeb2dcc2482cc6cb7647811a55eb AS rust
 
 SHELL ["/bin/bash", "-c"]
 
@@ -72,7 +72,7 @@ mv target/${RUSTARCH}-unknown-linux-gnu target/${TARGETARCH}-unknown-linux-gnu
 EOF
 
 # runtime images  - debug executable, debug symbols and, most importantly, a shell :)
-FROM debian:bookworm-slim AS slim-debug
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS slim-debug
 
 ARG TARGETARCH
 
@@ -80,7 +80,7 @@ ARG TARGETARCH
 COPY --from=rust /app/target/${TARGETARCH}-unknown-linux-gnu/release/slim /slim
 COPY --from=rust /app/target/${TARGETARCH}-unknown-linux-gnu/release/slim.dbg /slim.dbg
 
-FROM debian:bookworm-slim AS mock-app-client
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS mock-app-client
 
 ARG TARGETARCH
 
@@ -91,7 +91,7 @@ COPY --from=rust /app/target/${TARGETARCH}-unknown-linux-gnu/release/sdk-mock /u
 ENTRYPOINT ["/usr/local/bin/sdk-mock"]
 CMD ["--config", "/config/client-config.yaml", "--local-name", "client", "--remote-name", "server", "--message", "hello from Docker!"]
 
-FROM debian:bookworm-slim AS mock-app-server
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS mock-app-server
 
 ARG TARGETARCH
 
