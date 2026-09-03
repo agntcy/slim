@@ -60,6 +60,11 @@ jobs:
           fetch-depth: 0
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+      - name: Verify crate packaging
+        # cargo dry-run validates packaging (Cargo.toml metadata, build, etc.)
+        # without publishing; it warns (doesn't fail) if the version already
+        # shipped, so this is safe to run on every push.
+        run: cargo publish --dry-run -p agntcy-slim-version
       - name: Run release-plz
         uses: release-plz/action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5.131
         with:
