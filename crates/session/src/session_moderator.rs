@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     time::Duration,
 };
 
@@ -83,6 +83,16 @@ where
     /// `init()` has an MLS group to refresh.
     epoch_refresh_timer: Option<Timer>,
 
+    /// Participants (keyed without ID, like `group_list`) with a
+    /// revocation-triggered eviction already queued. Prevents a repeat
+    /// confirmed-revoked `GroupAck` — a retransmit, or another
+    /// epoch-advancing task firing before the first `Remove` completes —
+    /// from queuing a second `LeaveRequest` for someone already being
+    /// evicted. Cleared once `on_leave_request` actually processes the
+    /// entry (found or not), so a later, genuinely new revocation for the
+    /// same participant (e.g. after a rejoin) isn't permanently blocked.
+    revocation_eviction_pending: HashSet<ProtoName>,
+
     /// Inner message handler
     inner: I,
 }
@@ -107,6 +117,7 @@ where
             subscribed: false,
             conn_id: None,
             epoch_refresh_timer: None,
+            revocation_eviction_pending: HashSet::new(),
             inner,
         }
     }
@@ -132,6 +143,7 @@ where
             subscribed: false,
             conn_id: None,
             epoch_refresh_timer: None,
+            revocation_eviction_pending: HashSet::new(),
             inner,
         }
     }
@@ -175,11 +187,19 @@ where
             self.persist_state();
         }
 
-        // Start the periodic epoch-refresh timer for any MLS-enabled
-        // moderator — fresh or restored — so a static, no-churn group still
-        // advances its epoch on a bounded cadence. `TimerType::Constant` with
-        // no `max_retries` fires forever on its own; no restart logic needed.
-        if self.mls_state.is_some() && self.epoch_refresh_timer.is_none() {
+        // Start the periodic epoch-refresh timer for an MLS-enabled
+        // moderator — fresh or restored — whose verifier actually has a live
+        // revocation check to run (see `Verifier::supports_revocation`), so a
+        // static, no-churn group still advances its epoch on a bounded
+        // cadence for that check to piggyback on. A `SharedSecret`/`Jwt`/
+        // `Spire`-verified group has no revocation concept, so forcing a
+        // commit + broadcast every `EPOCH_REFRESH_INTERVAL` for it would
+        // buy nothing. `TimerType::Constant` with no `max_retries` fires
+        // forever on its own; no restart logic needed.
+        if self.mls_state.is_some()
+            && self.epoch_refresh_timer.is_none()
+            && self.common.settings.identity_verifier.supports_revocation()
+        {
             let factory = TimerFactory::new(
                 TimerSettings::new(EPOCH_REFRESH_INTERVAL, None, None, TimerType::Constant),
                 self.common.settings.tx_session.clone(),
@@ -375,6 +395,67 @@ where
 
                 // Remove the endpoint from the sender and inner controller
                 self.remove_endpoint(&participant);
+            }
+            SessionMessage::IdentityRevalidationFailed { participant } => {
+                // Mirrors the confirmed-rejection branch `on_group_ack` used
+                // to run inline: build and enqueue the kick here, back on
+                // the sequential loop's own `&mut self`. By the time this
+                // arrives the moderator may be busy with another task (or
+                // idle again) — either way `on_leave_request`'s own busy
+                // check does the right thing: queue behind `current_task`
+                // if one is in flight, or start immediately if not.
+                //
+                // Destination is id-less: `group_list` is always keyed
+                // without the connection id (see its field doc), and
+                // `on_leave_request`'s lookup depends on the LeaveRequest's
+                // destination matching that — the same convention
+                // `SessionController::remove_participant` follows by setting
+                // `NameId::NULL_COMPONENT` explicitly. `participant` (the
+                // GroupAck's source) carries the sender's real id, so using
+                // it as-is here would make `on_leave_request` fail with
+                // `ParticipantNotFound` even though the participant is
+                // genuinely in the group.
+                let mut participant_no_id = participant.clone();
+                participant_no_id.reset_id();
+
+                // Dedup: a retransmitted GroupAck, or another epoch-advancing
+                // task firing before the first `Remove` completes, can report
+                // the same still-revoked participant more than once before
+                // their eviction finishes. `insert` returns `false` when an
+                // eviction is already queued — skip rather than pile on a
+                // second `LeaveRequest`, which `on_leave_request` would later
+                // reject with a spurious `ParticipantNotFound` once the first
+                // one already removed them.
+                if !self
+                    .revocation_eviction_pending
+                    .insert(participant_no_id.clone())
+                {
+                    debug!(
+                        %participant,
+                        "revocation-triggered eviction already queued for this participant, skipping duplicate",
+                    );
+                } else {
+                    let kick = self.common.create_control_message(
+                        &participant_no_id,
+                        ProtoSessionMessageType::LeaveRequest,
+                        rand::random::<u32>(),
+                        CommandPayload::builder().leave_request().as_content(),
+                        false,
+                    )?;
+                    if let Err(e) = self
+                        .common
+                        .settings
+                        .tx_session
+                        .send(SessionMessage::OnMessage {
+                            message: kick,
+                            direction: MessageDirection::South,
+                            ack_tx: None,
+                        })
+                        .await
+                    {
+                        debug!(error = %e, "failed to enqueue revocation-triggered removal, session already closing");
+                    }
+                }
             }
             _ => {
                 return Err(SessionError::SessionMessageInternalUnexpected(Box::new(
@@ -787,13 +868,10 @@ where
 
         let mut local_no_id = self.common.settings.source.clone();
         local_no_id.reset_id();
-        let moderator_participant = self
-            .group_list
-            .get(&local_no_id)
-            .cloned()
-            .ok_or_else(|| self.handle_task_error(SessionError::ParticipantNotFound(
-                Box::new(local_no_id),
-            )))?;
+        let moderator_participant =
+            self.group_list.get(&local_no_id).cloned().ok_or_else(|| {
+                self.handle_task_error(SessionError::ParticipantNotFound(Box::new(local_no_id)))
+            })?;
         let participants_vec: Vec<Participant> = self.group_list.values().cloned().collect();
 
         self.current_task = Some(ModeratorTask::Update(UpdateParticipant::default()));
@@ -801,10 +879,12 @@ where
         // before the commit above) — self-satisfy the vestigial proposal
         // phase so `task_complete()` depends only on the commit ack, the same
         // "no round trip needed" shortcut already used for a 2-participant
-        // Remove above.
+        // Remove above. `proposal_start` marks it done on its own; it must
+        // not be routed through `update_phase_completed`, whose match is
+        // keyed against `commit`'s real (random) timer_id below and could
+        // collide with it.
         let task = self.current_task.as_mut().unwrap();
         task.proposal_start(0)?;
-        task.update_phase_completed(0)?;
 
         let (msg_id, output) = self
             .send_group_update(
@@ -1062,6 +1142,39 @@ where
             .clone()
             .ok_or(SessionError::MissingParticipantSettings)?;
         let mut new_name = new_participant.get_name()?;
+
+        // Live revalidation before admission: the replay/signature check in
+        // `verify_and_check_replay` only exercised the cached-JWKS `verify()`
+        // path, so a joiner whose identity was already revoked at the IdP
+        // (but not yet expired) would otherwise be admitted here and only
+        // get caught at the next periodic epoch refresh, up to
+        // `EPOCH_REFRESH_INTERVAL` later. Fails open on anything inconclusive,
+        // same as the recheck in `on_group_ack`.
+        let identity = msg.get_identity();
+        match self
+            .common
+            .settings
+            .identity_verifier
+            .revalidate(&identity)
+            .await
+        {
+            Ok(()) => {}
+            Err(AuthError::IdentityRevoked) => {
+                tracing::warn!(
+                    participant = %msg.get_source(),
+                    "identity provider revoked this joiner's identity, rejecting join",
+                );
+                return Err(self.handle_task_error(SessionError::Auth(AuthError::IdentityRevoked)));
+            }
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    participant = %msg.get_source(),
+                    "identity revalidation inconclusive at join, admitting anyway",
+                );
+            }
+        }
+
         // notify the local session that a new participant was added to the group
         debug!(session_name = %new_name, "add endpoint");
         self.add_endpoint(&new_participant).await?;
@@ -1177,6 +1290,16 @@ where
         self.current_task = Some(ModeratorTask::Remove(RemoveParticipant::new(ack_tx)));
 
         let dst_without_id = msg.get_dst();
+
+        // This leave attempt is now actually being processed (found or not) —
+        // release the revocation-eviction dedup guard so a later, genuinely
+        // new revocation of this same participant (e.g. after a rejoin)
+        // isn't permanently blocked. A no-op if this LeaveRequest wasn't
+        // revocation-triggered.
+        let mut dedup_key = dst_without_id.clone();
+        dedup_key.reset_id();
+        self.revocation_eviction_pending.remove(&dedup_key);
+
         // Look up participant ID in group list
         let id = match self.group_list.get(&dst_without_id) {
             Some(entry) => entry.get_name()?.id(),
@@ -1850,6 +1973,14 @@ where
         // *confirmed* rejection triggers eviction; `revalidate` fails open on
         // anything inconclusive (see its doc comment), so a transient IdP
         // hiccup never causes a false eviction.
+        //
+        // Spawned rather than awaited inline: the moderator processes
+        // messages sequentially, so awaiting a (possibly slow or degraded)
+        // IdP round trip here would stall every other GroupAck — and every
+        // other message — behind it. The result is fed back through
+        // `tx_session` as `IdentityRevalidationFailed`, processed on a later
+        // turn of the same sequential loop, so building/sending the
+        // eviction message still only ever happens on `&mut self`.
         let is_epoch_advancing_task = matches!(
             self.current_task,
             Some(
@@ -1861,52 +1992,33 @@ where
         );
         if is_epoch_advancing_task {
             let identity = msg.get_identity();
-            match self
-                .common
-                .settings
-                .identity_verifier
-                .revalidate(&identity)
-                .await
-            {
-                Ok(()) => {}
-                Err(AuthError::IdentityRevoked) => {
-                    tracing::warn!(
-                        participant = %msg.get_source(),
-                        "identity provider revoked this participant's identity, removing them from the group",
-                    );
-                    let kick = self.common.create_control_message(
-                        &msg.get_source(),
-                        ProtoSessionMessageType::LeaveRequest,
-                        rand::random::<u32>(),
-                        CommandPayload::builder().leave_request().as_content(),
-                        false,
-                    )?;
-                    // `current_task` is guaranteed `Some` here (we're
-                    // mid-processing its ack), so this lands in
-                    // `on_leave_request`'s existing busy queue
-                    // (`tasks_todo`) rather than running immediately.
-                    if let Err(e) =
-                        self.common
-                            .settings
-                            .tx_session
-                            .send(SessionMessage::OnMessage {
-                                message: kick,
-                                direction: MessageDirection::South,
-                                ack_tx: None,
-                            })
+            let source = msg.get_source();
+            let verifier = self.common.settings.identity_verifier.clone();
+            let tx_session = self.common.settings.tx_session.clone();
+            tokio::spawn(async move {
+                match verifier.revalidate(&identity).await {
+                    Ok(()) => {}
+                    Err(AuthError::IdentityRevoked) => {
+                        tracing::warn!(
+                            participant = %source,
+                            "identity provider revoked this participant's identity, removing them from the group",
+                        );
+                        if let Err(e) = tx_session
+                            .send(SessionMessage::IdentityRevalidationFailed { participant: source })
                             .await
-                    {
-                        debug!(error = %e, "failed to enqueue revocation-triggered removal, session already closing");
+                        {
+                            debug!(error = %e, "failed to report revocation-triggered removal, session already closing");
+                        }
+                    }
+                    Err(e) => {
+                        debug!(
+                            error = %e,
+                            participant = %source,
+                            "identity revalidation inconclusive, not evicting",
+                        );
                     }
                 }
-                Err(e) => {
-                    debug!(
-                        error = %e,
-                        participant = %msg.get_source(),
-                        "identity revalidation inconclusive, not evicting",
-                    );
-                }
-            }
+            });
         }
 
         // notify the sender
@@ -2001,6 +2113,29 @@ where
             // and continue with the process
             debug!("Current task is NOT completed");
             return Ok(());
+        }
+
+        // Add/Remove/Rejoin/Update just drove a full round of GroupAcks, each
+        // already carrying a live identity revalidation (`on_group_ack`) —
+        // or, for a fresh join, the join-time check in `on_join_reply`. No
+        // need for the periodic epoch-refresh timer to redundantly recheck
+        // everyone again right after; reset it so it next fires a full
+        // `EPOCH_REFRESH_INTERVAL` from now instead of from the last tick.
+        if matches!(
+            self.current_task,
+            Some(
+                ModeratorTask::Add(_)
+                    | ModeratorTask::Remove(_)
+                    | ModeratorTask::Rejoin(_)
+                    | ModeratorTask::Update(_)
+            )
+        ) && let Some(timer) = self.epoch_refresh_timer.as_mut()
+        {
+            let factory = TimerFactory::new(
+                TimerSettings::new(EPOCH_REFRESH_INTERVAL, None, None, TimerType::Constant),
+                self.common.settings.tx_session.clone(),
+            );
+            factory.reset_timer(timer, ProtoSessionMessageType::GroupUpdate, None);
         }
 
         // here the moderator is not busy anymore
@@ -3088,7 +3223,7 @@ mod tests {
         let mut other_key = other.clone();
         other_key.reset_id();
         moderator.group_list.insert(
-            other_key,
+            other_key.clone(),
             Participant::new(other.clone(), ParticipantSettings::bidirectional()),
         );
 
@@ -3118,6 +3253,26 @@ mod tests {
 
         moderator.on_group_ack(group_ack).await.unwrap();
 
+        // The revalidation call runs in a spawned task (see `on_group_ack`'s
+        // doc comment on why), so it reports back on `tx_session` instead of
+        // producing the kick directly. Wait for that report — this test
+        // doesn't run the real session-controller loop, so drive the
+        // moderator's handling of it manually, the same way that loop would.
+        let reported = tokio::time::timeout(Duration::from_secs(1), rx_session.recv())
+            .await
+            .expect("timed out waiting for the revalidation result")
+            .expect("tx_session sender dropped");
+        let participant = match reported {
+            SessionMessage::IdentityRevalidationFailed { participant } => participant,
+            other => panic!("expected IdentityRevalidationFailed, got {other:?}"),
+        };
+        assert_eq!(participant, other);
+
+        moderator
+            .on_message(SessionMessage::IdentityRevalidationFailed { participant })
+            .await
+            .unwrap();
+
         let resubmitted = rx_session
             .try_recv()
             .expect("expected a resubmitted LeaveRequest");
@@ -3130,7 +3285,10 @@ mod tests {
                     message.get_session_message_type(),
                     ProtoSessionMessageType::LeaveRequest
                 );
-                assert_eq!(message.get_dst(), other);
+                // Id-less: must match `group_list`'s key convention, or
+                // `on_leave_request`'s lookup fails with `ParticipantNotFound`
+                // even though the participant is genuinely in the group.
+                assert_eq!(message.get_dst(), other_key);
             }
             other => panic!("expected OnMessage, got {other:?}"),
         }
@@ -3176,9 +3334,87 @@ mod tests {
 
         moderator.on_group_ack(group_ack).await.unwrap();
 
+        // Give the spawned revalidation task a chance to run and (were it
+        // going to) send a kick before asserting on its absence.
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), rx_session.recv())
+                .await
+                .is_err(),
+            "no message should have been resubmitted"
+        );
+    }
+
+    /// A repeat confirmed-revocation report for the same participant (a
+    /// retransmitted GroupAck, or another epoch-advancing task firing before
+    /// the first eviction completes) must not queue a second `LeaveRequest`
+    /// while the first is still in flight — but once `on_leave_request`
+    /// actually processes that first attempt, a later, genuinely new
+    /// revocation report for the same participant must not be swallowed.
+    #[tokio::test]
+    async fn identity_revalidation_failed_dedups_concurrent_reports_but_not_later_ones() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.init().await.unwrap();
+
+        let (tx_session, mut rx_session) = mpsc::channel(16);
+        moderator.common.settings.tx_session = tx_session;
+
+        let other = make_name(&["other", "participant", "v1"]).with_id(500);
+        let mut other_key = other.clone();
+        other_key.reset_id();
+        moderator.group_list.insert(
+            other_key.clone(),
+            Participant::new(other.clone(), ParticipantSettings::bidirectional()),
+        );
+
+        // Two reports for the same participant land before either is acted
+        // on — e.g. two epoch-advancing tasks' GroupAcks both confirmed the
+        // revocation independently.
+        moderator
+            .on_message(SessionMessage::IdentityRevalidationFailed {
+                participant: other.clone(),
+            })
+            .await
+            .unwrap();
+        moderator
+            .on_message(SessionMessage::IdentityRevalidationFailed {
+                participant: other.clone(),
+            })
+            .await
+            .unwrap();
+
+        // Only one kick was queued.
+        let SessionMessage::OnMessage { message: kick, .. } = rx_session
+            .try_recv()
+            .expect("expected exactly one resubmitted LeaveRequest")
+        else {
+            panic!("expected OnMessage");
+        };
+        assert_eq!(
+            kick.get_session_message_type(),
+            ProtoSessionMessageType::LeaveRequest
+        );
         assert!(
             rx_session.try_recv().is_err(),
-            "no message should have been resubmitted"
+            "the second, concurrent report must not queue a duplicate LeaveRequest"
+        );
+
+        // The first attempt is now actually processed by `on_leave_request`,
+        // which removes `other` from the group and releases the dedup guard.
+        moderator.on_leave_request(kick, None).await.unwrap();
+        assert!(!moderator.group_list.contains_key(&other_key));
+
+        // A later, genuinely new revocation report for the same participant
+        // (e.g. after they rejoined and were revoked again) must still queue
+        // its own kick rather than being permanently swallowed.
+        moderator
+            .on_message(SessionMessage::IdentityRevalidationFailed {
+                participant: other.clone(),
+            })
+            .await
+            .unwrap();
+        assert!(
+            rx_session.try_recv().is_ok(),
+            "a later revocation report must not be blocked by the released guard"
         );
     }
 
@@ -3287,6 +3523,137 @@ mod tests {
 
         // Nothing was pushed straight to the wire by this call.
         assert!(rx_slim.try_recv().is_err());
+    }
+
+    /// A verifier with no revocation concept (the default for every
+    /// non-OIDC `Verifier`) must not get the periodic epoch-refresh timer:
+    /// forcing a commit + broadcast every `EPOCH_REFRESH_INTERVAL` for it
+    /// would buy nothing.
+    #[tokio::test]
+    async fn epoch_refresh_timer_not_started_without_revocation_support() {
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(1);
+        let control = make_name(&["channel", "name", "v1"]).with_id(2);
+
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_settings: Some(MlsSettings {
+                header_integrity_validation_percent: 0,
+                max_seen_control_message_ids_size: None,
+            }),
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let settings = SessionSettings {
+            id: 1,
+            source,
+            destination,
+            control,
+            config,
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: slim_auth::shared_secret::SharedSecret::new(
+                "test",
+                "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas",
+            )
+            .unwrap(),
+            identity_verifier: MockVerifier::default(),
+            graceful_shutdown_timeout: None,
+            subscription_manager,
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        assert!(moderator.mls_state.is_some(), "MLS should be enabled");
+        assert!(
+            moderator.epoch_refresh_timer.is_none(),
+            "no epoch-refresh timer should start for a verifier with no revocation check"
+        );
+    }
+
+    /// A verifier that does support live revocation (OIDC in production;
+    /// mocked here via `MockVerifier::set_supports_revocation`) must get the
+    /// timer, so a static, no-churn group still gets a periodic
+    /// revalidation opportunity.
+    #[tokio::test]
+    async fn epoch_refresh_timer_started_with_revocation_support() {
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let destination = make_name(&["channel", "name", "v1"]).with_id(1);
+        let control = make_name(&["channel", "name", "v1"]).with_id(2);
+
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+        let subscription_manager =
+            crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
+
+        let config = SessionConfig {
+            session_type: ProtoSessionType::Multicast,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_settings: Some(MlsSettings {
+                header_integrity_validation_percent: 0,
+                max_seen_control_message_ids_size: None,
+            }),
+            initiator: true,
+            metadata: Default::default(),
+        };
+
+        let identity_verifier = MockVerifier::default();
+        identity_verifier.set_supports_revocation(true);
+
+        let settings = SessionSettings {
+            id: 1,
+            source,
+            destination,
+            control,
+            config,
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim,
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: slim_auth::shared_secret::SharedSecret::new(
+                "test",
+                "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas",
+            )
+            .unwrap(),
+            identity_verifier,
+            graceful_shutdown_timeout: None,
+            subscription_manager,
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            enforce_pqc: false,
+            kv_store: None,
+            group_storage: None,
+        };
+
+        let inner = MockInnerHandler::new();
+        let mut moderator = SessionModerator::new(inner, settings);
+        moderator.init().await.unwrap();
+
+        assert!(moderator.epoch_refresh_timer.is_some());
     }
 
     /// A second tick while the moderator is already busy must be a no-op,

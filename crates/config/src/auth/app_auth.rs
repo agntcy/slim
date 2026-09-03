@@ -78,6 +78,18 @@ impl AuthConfig {
                 if !oidc_config.can_verify() {
                     return Err(ConfigAuthError::AuthJwtAudienceRequired);
                 }
+                // A client-credentials token is never DPoP-bound (see
+                // `OidcConfig::create_identity_provider`'s doc comment on why),
+                // so it carries no MLS key and every peer would reject it at
+                // the first group join. Catch the mistake here, at config-load
+                // time, instead of at provider-construction time.
+                if oidc_config
+                    .client_secret
+                    .as_deref()
+                    .is_some_and(|s| !s.is_empty())
+                {
+                    return Err(ConfigAuthError::AuthOidcIdentityClientSecretNotAllowed);
+                }
             }
         }
         Ok(())
@@ -223,6 +235,20 @@ mod tests {
         assert!(matches!(
             AuthConfig::Oidc(cfg).validate(),
             Err(ConfigAuthError::AuthJwtAudienceRequired)
+        ));
+    }
+
+    /// A `client_secret` on an identity config must be caught at config-load
+    /// time (`validate`), not left to surface later at provider-construction
+    /// time (`OidcConfig::create_identity_provider`) — see its doc comment
+    /// on why a client-credentials token can never be an identity's.
+    #[test]
+    fn oidc_validate_rejects_client_secret() {
+        let mut cfg = oidc_cfg();
+        cfg.client_secret = Some("a-client-secret".to_string());
+        assert!(matches!(
+            AuthConfig::Oidc(cfg).validate(),
+            Err(ConfigAuthError::AuthOidcIdentityClientSecretNotAllowed)
         ));
     }
 

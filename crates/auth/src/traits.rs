@@ -97,6 +97,17 @@ pub trait Verifier {
     /// except in [`crate::oidc::OidcVerifier`], which actually contacts the
     /// IdP.
     async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError>;
+
+    /// Whether [`Self::revalidate`] can ever report a live revocation for
+    /// this verifier, i.e. whether periodically forcing something for it to
+    /// run on (see the MLS moderator's epoch-refresh timer, which exists
+    /// solely to give per-epoch revalidation a static group to fire on) is
+    /// worth the cost of a forced commit and broadcast. `false` by default;
+    /// only [`crate::oidc::OidcVerifier`] has a real revocation check to
+    /// give that timer a reason to run.
+    fn supports_revocation(&self) -> bool {
+        false
+    }
 }
 
 /// Trait for signing JWT claims

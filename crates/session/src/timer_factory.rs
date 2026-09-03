@@ -166,6 +166,22 @@ impl TimerFactory {
         };
         timer.start(Arc::new(observer));
     }
+
+    /// Restart `timer` so it next fires a full interval from now, instead of
+    /// from whenever it was originally started.
+    pub fn reset_timer(
+        &self,
+        timer: &mut Timer,
+        message_type: ProtoSessionMessageType,
+        name: Option<EncodedName>,
+    ) {
+        let observer = ReliableTimerObserver {
+            tx: self.tx.clone(),
+            message_type,
+            name,
+        };
+        timer.reset(Arc::new(observer));
+    }
 }
 
 #[cfg(test)]

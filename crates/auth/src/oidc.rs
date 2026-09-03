@@ -93,6 +93,25 @@ const REVALIDATE_ATTEMPTS: u32 = 3;
 /// Delay between `revalidate` attempts.
 const REVALIDATE_RETRY_DELAY: Duration = Duration::from_millis(250);
 
+/// Consecutive *calls* to `revalidate` (each roughly one per participant per
+/// MLS epoch change, see [`Verifier::revalidate`]'s doc) that may come back
+/// inconclusive for the same subject before the identity provider is treated
+/// as durably unreachable rather than transiently blipping. Once crossed,
+/// `revalidate` fails closed (reports `IdentityRevoked`) instead of open —
+/// an IdP an attacker can permanently blackhole must not permanently hide a
+/// revocation.
+const MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS: u32 = 3;
+
+/// Outcome of a single [`OidcVerifier::check_not_revoked`] attempt.
+enum RevocationCheck {
+    /// The identity provider affirmatively confirmed the token is still good.
+    Confirmed,
+    /// The identity provider affirmatively rejected the token (401/403).
+    Revoked,
+    /// The check never got a definitive answer (unreachable, timeout, 5xx).
+    Inconclusive,
+}
+
 /// Separates the access token from the MLS key attestation in the credential
 /// providers hand out.
 ///
@@ -305,7 +324,7 @@ pub struct OidcTokenProvider {
     /// rotation is visible to every session cloned from the same app. `None`
     /// keeps this a plain bearer token source — which is what the transport
     /// path wants, and why `create_provider` deliberately does not seed it.
-    identity: Arc<RwLock<Option<crate::dpop::IdentityKey>>>,
+    identity: crate::dpop::IdentitySlot,
     /// Renewal delegate for a *user* identity; `None` means client credentials.
     ///
     /// Renewal, its schedule, persistence and the cross-process rotation lock
@@ -340,7 +359,7 @@ impl OidcTokenProvider {
             client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
-            identity: Arc::new(RwLock::new(None)),
+            identity: crate::dpop::IdentitySlot::default(),
             refresh: Arc::new(RwLock::new(None)),
             delegate_started: Arc::new(AsyncMutex::new(false)),
         })
@@ -484,7 +503,7 @@ impl OidcTokenProvider {
     ) -> Result<serde_json::Value, AuthError> {
         // The proof is over the *identity* key: it is what the IdP will name in
         // `cnf.jkt`, and the MLS leaf key must never reach the token endpoint.
-        let keys = self.identity.read().as_ref().map(|k| k.pop_keys().clone());
+        let keys = self.identity.pop_keys();
         post_token_request_with_dpop(&self.client, token_endpoint, form, keys.as_ref(), false).await
     }
 
@@ -646,14 +665,7 @@ impl OidcTokenProvider {
             return delegate.install_identity_keys(private_key, public_key);
         }
 
-        let mut guard = self.identity.write();
-        // Re-installing the same key is a no-op: replacing the struct here would
-        // discard any MLS leaf key already installed under it.
-        if guard.as_ref().is_some_and(|k| k.pop_keys().1 == public_key) {
-            return Ok(());
-        }
-        *guard = Some(crate::dpop::IdentityKey::new(private_key, public_key)?);
-        Ok(())
+        self.identity.install_identity_keys(private_key, public_key)
     }
 
     /// Install the MLS leaf key the MLS layer generated, to be attested under
@@ -679,12 +691,7 @@ impl OidcTokenProvider {
         // No identity key means nothing can vouch for this leaf key, and a
         // credential that presents an unattested key is rejected by every peer.
         // Fail here, naming the fix, rather than at the first MLS handshake.
-        self.identity
-            .write()
-            .as_mut()
-            .ok_or(AuthError::AttestationNoIdentityKey)?
-            .install_leaf(private_key, public_key);
-        Ok(())
+        self.identity.install_signature_keys(private_key, public_key)
     }
 
     /// The `cnf.jkt` of the currently served token, if it is DPoP-bound.
@@ -718,7 +725,7 @@ impl OidcTokenProvider {
 
         // Move any installed keys into the delegate — it becomes the sole owner
         // from here on, so no second copy can drift out of sync.
-        if let Some(identity) = self.identity.write().take() {
+        if let Some(identity) = self.identity.take() {
             delegate.adopt_identity_key(identity);
         }
 
@@ -749,7 +756,7 @@ impl OidcTokenProvider {
         if let Some(delegate) = self.refresh.read().as_ref() {
             return delegate.identity_key_installed();
         }
-        self.identity.read().is_some()
+        self.identity.is_installed()
     }
 
     /// The MLS leaf key, but only once the MLS layer has installed its own —
@@ -763,9 +770,7 @@ impl OidcTokenProvider {
         if let Some(delegate) = self.refresh.read().as_ref() {
             return delegate.mls_installed_leaf_keys();
         }
-        let guard = self.identity.read();
-        let key = guard.as_ref()?;
-        key.leaf_installed_by_mls().then(|| key.leaf_keys())
+        self.identity.mls_installed_leaf_keys()
     }
 
     /// Whether a refresh-token delegate has been adopted, i.e. this is a *user*
@@ -811,14 +816,9 @@ impl TokenProvider for OidcTokenProvider {
             .map(|entry| entry.token.clone())
             .ok_or(AuthError::GetTokenError)?;
 
-        // Write lock: minting an attestation caches it, and the cache is what
-        // keeps this to one ECDSA operation per TTL rather than one per call.
-        let attestation = self
-            .identity
-            .write()
-            .as_mut()
-            .map(|k| k.attestation())
-            .transpose()?;
+        // Minting an attestation caches it, and the cache is what keeps this
+        // to one ECDSA operation per TTL rather than one per call.
+        let attestation = self.identity.mint_attestation()?;
 
         Ok(present_credential(&token, attestation.as_deref()))
     }
@@ -836,11 +836,7 @@ impl TokenProvider for OidcTokenProvider {
         if let Some(delegate) = self.refresh.read().as_ref() {
             return delegate.get_signature_keys();
         }
-        self.identity
-            .read()
-            .as_ref()
-            .map(|k| k.leaf_keys())
-            .ok_or(AuthError::MlsNotSupported)
+        self.identity.get_signature_keys()
     }
 
     fn mls_signature_keys_installed(&self) -> bool {
@@ -853,10 +849,7 @@ impl TokenProvider for OidcTokenProvider {
         // decide adopt-vs-generate (`crates/mls/src/mls.rs`), and it must
         // generate: the seeded key follows the compile-time curve, MLS's follows
         // the runtime ciphersuite.
-        self.identity
-            .read()
-            .as_ref()
-            .is_some_and(|k| k.leaf_installed_by_mls())
+        self.identity.mls_signature_keys_installed()
     }
 
     async fn set_signature_keys(
@@ -1010,6 +1003,10 @@ pub struct OidcVerifier {
     // When Some, merged claims are cached for claim_cache_ttl per token.
     claim_cache: Option<Arc<RwLock<HashMap<String, (serde_json::Value, Instant)>>>>,
     claim_cache_ttl: Duration,
+    /// Per-subject count of consecutive inconclusive `revalidate` outcomes.
+    /// Cleared on any confirmed outcome (revoked or not). See
+    /// [`MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS`].
+    revocation_failure_streak: Arc<RwLock<HashMap<String, u32>>>,
 }
 
 impl OidcVerifier {
@@ -1029,6 +1026,7 @@ impl OidcVerifier {
             userinfo_endpoint: Arc::new(std::sync::OnceLock::new()),
             claim_cache: None,
             claim_cache_ttl: Duration::ZERO,
+            revocation_failure_streak: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -1210,17 +1208,17 @@ impl OidcVerifier {
     /// Confirm the identity provider hasn't revoked this token, retrying a
     /// bounded number of times before giving up. Unlike [`Self::userinfo_claims`],
     /// this does not swallow the outcome: a definitive rejection (401/403) is
-    /// [`AuthError::IdentityRevoked`], but anything that stops the check from
+    /// [`RevocationCheck::Revoked`], but anything that stops the check from
     /// completing at all — no endpoint discovered yet, a connection error, a
-    /// timeout, a 5xx — is inconclusive and returns `Ok(())`, since evicting
-    /// someone over a network blip would be worse than the check that never
-    /// ran.
-    async fn check_not_revoked(&self, credential: &str) -> Result<(), AuthError> {
+    /// timeout, a 5xx — is [`RevocationCheck::Inconclusive`]. The caller
+    /// ([`Self::revalidate`]) decides how many consecutive inconclusive
+    /// outcomes to tolerate before failing closed.
+    async fn check_not_revoked(&self, credential: &str) -> RevocationCheck {
         let (access_token, _) = split_credential(credential);
 
         let Some(endpoint) = self.userinfo_endpoint.get() else {
             tracing::debug!("revalidate: userinfo_endpoint not discovered yet, skipping");
-            return Ok(());
+            return RevocationCheck::Inconclusive;
         };
 
         for attempt in 1..=REVALIDATE_ATTEMPTS {
@@ -1231,7 +1229,7 @@ impl OidcVerifier {
                 .send()
                 .await
             {
-                Ok(resp) if resp.status().is_success() => return Ok(()),
+                Ok(resp) if resp.status().is_success() => return RevocationCheck::Confirmed,
                 Ok(resp)
                     if resp.status() == StatusCode::UNAUTHORIZED
                         || resp.status() == StatusCode::FORBIDDEN =>
@@ -1240,7 +1238,7 @@ impl OidcVerifier {
                         status = %resp.status(),
                         "revalidate: identity provider rejected the token"
                     );
-                    return Err(AuthError::IdentityRevoked);
+                    return RevocationCheck::Revoked;
                 }
                 Ok(resp) => {
                     tracing::debug!(
@@ -1258,8 +1256,8 @@ impl OidcVerifier {
             }
         }
 
-        tracing::warn!("revalidate: identity provider unreachable after retries, not evicting");
-        Ok(())
+        tracing::warn!("revalidate: identity provider unreachable after retries");
+        RevocationCheck::Inconclusive
     }
 
     /// Verify a JWT token and enrich claims from userinfo.
@@ -1346,9 +1344,52 @@ impl Verifier for OidcVerifier {
         // Signature/`exp`/DPoP-thumbprint problems are locally detectable and
         // not a network call — surface them as-is, no retry.
         let keys = self.verification_keys().await?;
-        self.verify_token_util(token, &keys)?;
+        let claims = self.verify_token_util(token, &keys)?;
+        let subject = claims
+            .get("sub")
+            .and_then(|s| s.as_str())
+            .unwrap_or(token)
+            .to_string();
 
-        self.check_not_revoked(token).await
+        match self.check_not_revoked(token).await {
+            RevocationCheck::Confirmed => {
+                self.revocation_failure_streak.write().remove(&subject);
+                Ok(())
+            }
+            RevocationCheck::Revoked => {
+                self.revocation_failure_streak.write().remove(&subject);
+                Err(AuthError::IdentityRevoked)
+            }
+            RevocationCheck::Inconclusive => {
+                let streak = {
+                    let mut streaks = self.revocation_failure_streak.write();
+                    let count = streaks.entry(subject.clone()).or_insert(0);
+                    *count += 1;
+                    *count
+                };
+
+                if streak >= MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS {
+                    tracing::error!(
+                        subject = %subject,
+                        consecutive_failures = streak,
+                        "revalidate: identity provider unreachable for {streak} consecutive checks, failing closed",
+                    );
+                    self.revocation_failure_streak.write().remove(&subject);
+                    return Err(AuthError::IdentityRevoked);
+                }
+
+                tracing::warn!(
+                    subject = %subject,
+                    consecutive_failures = streak,
+                    "revalidate: identity provider unreachable, not evicting yet",
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn supports_revocation(&self) -> bool {
+        true
     }
 
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
@@ -1651,6 +1692,40 @@ mod tests {
             .unwrap();
 
         assert!(verifier.revalidate(token).await.is_ok());
+    }
+
+    /// A single blip fails open (previous test), but an identity provider
+    /// that stays unreachable across `MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS`
+    /// separate `revalidate` calls for the same subject must fail closed —
+    /// otherwise blocking traffic to the userinfo endpoint would permanently
+    /// hide a revocation.
+    #[tokio::test]
+    async fn revalidate_fails_closed_after_sustained_unreachability() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let _guard = AllowInsecureIssuerForTest::new();
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims::new("user123", issuer_url.clone(), "test-audience");
+        let header = Header::new(Algorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
+        // Nothing listens here — every attempt fails to connect, for every call.
+        verifier
+            .userinfo_endpoint
+            .set("http://127.0.0.1:1/userinfo".to_string())
+            .unwrap();
+
+        for _ in 0..MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS - 1 {
+            assert!(verifier.revalidate(&token).await.is_ok());
+        }
+
+        assert!(matches!(
+            verifier.revalidate(&token).await,
+            Err(AuthError::IdentityRevoked)
+        ));
     }
 
     #[tokio::test]
@@ -1983,7 +2058,7 @@ mod tests {
             client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
-            identity: Arc::new(RwLock::new(None)),
+            identity: crate::dpop::IdentitySlot::default(),
             refresh: Arc::new(RwLock::new(None)),
             delegate_started: Arc::new(AsyncMutex::new(false)),
         };
@@ -2074,7 +2149,7 @@ mod tests {
             client: http_client,
             shutdown_tx: Arc::new(shutdown_tx),
             refresh_task: Arc::new(parking_lot::Mutex::new(None)),
-            identity: Arc::new(RwLock::new(None)),
+            identity: crate::dpop::IdentitySlot::default(),
             refresh: Arc::new(RwLock::new(None)),
             delegate_started: Arc::new(AsyncMutex::new(false)),
         };

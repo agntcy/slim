@@ -535,6 +535,103 @@ impl IdentityKey {
     }
 }
 
+/// Shared, lock-guarded home for an optional [`IdentityKey`], factored out of
+/// `OidcTokenProvider` and `RefreshTokenProvider` — both held one independently
+/// and re-implemented the same install/query/attestation logic over it, which
+/// had already started drifting (only one of the two checked a delegate first).
+/// Cloning shares the same underlying key, same as the `Arc` each provider
+/// wrapped it in before.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Default)]
+pub(crate) struct IdentitySlot(std::sync::Arc<parking_lot::RwLock<Option<IdentityKey>>>);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl IdentitySlot {
+    /// Install the identity key a credential is DPoP-bound to. Re-installing
+    /// the same key is a no-op: replacing the slot here would discard any MLS
+    /// leaf key already installed under it.
+    pub(crate) fn install_identity_keys(
+        &self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        let mut guard = self.0.write();
+        if guard.as_ref().is_some_and(|k| k.pop_keys().1 == public_key) {
+            return Ok(());
+        }
+        *guard = Some(IdentityKey::new(private_key, public_key)?);
+        Ok(())
+    }
+
+    /// Take ownership of an identity key (and whatever leaf key it already
+    /// attests) — unconditional, for a caller that is becoming its sole owner.
+    pub(crate) fn adopt(&self, identity: IdentityKey) {
+        *self.0.write() = Some(identity);
+    }
+
+    /// Hand the installed key to a new owner, leaving this slot empty.
+    pub(crate) fn take(&self) -> Option<IdentityKey> {
+        self.0.write().take()
+    }
+
+    /// Whether a DPoP-bound identity key is installed.
+    pub(crate) fn is_installed(&self) -> bool {
+        self.0.read().is_some()
+    }
+
+    /// Install the MLS leaf key to attest under the identity key. Unconditional:
+    /// the leaf key is not what `cnf.jkt` names, so it may be replaced as often
+    /// as `mls-rs` likes.
+    pub(crate) fn install_signature_keys(
+        &self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.0
+            .write()
+            .as_mut()
+            .ok_or(AuthError::AttestationNoIdentityKey)?
+            .install_leaf(private_key, public_key);
+        Ok(())
+    }
+
+    /// The MLS leaf key, but only once the MLS layer has installed its own —
+    /// never the pair seeded at construction.
+    pub(crate) fn mls_installed_leaf_keys(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        let guard = self.0.read();
+        let key = guard.as_ref()?;
+        key.leaf_installed_by_mls().then(|| key.leaf_keys())
+    }
+
+    /// The MLS leaf key, installed or seeded at construction — `None` only
+    /// when no identity key exists at all.
+    pub(crate) fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+        self.0
+            .read()
+            .as_ref()
+            .map(|k| k.leaf_keys())
+            .ok_or(AuthError::MlsNotSupported)
+    }
+
+    /// Whether the *MLS layer* installed its own leaf key, as opposed to the
+    /// pair seeded at construction.
+    pub(crate) fn mls_signature_keys_installed(&self) -> bool {
+        self.0.read().as_ref().is_some_and(|k| k.leaf_installed_by_mls())
+    }
+
+    /// `K_pop`, for proofing a token request. `None` for a plain bearer
+    /// identity with no DPoP binding.
+    pub(crate) fn pop_keys(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        self.0.read().as_ref().map(|k| k.pop_keys().clone())
+    }
+
+    /// A currently-valid attestation over the installed leaf key, or `None`
+    /// when no identity key exists (a plain bearer identity).
+    pub(crate) fn mint_attestation(&self) -> Result<Option<String>, AuthError> {
+        self.0.write().as_mut().map(|k| k.attestation()).transpose()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

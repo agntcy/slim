@@ -50,12 +50,19 @@ impl TokenProvider for MockTokenProvider {
 #[derive(Clone, Default)]
 pub struct MockVerifier {
     revoked: Arc<AtomicBool>,
+    revocation_supported: Arc<AtomicBool>,
 }
 
 impl MockVerifier {
     /// Make every subsequent `revalidate` call report a confirmed revocation.
     pub fn set_revoked(&self, revoked: bool) {
         self.revoked.store(revoked, Ordering::SeqCst);
+    }
+
+    /// Control what `supports_revocation` reports (default: `false`, like
+    /// every non-OIDC verifier).
+    pub fn set_supports_revocation(&self, supported: bool) {
+        self.revocation_supported.store(supported, Ordering::SeqCst);
     }
 }
 
@@ -74,6 +81,10 @@ impl Verifier for MockVerifier {
         } else {
             Ok(())
         }
+    }
+
+    fn supports_revocation(&self) -> bool {
+        self.revocation_supported.load(Ordering::SeqCst)
     }
 
     fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
