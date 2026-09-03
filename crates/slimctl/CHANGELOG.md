@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.3](https://github.com/agntcy/slim/compare/slimctl-v2.3.2...slimctl-v2.3.3) - 2026-09-03
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [2.3.2](https://github.com/agntcy/slim/compare/slimctl-v2.3.1...slimctl-v2.3.2) - 2026-09-01
 
 ### Other

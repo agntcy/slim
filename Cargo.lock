@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.15.4"
+version = "0.15.5"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -202,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-control-plane"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.18.7"
+version = "0.18.8"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -335,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-proto"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-rpc"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-bindings",
@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.4.20"
+version = "0.4.21"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -556,11 +556,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "2.3.2"
+version = "2.3.3"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
