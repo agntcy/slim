@@ -75,9 +75,16 @@ impl super::RouteService {
         // persistently-failing domain would cause every subsequent unrelated
         // node register/deregister event to retry and fail indefinitely,
         // spamming the logs.
-        if self.0.last_failed_domains.lock().await.as_ref().is_some_and(
-            |last| last.len() == new_domains.len() && new_domains.iter().all(|d| last.contains(*d)),
-        ) {
+        if self
+            .0
+            .last_failed_domains
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|last| {
+                last.len() == new_domains.len() && new_domains.iter().all(|d| last.contains(*d))
+            })
+        {
             tracing::debug!(
                 "skipping topology rebuild; domain set matches the last known failing set"
             );
