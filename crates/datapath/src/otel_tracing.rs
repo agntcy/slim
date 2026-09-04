@@ -19,11 +19,26 @@ struct MetadataExtractor<'a>(&'a std::collections::HashMap<String, String>);
 
 impl Extractor for MetadataExtractor<'_> {
     fn get(&self, key: &str) -> Option<&str> {
-        self.0.get(key).map(|s| s.as_str())
+        self.0.get(key).map(String::as_str)
     }
 
     fn keys(&self) -> Vec<&str> {
-        self.0.keys().map(|s| s.as_str()).collect()
+        self.0.keys().map(String::as_str).collect()
+        match self.0?.fields.get(key)?.kind.as_ref()? {
+            Kind::StringValue(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0
+            .map(|metadata| metadata.fields.keys().map(String::as_str).collect())
+            .unwrap_or_default()
+        self.0.get(key).map(String::as_str)
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(String::as_str).collect()
     }
 }
 
@@ -219,7 +234,7 @@ mod tests {
 
         let mut msg = build_publish();
         assert!(
-            !msg.metadata.contains_key("traceparent"),
+            !msg.contains_metadata("traceparent"),
             "fresh message should not carry a traceparent"
         );
 
@@ -230,8 +245,12 @@ mod tests {
         });
 
         let traceparent = msg
-            .metadata
-            .get("traceparent")
+            .get_metadata("traceparent")
+            .map(String::as_str)
+            .and_then(|value| match value.kind.as_ref() {
+                Some(Kind::StringValue(value)) => Some(value.as_str()),
+                _ => None,
+            })
             .expect("outbound path should inject a traceparent");
         let injected_trace_id = trace_id_from_traceparent(traceparent);
         assert_ne!(
@@ -268,7 +287,7 @@ mod tests {
         });
 
         assert!(
-            !ack.metadata.contains_key("traceparent"),
+            !ack.contains_metadata("traceparent"),
             "non-traceable messages must not be annotated with trace context"
         );
     }

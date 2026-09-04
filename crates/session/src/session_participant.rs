@@ -1224,10 +1224,8 @@ where
                     }
                     self.common.online = true;
                     self.common.sender.restart_heartbeat();
-                } else {
-                    if let Some(tx) = pending_task.ack_tx {
-                        let _ = tx.send(Err(SessionError::RejoinFailed));
-                    }
+                } else if let Some(tx) = pending_task.ack_tx {
+                    let _ = tx.send(Err(SessionError::RejoinFailed));
                 }
             } else {
                 // not matching, put it back
