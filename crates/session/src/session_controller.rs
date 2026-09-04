@@ -777,7 +777,7 @@ impl SessionController {
             && !map.is_empty()
         {
             msg.set_metadata_map(crate::common::metadata_from_strings(map));
-        }
+        } 
 
         // southbound=true means towards slim
         self.publish_message(msg).await
@@ -1151,7 +1151,7 @@ where
         let mut msg =
             self.create_control_message(dst, message_type, message_id, payload, broadcast)?;
         if let Some(m) = metadata {
-            msg.set_metadata_map(crate::common::metadata_from_strings(m));
+            msg.set_metadata_map(m);
         }
         self.sender.on_message(&msg)
     }

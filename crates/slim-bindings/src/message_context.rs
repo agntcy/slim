@@ -12,6 +12,7 @@ use slim_session::SessionError;
 // Import the FFI Name type for use in MessageContext fields
 use crate::Name;
 
+
 #[cfg(test)]
 pub(crate) fn metadata_from_strings(metadata: HashMap<String, String>) -> prost_types::Struct {
     prost_types::Struct {
@@ -185,17 +186,10 @@ mod tests {
 
         let mut proto_msg = ProtoMessage {
             message_type: Some(ProtoPublishType(publish)),
-<<<<<<< HEAD
             metadata: Default::default(),
             metadata_v3: None,
         };
-        proto_msg.set_metadata_map(metadata);
-=======
-            metadata: None,
-        };
         proto_msg.set_metadata_map(metadata_from_strings(metadata));
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
-
         proto_msg.set_incoming_conn(Some(connection_id));
 
         proto_msg

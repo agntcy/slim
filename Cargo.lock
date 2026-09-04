@@ -102,7 +102,6 @@ dependencies = [
  "futures-timer",
  "getrandom 0.4.3",
  "parking_lot",
- "prost-types",
  "serde",
  "serde_json",
  "test-fork",
@@ -309,7 +308,6 @@ dependencies = [
  "opentelemetry_sdk",
  "parking_lot",
  "prost",
- "prost-types",
  "rand_core 0.10.1",
  "semver",
  "serde",
@@ -413,7 +411,6 @@ dependencies = [
  "futures",
  "futures-timer",
  "parking_lot",
- "prost-types",
  "thiserror 2.0.19",
  "tokio",
  "tokio-stream",
@@ -474,8 +471,12 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "prost",
+<<<<<<< HEAD
  "prost-types",
  "rand 0.10.2",
+=======
+ "rand 0.9.5",
+>>>>>>> e87336f0 (    feat(proto): support typed message metadata (#1645))
  "serde",
  "serde_json",
  "smallvec",

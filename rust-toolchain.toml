@@ -1,8 +1,3 @@
 [toolchain]
-<<<<<<< HEAD
-channel = "1.95.0"
-components = ["rustc", "clippy", "rustfmt", "rust-std", "cargo", "rust-analyzer"]
-=======
 channel = "1.98.0"
 components = ["rustc", "clippy", "rustfmt", "rust-std", "cargo"]
->>>>>>> 090e0569 (build: move to rust 1.98 (#2009))

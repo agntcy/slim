@@ -31,7 +31,6 @@ drain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
 parking_lot = { workspace = true }
-prost-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

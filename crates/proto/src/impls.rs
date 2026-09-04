@@ -1,6 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
@@ -801,15 +802,11 @@ macro_rules! impl_payload_extractors {
 }
 
 impl ProtoMessage {
-<<<<<<< HEAD
     fn new(
         metadata: HashMap<String, String>,
         metadata_v3: Option<prost_types::Struct>,
         message_type: MessageType,
     ) -> Self {
-=======
-    fn new(metadata: Option<prost_types::Struct>, message_type: MessageType) -> Self {
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
         ProtoMessage {
             metadata,
             metadata_v3,
@@ -870,45 +867,30 @@ impl ProtoMessage {
         }
     }
 
-<<<<<<< HEAD
     pub fn insert_metadata(&mut self, key: String, value: String) {
         self.metadata.insert(key, value);
-=======
-    pub fn insert_metadata(&mut self, key: String, value: impl Into<prost_types::Value>) {
-        self.metadata
-            .get_or_insert_default()
-            .fields
-            .insert(key, value.into());
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
     }
 
-    pub fn remove_metadata(&mut self, key: &str) -> Option<prost_types::Value> {
-        self.metadata.as_mut()?.fields.remove(key)
+    pub fn remove_metadata(&mut self, key: &str) -> Option<String> {
+        self.metadata.remove(key)
     }
 
     pub fn contains_metadata(&self, key: &str) -> bool {
-        self.metadata
-            .as_ref()
-            .is_some_and(|metadata| metadata.fields.contains_key(key))
+        self.metadata.contains_key(key)
     }
 
-    pub fn get_metadata(&self, key: &str) -> Option<&prost_types::Value> {
-        self.metadata.as_ref()?.fields.get(key)
+    pub fn get_metadata(&self, key: &str) -> Option<&String> {
+        self.metadata.get(key)
     }
 
-    pub fn get_metadata_map(&self) -> Option<&prost_types::Struct> {
-        self.metadata.as_ref()
+    pub fn get_metadata_map(&self) -> HashMap<String, String> {
+        self.metadata.clone()
     }
 
-<<<<<<< HEAD
     pub fn set_metadata_map(&mut self, metadata: HashMap<String, String>) {
         for (key, value) in metadata {
             self.insert_metadata(key, value);
         }
-=======
-    pub fn set_metadata_map(&mut self, metadata: prost_types::Struct) {
-        self.metadata = Some(metadata);
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
     }
 
     /// Insert a typed metadata value into the v3 metadata field.
@@ -941,6 +923,41 @@ impl ProtoMessage {
         self.metadata_v3.as_ref()
     }
 
+    pub fn set_metadata_map(&mut self, metadata: HashMap<String, String>) {
+        for (key, value) in metadata {
+            self.insert_metadata(key, value);
+        }
+    }
+
+    /// Insert a typed metadata value into the v3 metadata field.
+    pub fn insert_metadata_v3(&mut self, key: String, value: impl Into<prost_types::Value>) {
+        self.metadata_v3
+            .get_or_insert_default()
+            .fields
+            .insert(key, value.into());
+    }
+
+    /// Remove a typed metadata value from the v3 metadata field.
+    pub fn remove_metadata_v3(&mut self, key: &str) -> Option<prost_types::Value> {
+        self.metadata_v3.as_mut()?.fields.remove(key)
+    }
+
+    /// Check whether the v3 metadata field contains a key.
+    pub fn contains_metadata_v3(&self, key: &str) -> bool {
+        self.metadata_v3
+            .as_ref()
+            .is_some_and(|metadata| metadata.fields.contains_key(key))
+    }
+
+    /// Get a typed metadata value from the v3 metadata field.
+    pub fn get_metadata_v3(&self, key: &str) -> Option<&prost_types::Value> {
+        self.metadata_v3.as_ref()?.fields.get(key)
+    }
+
+    /// Get the complete v3 metadata Struct, if present.
+    pub fn get_metadata_map_v3(&self) -> Option<&prost_types::Struct> {
+        self.metadata_v3.as_ref()
+    }
     /// Replace the complete v3 metadata Struct.
     pub fn set_metadata_map_v3(&mut self, metadata: prost_types::Struct) {
         self.metadata_v3 = Some(metadata);
@@ -1569,12 +1586,8 @@ pub struct ProtoMessageBuilder {
     session_id: Option<u32>,
     message_id: Option<u32>,
     payload: Option<Content>,
-<<<<<<< HEAD
     metadata: HashMap<String, String>,
     metadata_v3: Option<prost_types::Struct>,
-=======
-    metadata: Option<prost_types::Struct>,
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
     subscription_id: Option<u64>,
 }
 
@@ -1590,12 +1603,8 @@ impl ProtoMessageBuilder {
             session_id: None,
             message_id: None,
             payload: None,
-<<<<<<< HEAD
             metadata: HashMap::new(),
             metadata_v3: None,
-=======
-            metadata: None,
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
             subscription_id: None,
         }
     }
@@ -1716,19 +1725,29 @@ impl ProtoMessageBuilder {
         self
     }
 
-    pub fn metadata(
+    pub fn metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
+        self.metadata.extend(metadata);
+        self
+    }
+
+    /// Add a typed metadata value to the v3 metadata field.
+    pub fn metadata_v3(
         mut self,
         key: impl Into<String>,
         value: impl Into<prost_types::Value>,
     ) -> Self {
-        self.metadata
+        self.metadata_v3
             .get_or_insert_default()
             .fields
             .insert(key.into(), value.into());
         self
     }
 
-<<<<<<< HEAD
     pub fn metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
         self.metadata.extend(metadata);
         self
@@ -1750,10 +1769,6 @@ impl ProtoMessageBuilder {
     /// Set the complete v3 metadata Struct.
     pub fn metadata_map_v3(mut self, metadata: prost_types::Struct) -> Self {
         self.metadata_v3 = Some(metadata);
-=======
-    pub fn metadata_map(mut self, metadata: prost_types::Struct) -> Self {
-        self.metadata = Some(metadata);
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
         self
     }
 
@@ -2342,12 +2357,8 @@ mod message_tests {
     #[test]
     fn test_panic_proto_message() {
         let message = ProtoMessage {
-<<<<<<< HEAD
             metadata: HashMap::new(),
             metadata_v3: None,
-=======
-            metadata: None,
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
             message_type: None,
         };
         assert!(std::panic::catch_unwind(|| message.get_slim_header()).is_err());
@@ -2409,14 +2420,8 @@ mod message_tests {
             .application_payload("test", vec![1, 2, 3])
             .build_publish()
             .unwrap();
-        assert!(matches!(
-            msg.get_metadata("key1").and_then(|value| value.kind.as_ref()),
-            Some(Kind::StringValue(value)) if value == "value1"
-        ));
-        assert!(matches!(
-            msg.get_metadata("key2").and_then(|value| value.kind.as_ref()),
-            Some(Kind::StringValue(value)) if value == "value2"
-        ));
+        assert_eq!(msg.get_metadata("key1"), Some(&"value1".to_string()));
+        assert_eq!(msg.get_metadata("key2"), Some(&"value2".to_string()));
 
         let metadata = prost_types::Struct {
             fields: std::collections::BTreeMap::from([
@@ -2440,36 +2445,41 @@ mod message_tests {
         let msg = ProtoMessage::builder()
             .source(source.clone())
             .destination(dest.clone())
-            .metadata_map(metadata)
+            .metadata("legacy", "value")
+            .metadata_map_v3(metadata)
             .application_payload("test", vec![])
             .build_publish()
             .unwrap();
         assert!(matches!(
-            msg.get_metadata("enabled")
+            msg.get_metadata_v3("enabled")
                 .and_then(|value| value.kind.as_ref()),
             Some(Kind::BoolValue(true))
         ));
         assert!(matches!(
-            msg.get_metadata("attempts").and_then(|value| value.kind.as_ref()),
+            msg.get_metadata_v3("attempts")
+                .and_then(|value| value.kind.as_ref()),
             Some(Kind::NumberValue(value)) if *value == 3.0
         ));
         assert!(matches!(
-            msg.get_metadata("labels").and_then(|value| value.kind.as_ref()),
+            msg.get_metadata_v3("labels")
+                .and_then(|value| value.kind.as_ref()),
             Some(Kind::ListValue(list)) if list.values.len() == 1
         ));
         assert!(matches!(
-            msg.get_metadata("details")
+            msg.get_metadata_v3("details")
                 .and_then(|value| value.kind.as_ref()),
             Some(Kind::StructValue(details)) if details.fields.contains_key("region")
         ));
         assert!(matches!(
-            msg.get_metadata("optional")
+            msg.get_metadata_v3("optional")
                 .and_then(|value| value.kind.as_ref()),
             Some(Kind::NullValue(0))
         ));
         let encoded = msg.encode_to_vec();
         let decoded = ProtoMessage::decode(encoded.as_slice()).unwrap();
         assert_eq!(decoded.metadata, msg.metadata);
+        assert_eq!(decoded.metadata_v3, msg.metadata_v3);
+        assert_eq!(decoded.get_metadata("legacy"), Some(&"value".to_string()));
 
         let metadata = prost_types::Struct {
             fields: std::collections::BTreeMap::from([
@@ -2680,11 +2690,7 @@ mod message_tests {
     #[test]
     fn test_validate_link_without_link_type() {
         let link = ProtoLink { link_type: None };
-<<<<<<< HEAD
         let msg = ProtoMessage::new(HashMap::new(), None, ProtoLinkMessageType(link));
-=======
-        let msg = ProtoMessage::new(None, ProtoLinkMessageType(link));
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
         assert!(matches!(msg.validate(), Err(MessageError::LinkTypeNotSet)));
     }
 
@@ -2702,11 +2708,7 @@ mod message_tests {
                 deployment_name: String::new(),
             })),
         };
-<<<<<<< HEAD
         let msg = ProtoMessage::new(HashMap::new(), None, ProtoLinkMessageType(link));
-=======
-        let msg = ProtoMessage::new(None, ProtoLinkMessageType(link));
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
         assert!(msg.validate().is_ok());
     }
 
@@ -2756,10 +2758,7 @@ mod message_tests {
             ..Default::default()
         };
         let msg = ProtoMessage::new(
-<<<<<<< HEAD
             HashMap::new(),
-=======
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
             None,
             ProtoSubscribeType(ProtoSubscribe {
                 header: Some(hdr),
@@ -2784,11 +2783,9 @@ mod message_tests {
             ..Default::default()
         };
         let msg = ProtoMessage::new(
-<<<<<<< HEAD
             HashMap::new(),
-=======
->>>>>>> 3d0a77a7 (feat(proto): support typed message metadata (#1645))
             None,
+             None,
             ProtoSubscribeType(ProtoSubscribe {
                 header: Some(hdr),
                 ..Default::default()
