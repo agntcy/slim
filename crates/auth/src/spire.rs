@@ -30,8 +30,8 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut mgr = SpireIdentityManager::builder()
 //!     .with_jwt_audiences(vec!["my-app".to_string()])
-//!     .build()?; 
-//! 
+//!     .build()?;
+//!
 //! mgr.initialize().await?;
 //! use slim_auth::traits::{TokenProvider, Verifier};
 //! // Obtain JWT token
