@@ -55,6 +55,7 @@ use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::utils::SlimHeaderFlags;
+use crate::negotiation::NegotiationResult;
 use crate::sync::peer as sync_peer;
 use crate::sync::remote::{RemoteSync, SubscriptionInfo};
 use crate::tables::connection_table::ConnectionTable;
@@ -664,7 +665,64 @@ impl MessageProcessor {
         self.send_msg_raw(msg, out_conn).await
     }
 
-    async fn send_msg_raw(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+    /// Write `msg` to `out_conn`, expanding a logical connection into the
+    /// sub-connection(s) its policy selects.
+    ///
+    /// Physical ids pass straight through, so local applications and
+    /// control-plane-directed sends are unaffected. A logical id is expanded here
+    /// rather than earlier because everything downstream is per-socket: the SLIM
+    /// header MAC is signed with the individual connection's HMAC session and
+    /// link id, so each sub-connection needs its own signing pass.
+    async fn send_msg_raw(&self, msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+        if !crate::logical_connection::is_logical(out_conn) {
+            return self.send_on_physical(msg, out_conn).await;
+        }
+
+        let affinity_key = Self::affinity_key(&msg);
+        let targets = self
+            .forwarder()
+            .select_sub_connections(out_conn, affinity_key);
+
+        let Some((last, rest)) = targets.split_last() else {
+            debug!(%out_conn, "logical connection has no live sub-connections");
+            return Err(DataPathError::ConnectionNotFound(out_conn));
+        };
+
+        // Redundant delivery: a single sub-connection succeeding is a success, so
+        // errors are only fatal if every sub-connection fails. Other policies
+        // resolve to one target and this collapses to the plain single-send case.
+        let mut last_err = None;
+        let mut delivered = false;
+        for &conn in rest {
+            match self.send_on_physical(msg.clone(), conn).await {
+                Ok(()) => delivered = true,
+                Err(e) => {
+                    debug!(%conn, %out_conn, error = %e, "send on sub-connection failed");
+                    last_err = Some(e);
+                }
+            }
+        }
+        match self.send_on_physical(msg, *last).await {
+            Ok(()) => Ok(()),
+            Err(e) if delivered => {
+                debug!(conn = %last, %out_conn, error = %e, "send on sub-connection failed");
+                Ok(())
+            }
+            Err(e) => Err(last_err.unwrap_or(e)),
+        }
+    }
+
+    /// The flow identity used by [`SubConnPolicy::Affinity`](crate::logical_connection::SubConnPolicy::Affinity)
+    /// to pin a session to one sub-connection, preserving ordering within it.
+    fn affinity_key(msg: &Message) -> Option<u64> {
+        if msg.is_link() || msg.is_subscription_ack() {
+            return None;
+        }
+        msg.try_get_session_header()
+            .map(|h| h.get_session_id() as u64)
+    }
+
+    async fn send_on_physical(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
@@ -1499,6 +1557,68 @@ impl MessageProcessor {
         }
     }
 
+    /// Group a freshly negotiated connection under a logical connection.
+    ///
+    /// The grouping key is the remote's advertised `node_id`, which is exactly
+    /// "which node is on the other end of this socket". An explicit
+    /// [`ClientConfig::logical_group`] overrides it for deployments where the
+    /// remote does not advertise a usable identity.
+    ///
+    /// When neither is available the connection is left ungrouped and keeps using
+    /// its physical id as its routing id — the pre-existing behaviour. Grouping on
+    /// an empty key would merge every anonymous peer into one logical connection
+    /// and silently blackhole traffic between them, which is far worse than the
+    /// forwarding loop this feature exists to fix.
+    fn attach_logical_connection(&self, conn_index: u64, result: &NegotiationResult) {
+        let config = self
+            .forwarder()
+            .get_connection(conn_index)
+            .and_then(|c| c.config_data().cloned());
+
+        let explicit = config.as_ref().and_then(|c| c.logical_group.clone());
+        let policy = config
+            .as_ref()
+            .map(|c| c.sub_conn_policy)
+            .unwrap_or_default();
+
+        let key = match explicit {
+            Some(k) if !k.is_empty() => k,
+            _ if !result.remote_node_id.is_empty() => {
+                // Namespace by connection type: the same node reached as a Peer and
+                // as a Remote plays different roles in the forwarding rules
+                // (see `MatchFilter`), so those must stay separate entries.
+                format!(
+                    "{}/{}",
+                    result.connection_type.index(),
+                    result.remote_node_id
+                )
+            }
+            _ => {
+                debug!(
+                    %conn_index,
+                    "remote advertised no node_id and no logical_group is configured; \
+                     leaving connection ungrouped",
+                );
+                return;
+            }
+        };
+
+        let logical_id = self
+            .forwarder()
+            .attach_sub_connection(conn_index, &key, policy);
+
+        let count = self
+            .forwarder()
+            .logical_connections
+            .sub_conn_count(logical_id);
+        if count > 1 {
+            info!(
+                %conn_index, %logical_id, %key, %policy, sub_conns = count,
+                "joined existing logical connection",
+            );
+        }
+    }
+
     /// Perform link negotiation, register the connection, and handle peer upgrade.
     ///
     /// Returns `Some((conn_index, category))` on success or `None` on failure.
@@ -1568,6 +1688,10 @@ impl MessageProcessor {
         };
 
         debug!(%idx, "connection registered after link negotiation");
+
+        // Group this physical connection with any sibling connections reaching the
+        // same remote node, so the routing tables see one entry per peer.
+        self.attach_logical_connection(idx, &result);
 
         // Handle connection-type-specific post-negotiation logic.
         let link_id = self
