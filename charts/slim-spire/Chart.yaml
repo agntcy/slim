@@ -6,7 +6,7 @@ description: >
   drivers. Based on
   https://github.com/spiffe/helm-charts-hardened/tree/main/charts/spire
 type: application
-version: 2.0.0
+version: 2.0.1
 appVersion: "1.15.3"
 keywords:
   [
