@@ -12,7 +12,7 @@ use crate::errors::AuthError;
 use crate::jwt::{
     extract_exp_claim_unsafe, extract_exp_iat_claims_unsafe, extract_sub_claim_unsafe,
 };
-use crate::resolver::{require_https, same_origin};
+use crate::resolver::same_origin;
 use crate::traits::TokenProvider;
 
 const REFRESH_BUFFER_SECS: u64 = 60;
