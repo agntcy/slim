@@ -30,6 +30,9 @@ on:
         description: "github token"
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   chart:
     name: Helm chart
