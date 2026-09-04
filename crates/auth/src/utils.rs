@@ -78,6 +78,59 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
     }
 }
 
+/// Generate the DPoP-bound *identity* key (`K_pop`), always P-256.
+///
+/// Deliberately not [`generate_mls_signature_keys`]: this key never reaches
+/// `mls-rs`, so the MLS ciphersuite has no say in it and the `curve25519`
+/// build feature must not change it. Only JOSE constrains it, and `ES256` is
+/// the best-supported DPoP algorithm. Decoupling the two is what removes the
+/// `enforce_pqc`/`curve25519` interaction from the identity path entirely.
+pub fn generate_identity_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let crypto_provider = AwsLcCryptoProvider::default();
+        let cipher_suite_provider = crypto_provider
+            .cipher_suite_provider(mls_rs_core::crypto::CipherSuite::P256_AES128)
+            .ok_or(crate::errors::AuthError::MlsKeyGenerationFailed)?;
+
+        let (secret_key, public_key) = cipher_suite_provider
+            .signature_key_generate()
+            .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
+
+        Ok((
+            secret_key.as_bytes().to_vec(),
+            public_key.as_bytes().to_vec(),
+        ))
+    }
+
+    // The wasm branch of `generate_mls_signature_keys` is already P-256-only, so
+    // it is the identity key generator there too.
+    #[cfg(target_arch = "wasm32")]
+    {
+        generate_mls_signature_keys()
+    }
+}
+
+/// Which MLS signature key type a public key's encoding identifies, from its
+/// length alone: 32 bytes for Ed25519, 33 (compressed) or 65 (uncompressed)
+/// SEC1 bytes for P-256. The one place this dispatch is defined — every
+/// signer/verifier (here and in [`crate::dpop`]) keys off it instead of each
+/// repeating the same magic numbers.
+pub(crate) enum KeyCurve {
+    Ed25519,
+    P256,
+}
+
+impl KeyCurve {
+    pub(crate) fn from_public_key_len(len: usize) -> Option<Self> {
+        match len {
+            32 => Some(Self::Ed25519),
+            33 | 65 => Some(Self::P256),
+            _ => None,
+        }
+    }
+}
+
 /// Sign the header AAD bytes using the MLS signature key pair.
 ///
 /// Supports Ed25519 (Curve25519 MLS ciphersuite) and ECDSA P-256 (default MLS
@@ -87,10 +140,14 @@ pub fn sign_header_aad(
     private_key_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<Vec<u8>, crate::errors::AuthError> {
-    match public_key_bytes.len() {
-        32 => sign_header_aad_ed25519(aad_bytes, private_key_bytes, public_key_bytes),
-        33 | 65 => sign_header_aad_p256(aad_bytes, private_key_bytes, public_key_bytes),
-        _ => Err(crate::errors::AuthError::MlsKeyGenerationFailed),
+    match KeyCurve::from_public_key_len(public_key_bytes.len()) {
+        Some(KeyCurve::Ed25519) => {
+            sign_header_aad_ed25519(aad_bytes, private_key_bytes, public_key_bytes)
+        }
+        Some(KeyCurve::P256) => {
+            sign_header_aad_p256(aad_bytes, private_key_bytes, public_key_bytes)
+        }
+        None => Err(crate::errors::AuthError::MlsKeyGenerationFailed),
     }
 }
 
@@ -100,10 +157,14 @@ pub fn verify_header_aad(
     signature_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<(), crate::errors::AuthError> {
-    match public_key_bytes.len() {
-        32 => verify_header_aad_ed25519(aad_bytes, signature_bytes, public_key_bytes),
-        33 | 65 => verify_header_aad_p256(aad_bytes, signature_bytes, public_key_bytes),
-        _ => Err(crate::errors::AuthError::TokenInvalid),
+    match KeyCurve::from_public_key_len(public_key_bytes.len()) {
+        Some(KeyCurve::Ed25519) => {
+            verify_header_aad_ed25519(aad_bytes, signature_bytes, public_key_bytes)
+        }
+        Some(KeyCurve::P256) => {
+            verify_header_aad_p256(aad_bytes, signature_bytes, public_key_bytes)
+        }
+        None => Err(crate::errors::AuthError::TokenInvalid),
     }
 }
 
@@ -170,7 +231,8 @@ fn verify_header_aad_p256(
         .map_err(|_| crate::errors::AuthError::TokenInvalid)
 }
 
-fn ed25519_signing_key(
+/// Import an Ed25519 signing key from a 32-byte seed or 64-byte keypair.
+pub(crate) fn ed25519_signing_key(
     private_key_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<ed25519_dalek::SigningKey, crate::errors::AuthError> {
@@ -198,7 +260,8 @@ fn ed25519_signing_key(
     }
 }
 
-fn p256_signing_key(
+/// Import a P-256 signing key from a raw scalar or PKCS#8 DER.
+pub(crate) fn p256_signing_key(
     private_key_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<p256::ecdsa::SigningKey, crate::errors::AuthError> {
@@ -230,7 +293,8 @@ fn p256_signing_key(
     }
 }
 
-fn p256_verifying_key(
+/// Import a P-256 verifying key from a SEC1 point, compressed or uncompressed.
+pub(crate) fn p256_verifying_key(
     public_key_bytes: &[u8],
 ) -> Result<p256::ecdsa::VerifyingKey, crate::errors::AuthError> {
     use p256::EncodedPoint;

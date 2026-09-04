@@ -124,7 +124,7 @@ mod tests {
                 .with_destination(destination.clone())
                 .with_config(cfg)
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_slim_tx(slim_tx)
                 .with_app_tx(app_tx.clone())
                 .with_tx_to_session_layer(tx_session)
@@ -212,7 +212,7 @@ mod tests {
     async fn dummy_verifier_trait_methods_coverage() {
         use slim_auth::traits::Verifier;
 
-        let verifier = MockVerifier;
+        let verifier = MockVerifier::default();
         verifier.verify("some-token").await.unwrap();
         verifier.try_verify("some-token").unwrap();
         let _: Result<String, _> = verifier.get_claims("some-token").await;

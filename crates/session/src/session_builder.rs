@@ -759,7 +759,7 @@ mod tests {
 
     #[test]
     fn test_builder_with_identity_verifier() {
-        let verifier = MockVerifier;
+        let verifier = MockVerifier::default();
         let builder =
             SessionBuilder::<MockTokenProvider, MockVerifier, ForController, NotReady>::for_controller()
                 .with_identity_verifier(verifier);
@@ -796,7 +796,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -813,7 +813,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -830,7 +830,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
         let ready_result = builder.ready();
@@ -846,7 +846,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -863,7 +863,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -880,7 +880,7 @@ mod tests {
                 .with_source(create_test_name("source"))
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -915,7 +915,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_tx_to_session_layer(tx_to_session);
 
         let ready_result = builder.ready();
@@ -931,7 +931,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels();
 
         let ready_result = builder.ready();
@@ -948,7 +948,7 @@ mod tests {
                 .with_destination(create_test_name("dst"))
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -973,7 +973,7 @@ mod tests {
                 .with_destination(create_test_name("dest"))
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -1140,7 +1140,7 @@ mod tests {
             .with_destination(dest.clone())
             .with_config(create_test_config(true))
             .with_identity_provider(MockTokenProvider)
-            .with_identity_verifier(MockVerifier)
+            .with_identity_verifier(MockVerifier::default())
             .with_test_channels()
             .with_tx_to_session_layer(tx_to_session);
 
@@ -1162,7 +1162,7 @@ mod tests {
         builder.control = Some(create_test_name("dest"));
         builder.config = Some(create_test_config(true));
         builder.identity_provider = Some(MockTokenProvider);
-        builder.identity_verifier = Some(MockVerifier);
+        builder.identity_verifier = Some(MockVerifier::default());
         let (slim_tx, app_tx) = create_test_channels();
         builder.slim_tx = Some(slim_tx);
         builder.app_tx = Some(app_tx);
@@ -1352,7 +1352,7 @@ mod tests {
                 .with_destination(dest.clone())
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -1382,7 +1382,7 @@ mod tests {
                 .with_destination(dest.clone())
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_slim_tx(slim_tx)
                 .with_app_tx(app_tx)
                 .with_tx_to_session_layer(tx_to_session);
@@ -1422,7 +1422,7 @@ mod tests {
                 .with_control(ctrl_channel)
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_slim_tx(slim_tx)
                 .with_app_tx(app_tx)
                 .with_tx_to_session_layer(tx_to_session);
@@ -1457,7 +1457,7 @@ mod tests {
                 .with_destination(dest.clone())
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -1480,7 +1480,7 @@ mod tests {
                 .with_destination(dest.clone())
                 .with_config(config.clone())
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -1513,7 +1513,7 @@ mod tests {
                 .with_destination(dest.clone())
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -1542,7 +1542,7 @@ mod tests {
                 .with_destination(destination.clone())
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -1567,7 +1567,7 @@ mod tests {
                 .with_destination(dest1.clone())
                 .with_config(create_test_config(false))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session1);
 
@@ -1579,7 +1579,7 @@ mod tests {
                 .with_destination(dest2.clone())
                 .with_config(create_test_config(true))
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session2);
 
@@ -1611,7 +1611,7 @@ mod tests {
                 .with_destination(dest.clone())
                 .with_config(config)
                 .with_identity_provider(MockTokenProvider)
-                .with_identity_verifier(MockVerifier)
+                .with_identity_verifier(MockVerifier::default())
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
@@ -1643,7 +1643,7 @@ mod tests {
         .with_control(ctrl)
         .with_config(config)
         .with_identity_provider(MockTokenProvider)
-        .with_identity_verifier(MockVerifier)
+        .with_identity_verifier(MockVerifier::default())
         .with_test_channels()
         .with_tx_to_session_layer(tx_to_session)
         .ready()
@@ -1672,7 +1672,7 @@ mod tests {
         .with_destination(dest.clone())
         .with_config(config)
         .with_identity_provider(MockTokenProvider)
-        .with_identity_verifier(MockVerifier)
+        .with_identity_verifier(MockVerifier::default())
         .with_test_channels()
         .with_tx_to_session_layer(tx_to_session)
         .ready()

@@ -40,6 +40,7 @@ rand = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
@@ -78,7 +79,6 @@ getrandom = { workspace = true }
 # Enable its browser backend in addition to workspace getrandom 0.4.
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 hmac = { workspace = true }
-sha2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-config = { path = "../config" }

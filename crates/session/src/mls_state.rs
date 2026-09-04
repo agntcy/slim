@@ -588,7 +588,6 @@ where
         Ok(commit)
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn process_local_pending_proposal(
         &mut self,
     ) -> Result<CommitMsg, SessionError> {

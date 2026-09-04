@@ -23,7 +23,6 @@ pub(crate) trait TaskUpdate {
     fn leave_complete(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn welcome_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn commit_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
-    #[allow(dead_code)]
     fn proposal_start(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError>;
     fn task_complete(&self) -> bool;
@@ -53,7 +52,6 @@ pub enum ModeratorTask {
     // here we don't need any state as the message and the
     // tx to the app is tracked in the PendingStatusUpdate struct
     UpdateLocalStatus(),
-    #[allow(dead_code)]
     Update(UpdateParticipant),
 }
 
@@ -563,20 +561,22 @@ impl TaskUpdate for UpdateParticipant {
         debug!(%timer_id,
             "start proposal on UpdateParticipanMls task",
         );
-        self.proposal.received = false;
+        // No real proposal round-trip in this design (see the caller in
+        // `SessionModerator::trigger_epoch_refresh`) — self-satisfy here
+        // directly rather than via `update_phase_completed`'s timer_id
+        // match. That match is keyed against `commit`'s real, randomly
+        // generated timer_id, which can legitimately collide with any fixed
+        // sentinel passed here; routing "completion" through the same
+        // lookup would let a commit ack that happens to reuse this id get
+        // mistaken for the (already-done) proposal instead of completing
+        // the commit.
+        self.proposal.received = true;
         self.proposal.timer_id = timer_id;
         Ok(())
     }
 
     fn update_phase_completed(&mut self, timer_id: u32) -> Result<(), SessionError> {
-        if self.proposal.timer_id == timer_id {
-            self.proposal.received = true;
-            debug!(
-                %timer_id,
-                "proposal completed on UpdateParticipanMls task",
-            );
-            Ok(())
-        } else if self.commit.timer_id == timer_id {
+        if self.commit.timer_id == timer_id {
             self.commit.received = true;
             debug!(
                 %timer_id,
@@ -870,20 +870,35 @@ mod tests {
         run_scenario(
             ModeratorTask::Update(UpdateParticipant::default()),
             vec![
+                // proposal is self-satisfied on start, matching production's
+                // `trigger_epoch_refresh` ordering (proposal, then commit).
+                Step::ok("proposal_start", move |t| t.proposal_start(0), false),
                 Step::ok("commit_start", move |t| t.commit_start(base), false),
                 Step::ok(
                     "commit_completed",
-                    move |t| t.update_phase_completed(base),
-                    false,
-                ),
-                Step::ok("proposal_start", move |t| t.proposal_start(base), false),
-                Step::ok(
-                    "proposal_completed",
                     move |t| t.update_phase_completed(base),
                     true,
                 ),
             ],
         );
+    }
+
+    /// Regression test: the commit phase's real timer_id is a random `u32`
+    /// and can legitimately equal `0`, the sentinel `trigger_epoch_refresh`
+    /// passes to the self-satisfied proposal phase. Before the fix,
+    /// `update_phase_completed` matched `proposal`'s timer_id first, so a
+    /// commit ack that happened to reuse `0` was silently swallowed as a
+    /// (redundant) proposal completion and the task never finished.
+    #[test]
+    #[traced_test]
+    fn test_update_participant_commit_id_colliding_with_proposal_sentinel_completes() {
+        let mut task = UpdateParticipant::default();
+        task.proposal_start(0).unwrap();
+        task.commit_start(0).unwrap();
+        assert!(!task.task_complete());
+
+        task.update_phase_completed(0).unwrap();
+        assert!(task.task_complete());
     }
 
     #[test]
