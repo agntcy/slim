@@ -471,7 +471,6 @@ dependencies = [
  "maybe-async",
  "parking_lot",
  "prost",
- "prost-types",
  "rand 0.10.2",
  "serde",
  "serde_json",

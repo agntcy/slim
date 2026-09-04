@@ -334,19 +334,6 @@ pub fn refresh_token_file_path() -> Result<PathBuf> {
     Ok(home.join(".slimctl").join("refresh_token"))
 }
 
-#[cfg(unix)]
-fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?
-        .write_all(data)
-}
-
 #[cfg(not(unix))]
 fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
