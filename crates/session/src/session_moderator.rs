@@ -1119,6 +1119,41 @@ where
         Ok(output)
     }
 
+    /// Revalidates `identity` against the identity provider. Returns `false`
+    /// only for an affirmative revocation — the caller must reject admission
+    /// in that case. Any inconclusive outcome logs and returns `true` (fails
+    /// open), matching `revalidate`'s own policy.
+    async fn revalidate_or_admit(
+        &self,
+        identity: &str,
+        participant: impl std::fmt::Display,
+    ) -> bool {
+        match self
+            .common
+            .settings
+            .identity_verifier
+            .revalidate(identity)
+            .await
+        {
+            Ok(()) => true,
+            Err(AuthError::IdentityRevoked) => {
+                tracing::warn!(
+                    %participant,
+                    "identity provider revoked this participant's identity",
+                );
+                false
+            }
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    %participant,
+                    "identity revalidation inconclusive, admitting anyway",
+                );
+                true
+            }
+        }
+    }
+
     async fn on_join_reply(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             source = %msg.get_source(),
@@ -1150,29 +1185,11 @@ where
         // get caught at the next periodic epoch refresh, up to
         // `EPOCH_REFRESH_INTERVAL` later. Fails open on anything inconclusive,
         // same as the recheck in `on_group_ack`.
-        let identity = msg.get_identity();
-        match self
-            .common
-            .settings
-            .identity_verifier
-            .revalidate(&identity)
+        if !self
+            .revalidate_or_admit(&msg.get_identity(), msg.get_source())
             .await
         {
-            Ok(()) => {}
-            Err(AuthError::IdentityRevoked) => {
-                tracing::warn!(
-                    participant = %msg.get_source(),
-                    "identity provider revoked this joiner's identity, rejecting join",
-                );
-                return Err(self.handle_task_error(SessionError::Auth(AuthError::IdentityRevoked)));
-            }
-            Err(e) => {
-                debug!(
-                    error = %e,
-                    participant = %msg.get_source(),
-                    "identity revalidation inconclusive at join, admitting anyway",
-                );
-            }
+            return Err(self.handle_task_error(SessionError::Auth(AuthError::IdentityRevoked)));
         }
 
         // notify the local session that a new participant was added to the group
@@ -1862,29 +1879,11 @@ where
         // caught afterward by `on_group_ack`'s revalidation of the ack this
         // rejoin's own `GroupUpdate` broadcast expects from them. Fails open
         // on anything inconclusive, same policy as `on_join_reply`/`on_group_ack`.
-        let identity = msg.get_identity();
-        match self
-            .common
-            .settings
-            .identity_verifier
-            .revalidate(&identity)
+        if !self
+            .revalidate_or_admit(&msg.get_identity(), &participant_name)
             .await
         {
-            Ok(()) => {}
-            Err(AuthError::IdentityRevoked) => {
-                tracing::warn!(
-                    from = %participant_name,
-                    "identity provider revoked this participant's identity, ignoring rejoin request",
-                );
-                return Ok(SessionOutput::new());
-            }
-            Err(e) => {
-                debug!(
-                    error = %e,
-                    from = %participant_name,
-                    "identity revalidation inconclusive at rejoin, admitting anyway",
-                );
-            }
+            return Ok(SessionOutput::new());
         }
 
         // 4. Set current task to Rejoin
