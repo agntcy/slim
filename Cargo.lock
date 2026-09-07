@@ -49,7 +49,7 @@ dependencies = [
  "http",
  "itoa",
  "jsonwebtoken",
- "mls-rs-core 0.26.0",
+ "mls-rs-core",
  "mls-rs-crypto-awslc",
  "notify",
  "p256",
@@ -346,7 +346,7 @@ dependencies = [
  "hex",
  "maybe-async",
  "mls-rs",
- "mls-rs-core 0.26.0",
+ "mls-rs-core",
  "mls-rs-crypto-awslc",
  "mls-rs-crypto-webcrypto",
  "serde_json",
@@ -365,7 +365,7 @@ dependencies = [
  "hex",
  "maybe-async",
  "mls-rs",
- "mls-rs-core 0.26.0",
+ "mls-rs-core",
  "mls-rs-provider-sqlite",
  "serde",
  "tempfile",
@@ -2172,15 +2172,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "encoding_rs_io"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fba3fe847045ecff794b9c138293a80db914678c453ad63fbf0c6a9eb6e00b22"
-dependencies = [
- "encoding_rs",
-]
-
-[[package]]
 name = "enum-ordinalize"
 version = "4.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3137,7 +3128,7 @@ dependencies = [
 name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
+checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "is_terminal_polyfill"
@@ -3749,7 +3740,7 @@ dependencies = [
  "itertools 0.14.0",
  "maybe-async",
  "mls-rs-codec",
- "mls-rs-core 0.26.0",
+ "mls-rs-core",
  "mls-rs-identity-x509",
  "portable-atomic",
  "portable-atomic-util",
@@ -3804,22 +3795,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mls-rs-core"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e282079e5bd2fe95a009ac8af6a8e510924d876234ee494cd97f15f52de53cb0"
-dependencies = [
- "async-trait",
- "hex",
- "maybe-async",
- "mls-rs-codec",
- "serde",
- "thiserror 2.0.19",
- "wasm-bindgen",
- "zeroize",
-]
-
-[[package]]
 name = "mls-rs-crypto-awslc"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3829,9 +3804,9 @@ dependencies = [
  "aws-lc-rs",
  "aws-lc-sys",
  "maybe-async",
- "mls-rs-core 0.26.0",
- "mls-rs-crypto-hpke 0.20.0",
- "mls-rs-crypto-traits 0.21.0",
+ "mls-rs-core",
+ "mls-rs-crypto-hpke",
+ "mls-rs-crypto-traits",
  "mls-rs-identity-x509",
  "thiserror 2.0.20",
  "zeroize",
@@ -3846,24 +3821,9 @@ dependencies = [
  "async-trait",
  "cfg-if",
  "maybe-async",
- "mls-rs-core 0.26.0",
- "mls-rs-crypto-traits 0.21.0",
- "thiserror 2.0.19",
- "zeroize",
-]
-
-[[package]]
-name = "mls-rs-crypto-hpke"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b53db9a20568dec53e4f280ec8152c862b98efe105894e378d996be3305f32f2"
-dependencies = [
- "async-trait",
- "cfg-if",
- "maybe-async",
- "mls-rs-core 0.27.0",
- "mls-rs-crypto-traits 0.22.0",
- "thiserror 2.0.19",
+ "mls-rs-core",
+ "mls-rs-crypto-traits",
+ "thiserror 2.0.20",
  "zeroize",
 ]
 
@@ -3875,7 +3835,7 @@ checksum = "49171fd5c7c77cd29ec452dcc6f537b8c568084b97023dcc5c0d41140da8ceb4"
 dependencies = [
  "async-trait",
  "maybe-async",
- "mls-rs-core 0.27.0",
+ "mls-rs-core",
  "zeroize",
 ]
 
@@ -3890,9 +3850,9 @@ dependencies = [
  "der 0.8.2",
  "js-sys",
  "maybe-async",
- "mls-rs-core 0.27.0",
- "mls-rs-crypto-hpke 0.21.0",
- "mls-rs-crypto-traits 0.22.0",
+ "mls-rs-core",
+ "mls-rs-crypto-hpke",
+ "mls-rs-crypto-traits",
  "serde",
  "serde-wasm-bindgen",
  "thiserror 2.0.20",
@@ -3924,7 +3884,7 @@ dependencies = [
  "async-trait",
  "hex",
  "maybe-async",
- "mls-rs-core 0.26.0",
+ "mls-rs-core",
  "rusqlite",
  "thiserror 2.0.20",
  "zeroize",
@@ -3958,23 +3918,24 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "multiversion"
-version = "0.9.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ca4bea16ffc3f443cf7d866912118196bfef4c6a1556ca00f9f9b00bb43f7c"
+checksum = "7edb7f0ff51249dfda9ab96b5823695e15a052dc15074c9dbf3d118afaf2c201"
 dependencies = [
  "multiversion-macros",
+ "target-features",
 ]
 
 [[package]]
 name = "multiversion-macros"
-version = "0.9.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d416831a7317ef4b08bee00b69cbbb9c8763da7959a7026244d6266869f9c83"
+checksum = "b093064383341eb3271f42e381cb8f10a01459478446953953c75d24bd339fc0"
 dependencies = [
  "proc-macro2",
  "quote",
- "rustversion",
- "syn 3.0.5",
+ "syn 2.0.119",
+ "target-features",
 ]
 
 [[package]]
@@ -4165,7 +4126,7 @@ dependencies = [
  "chrono",
  "getrandom 0.2.17",
  "http",
- "rand 0.8.7",
+ "rand 0.8.8",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -6036,6 +5997,12 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
+
+[[package]]
+name = "target-features"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1bbb9f3c5c463a01705937a24fdabc5047929ac764b2d5b9cf681c1f5041ed5"
 
 [[package]]
 name = "tempfile"
