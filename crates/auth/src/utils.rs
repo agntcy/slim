@@ -233,15 +233,10 @@ fn p256_signing_key(
 fn p256_verifying_key(
     public_key_bytes: &[u8],
 ) -> Result<p256::ecdsa::VerifyingKey, crate::errors::AuthError> {
-    use p256::EncodedPoint;
     use p256::ecdsa::VerifyingKey;
-    use p256::elliptic_curve::sec1::FromEncodedPoint;
 
-    let point = EncodedPoint::from_bytes(public_key_bytes)
+    let public_key = p256::PublicKey::from_sec1_bytes(public_key_bytes)
         .map_err(|_| crate::errors::AuthError::MlsKeyGenerationFailed)?;
-    let public_key = p256::PublicKey::from_encoded_point(&point)
-        .into_option()
-        .ok_or(crate::errors::AuthError::MlsKeyGenerationFailed)?;
     Ok(VerifyingKey::from(&public_key))
 }
 
@@ -285,14 +280,14 @@ mod tests {
 
     fn generate_test_p256_keys() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
         use p256::SecretKey;
-        use p256::elliptic_curve::rand_core::OsRng;
+        use p256::elliptic_curve::Generate;
 
-        let secret_key = SecretKey::random(&mut OsRng);
+        let secret_key = SecretKey::generate();
         let secret_bytes = secret_key.to_bytes().to_vec();
         let signing_key = p256::ecdsa::SigningKey::from(&secret_key);
         let verifying_key = signing_key.verifying_key();
-        let public_compressed = verifying_key.to_encoded_point(true).as_bytes().to_vec();
-        let public_uncompressed = verifying_key.to_encoded_point(false).as_bytes().to_vec();
+        let public_compressed = verifying_key.to_sec1_point(true).as_bytes().to_vec();
+        let public_uncompressed = verifying_key.to_sec1_point(false).as_bytes().to_vec();
         (secret_bytes, public_compressed, public_uncompressed)
     }
 
@@ -333,15 +328,15 @@ mod tests {
     #[test]
     fn test_sign_verify_p256_pkcs8() {
         use p256::SecretKey;
-        use p256::elliptic_curve::rand_core::OsRng;
+        use p256::elliptic_curve::Generate;
         use p256::pkcs8::EncodePrivateKey;
 
-        let secret_key = SecretKey::random(&mut OsRng);
+        let secret_key = SecretKey::generate();
         let pkcs8_der = secret_key.to_pkcs8_der().unwrap().to_bytes().to_vec();
 
         let signing_key = p256::ecdsa::SigningKey::from(&secret_key);
         let verifying_key = signing_key.verifying_key();
-        let public_comp = verifying_key.to_encoded_point(true).as_bytes().to_vec();
+        let public_comp = verifying_key.to_sec1_point(true).as_bytes().to_vec();
 
         let msg = b"hello p256 pkcs8";
         let sig = sign_header_aad(msg, &pkcs8_der, &public_comp).unwrap();

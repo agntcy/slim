@@ -29,7 +29,7 @@ ed25519-dalek = { version = "2.1", default-features = false, features = [
 http = { workspace = true }
 itoa = "1"
 mls-rs-core = { workspace = true }
-p256 = { version = "0.13", default-features = false, features = [
+p256 = { version = "0.14", default-features = false, features = [
     "ecdsa",
     "pkcs8",
     "std",
