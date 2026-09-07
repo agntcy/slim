@@ -135,7 +135,7 @@ mls-rs = { version = "0.54" }
 mls-rs-core = { version = "0.26" }
 mls-rs-crypto-awslc = { version = "0.23" }
 # wasm32-only MLS crypto provider (browser SubtleCrypto, async-only).
-mls-rs-crypto-webcrypto = { version = "0.14" }
+mls-rs-crypto-webcrypto = { version = "0.15" }
 # Plain (statically-bundled) SQLite backend for the persistence crate; values
 # are encrypted by us via aws-lc-rs, so no SQLCipher/OpenSSL is linked.
 mls-rs-provider-sqlite = { version = "0.22", default-features = false, features = [

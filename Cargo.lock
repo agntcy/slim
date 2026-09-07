@@ -49,7 +49,7 @@ dependencies = [
  "http",
  "itoa",
  "jsonwebtoken",
- "mls-rs-core",
+ "mls-rs-core 0.26.0",
  "mls-rs-crypto-awslc",
  "notify",
  "oauth2",
@@ -346,7 +346,7 @@ dependencies = [
  "hex",
  "maybe-async",
  "mls-rs",
- "mls-rs-core",
+ "mls-rs-core 0.26.0",
  "mls-rs-crypto-awslc",
  "mls-rs-crypto-webcrypto",
  "serde_json",
@@ -365,7 +365,7 @@ dependencies = [
  "hex",
  "maybe-async",
  "mls-rs",
- "mls-rs-core",
+ "mls-rs-core 0.26.0",
  "mls-rs-provider-sqlite",
  "serde",
  "tempfile",
@@ -3687,7 +3687,7 @@ dependencies = [
  "itertools 0.14.0",
  "maybe-async",
  "mls-rs-codec",
- "mls-rs-core",
+ "mls-rs-core 0.26.0",
  "mls-rs-identity-x509",
  "portable-atomic",
  "portable-atomic-util",
@@ -3742,6 +3742,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mls-rs-core"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e282079e5bd2fe95a009ac8af6a8e510924d876234ee494cd97f15f52de53cb0"
+dependencies = [
+ "async-trait",
+ "hex",
+ "maybe-async",
+ "mls-rs-codec",
+ "serde",
+ "thiserror 2.0.19",
+ "wasm-bindgen",
+ "zeroize",
+]
+
+[[package]]
 name = "mls-rs-crypto-awslc"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3751,9 +3767,9 @@ dependencies = [
  "aws-lc-rs",
  "aws-lc-sys",
  "maybe-async",
- "mls-rs-core",
- "mls-rs-crypto-hpke",
- "mls-rs-crypto-traits",
+ "mls-rs-core 0.26.0",
+ "mls-rs-crypto-hpke 0.20.0",
+ "mls-rs-crypto-traits 0.21.0",
  "mls-rs-identity-x509",
  "thiserror 2.0.19",
  "zeroize",
@@ -3768,8 +3784,23 @@ dependencies = [
  "async-trait",
  "cfg-if",
  "maybe-async",
- "mls-rs-core",
- "mls-rs-crypto-traits",
+ "mls-rs-core 0.26.0",
+ "mls-rs-crypto-traits 0.21.0",
+ "thiserror 2.0.19",
+ "zeroize",
+]
+
+[[package]]
+name = "mls-rs-crypto-hpke"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b53db9a20568dec53e4f280ec8152c862b98efe105894e378d996be3305f32f2"
+dependencies = [
+ "async-trait",
+ "cfg-if",
+ "maybe-async",
+ "mls-rs-core 0.27.0",
+ "mls-rs-crypto-traits 0.22.0",
  "thiserror 2.0.19",
  "zeroize",
 ]
@@ -3782,24 +3813,36 @@ checksum = "d70626f39505eaeda9b90429665cb8fdc56538a0b3e357a636125662b6cb80ab"
 dependencies = [
  "async-trait",
  "maybe-async",
- "mls-rs-core",
+ "mls-rs-core 0.26.0",
+ "zeroize",
+]
+
+[[package]]
+name = "mls-rs-crypto-traits"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49171fd5c7c77cd29ec452dcc6f537b8c568084b97023dcc5c0d41140da8ceb4"
+dependencies = [
+ "async-trait",
+ "maybe-async",
+ "mls-rs-core 0.27.0",
  "zeroize",
 ]
 
 [[package]]
 name = "mls-rs-crypto-webcrypto"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "292a8e8a85689c029a6f6b0c7a7eef0f390a044ef176b80d0442b38948c66e35"
+checksum = "edc7da28ddde58bab65ad5247f8af84eb106b1ba11fed95f39fc57116f52dee6"
 dependencies = [
  "async-trait",
  "const-oid 0.10.2",
  "der 0.8.1",
  "js-sys",
  "maybe-async",
- "mls-rs-core",
- "mls-rs-crypto-hpke",
- "mls-rs-crypto-traits",
+ "mls-rs-core 0.27.0",
+ "mls-rs-crypto-hpke 0.21.0",
+ "mls-rs-crypto-traits 0.22.0",
  "serde",
  "serde-wasm-bindgen",
  "thiserror 2.0.19",
@@ -3817,7 +3860,7 @@ checksum = "a6ab2bf0bae192901fc53a87536381c5d26263cfe1bb0907ee88675998469ffc"
 dependencies = [
  "async-trait",
  "maybe-async",
- "mls-rs-core",
+ "mls-rs-core 0.26.0",
  "thiserror 2.0.19",
  "wasm-bindgen",
 ]
@@ -3831,7 +3874,7 @@ dependencies = [
  "async-trait",
  "hex",
  "maybe-async",
- "mls-rs-core",
+ "mls-rs-core 0.26.0",
  "rusqlite",
  "thiserror 2.0.19",
  "zeroize",
