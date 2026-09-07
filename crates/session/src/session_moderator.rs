@@ -2026,7 +2026,24 @@ where
             let source = msg.get_source();
             let verifier = self.common.settings.identity_verifier.clone();
             let tx_session = self.common.settings.tx_session.clone();
+            // Every member's ack lands around the same time (they're all
+            // replying to the same broadcast `GroupUpdate`), so without this
+            // the IdP would see one N-wide burst of revalidation calls per
+            // epoch refresh. Spreading each call uniformly over the full
+            // refresh interval instead turns that burst into a steady
+            // trickle, at the cost of this particular check landing up to
+            // one interval later — acceptable since it's a background
+            // liveness net, not the (separately, synchronously checked) join
+            // gate.
+            // No jitter under test: it would make timeout-bound assertions
+            // about the spawned task's outcome flaky/meaningless.
+            let jitter = if cfg!(test) {
+                Duration::ZERO
+            } else {
+                Duration::from_millis(rand::random::<u64>() % EPOCH_REFRESH_INTERVAL.as_millis() as u64)
+            };
             tokio::spawn(async move {
+                tokio::time::sleep(jitter).await;
                 match verifier.revalidate(&identity).await {
                     Ok(()) => {}
                     Err(AuthError::IdentityRevoked) => {

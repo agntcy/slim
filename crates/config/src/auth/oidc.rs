@@ -28,11 +28,15 @@ pub struct Config {
     /// OIDC issuer URL (e.g., https://auth.example.com)
     pub issuer_url: String,
 
-    /// OAuth2 client ID (required for provider functionality)
+    /// OAuth2 client ID (required for provider functionality; also required
+    /// for verifier functionality to authenticate `revalidate`'s introspection
+    /// calls — without it, revalidation can never confirm or reject an
+    /// identity and eventually fails closed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
 
-    /// OAuth2 client secret (required for provider functionality)
+    /// OAuth2 client secret (required for provider functionality; may be left
+    /// unset for verifier functionality if the client is public)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
 
@@ -488,6 +492,10 @@ impl Config {
             .ok_or(ConfigAuthError::AuthJwtAudienceRequired)?;
 
         let mut verifier = OidcVerifier::new(&self.issuer_url, audience);
+        if let Some(client_id) = &self.client_id {
+            verifier = verifier
+                .with_client_credentials(client_id, self.client_secret.clone().unwrap_or_default());
+        }
         if let Some(ttl) = self.jwks_ttl {
             verifier = verifier.with_jwks_ttl(ttl.into());
         }

@@ -17,7 +17,6 @@ use crate::resolver::same_origin;
 use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
 use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
-use reqwest::StatusCode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1001,6 +1000,20 @@ pub struct OidcVerifier {
     http_client: ReqwestClient,
     jwks_ttl: Duration,
     userinfo_endpoint: Arc<std::sync::OnceLock<String>>,
+    /// RFC 7662 introspection endpoint, if the discovery document advertises
+    /// one. Preferred over `userinfo_endpoint` for `revalidate` when
+    /// `client_id` is also set: it answers exactly "is this token active",
+    /// rather than userinfo's "here are this token's claims" (which happens
+    /// to also fail for a dead token, but returns full profile data on
+    /// success — more than a liveness check needs).
+    introspection_endpoint: Arc<std::sync::OnceLock<String>>,
+    /// Client credentials to authenticate introspection calls. Unlike
+    /// userinfo, introspection is meant to be called by a resource server on
+    /// someone else's behalf, so it requires a registered client — a token's
+    /// own holder authenticating with the token itself (as userinfo allows)
+    /// isn't sufficient. `client_secret` may be empty for a public client.
+    client_id: Option<String>,
+    client_secret: Option<String>,
     // When Some, merged claims are cached for claim_cache_ttl per token.
     claim_cache: Option<Arc<RwLock<HashMap<String, (serde_json::Value, Instant)>>>>,
     claim_cache_ttl: Duration,
@@ -1025,6 +1038,9 @@ impl OidcVerifier {
                 .expect("failed to build reqwest client"),
             jwks_ttl: Duration::from_secs(3600), // Default 1 hour
             userinfo_endpoint: Arc::new(std::sync::OnceLock::new()),
+            introspection_endpoint: Arc::new(std::sync::OnceLock::new()),
+            client_id: None,
+            client_secret: None,
             claim_cache: None,
             claim_cache_ttl: Duration::ZERO,
             revocation_failure_streak: Arc::new(RwLock::new(HashMap::new())),
@@ -1042,6 +1058,20 @@ impl OidcVerifier {
     pub fn with_claim_cache(mut self, ttl: Duration) -> Self {
         self.claim_cache_ttl = ttl;
         self.claim_cache = Some(Arc::new(RwLock::new(HashMap::new())));
+        self
+    }
+
+    /// Authenticate `revalidate`'s revocation check against the introspection
+    /// endpoint (if the issuer advertises one) instead of userinfo. Pass an
+    /// empty `client_secret` for a public client.
+    pub fn with_client_credentials(
+        mut self,
+        client_id: impl Into<String>,
+        client_secret: impl Into<String>,
+    ) -> Self {
+        self.client_id = Some(client_id.into());
+        let secret = client_secret.into();
+        self.client_secret = if secret.is_empty() { None } else { Some(secret) };
         self
     }
 
@@ -1088,6 +1118,13 @@ impl OidcVerifier {
             .and_then(|v| v.as_str())
         {
             let _ = self.userinfo_endpoint.set(ep.to_string());
+        }
+
+        if let Some(ep) = discovery_response
+            .get("introspection_endpoint")
+            .and_then(|v| v.as_str())
+        {
+            let _ = self.introspection_endpoint.set(ep.to_string());
         }
 
         let jwks: JwkSet = self
@@ -1207,49 +1244,31 @@ impl OidcVerifier {
     }
 
     /// Confirm the identity provider hasn't revoked this token, retrying a
-    /// bounded number of times before giving up. Unlike [`Self::userinfo_claims`],
-    /// this does not swallow the outcome: a definitive rejection (401/403) is
-    /// [`RevocationCheck::Revoked`], but anything that stops the check from
-    /// completing at all — no endpoint discovered yet, a connection error, a
-    /// timeout, a 5xx — is [`RevocationCheck::Inconclusive`]. The caller
-    /// ([`Self::revalidate`]) decides how many consecutive inconclusive
-    /// outcomes to tolerate before failing closed.
+    /// bounded number of times before giving up. This does not swallow the
+    /// outcome the way [`Self::userinfo_claims`] does: a definitive `{"active":
+    /// false}` is [`RevocationCheck::Revoked`], but anything that stops the
+    /// check from completing at all — no introspection endpoint/client
+    /// configured, a connection error, a timeout, a 5xx — is
+    /// [`RevocationCheck::Inconclusive`]. The caller ([`Self::revalidate`])
+    /// decides how many consecutive inconclusive outcomes to tolerate before
+    /// failing closed.
     async fn check_not_revoked(&self, credential: &str) -> RevocationCheck {
         let (access_token, _) = split_credential(credential);
 
-        let Some(endpoint) = self.userinfo_endpoint.get() else {
-            tracing::debug!("revalidate: userinfo_endpoint not discovered yet, skipping");
+        let Some(client_id) = self.client_id.as_ref() else {
+            tracing::debug!("revalidate: no client credentials configured for introspection, skipping");
+            return RevocationCheck::Inconclusive;
+        };
+        let Some(endpoint) = self.introspection_endpoint.get() else {
+            tracing::debug!("revalidate: introspection_endpoint not discovered yet, skipping");
             return RevocationCheck::Inconclusive;
         };
 
         for attempt in 1..=REVALIDATE_ATTEMPTS {
-            match self
-                .http_client
-                .get(endpoint)
-                .bearer_auth(access_token)
-                .send()
-                .await
-            {
-                Ok(resp) if resp.status().is_success() => return RevocationCheck::Confirmed,
-                Ok(resp)
-                    if resp.status() == StatusCode::UNAUTHORIZED
-                        || resp.status() == StatusCode::FORBIDDEN =>
-                {
-                    tracing::warn!(
-                        status = %resp.status(),
-                        "revalidate: identity provider rejected the token"
-                    );
-                    return RevocationCheck::Revoked;
-                }
-                Ok(resp) => {
-                    tracing::debug!(
-                        status = %resp.status(), attempt,
-                        "revalidate: unexpected status, retrying"
-                    );
-                }
-                Err(e) => {
-                    tracing::debug!(error = %e, attempt, "revalidate: request failed, retrying");
-                }
+            match self.introspect(endpoint, client_id, access_token).await {
+                RevocationCheck::Confirmed => return RevocationCheck::Confirmed,
+                RevocationCheck::Revoked => return RevocationCheck::Revoked,
+                RevocationCheck::Inconclusive => {}
             }
 
             if attempt < REVALIDATE_ATTEMPTS {
@@ -1259,6 +1278,53 @@ impl OidcVerifier {
 
         tracing::warn!("revalidate: identity provider unreachable after retries");
         RevocationCheck::Inconclusive
+    }
+
+    /// RFC 7662 token introspection: the endpoint answers exactly `{"active":
+    /// bool}`, so unlike a userinfo-based check, only that field — never the
+    /// HTTP status — decides `Revoked`. A non-2xx here means *this client*
+    /// failed to authenticate to the introspection endpoint, not that the
+    /// *subject's* token is bad, so it is always `Inconclusive`.
+    async fn introspect(&self, endpoint: &str, client_id: &str, access_token: &str) -> RevocationCheck {
+        let form = [("token", access_token), ("token_type_hint", "access_token")];
+        let response = self
+            .http_client
+            .post(endpoint)
+            .basic_auth(client_id, Some(self.client_secret.as_deref().unwrap_or("")))
+            .form(&form)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status());
+
+        let body = match response {
+            Ok(resp) => resp.json::<serde_json::Value>().await,
+            Err(e) => {
+                tracing::debug!(error = %e, "revalidate: introspection request failed, retrying");
+                return RevocationCheck::Inconclusive;
+            }
+        };
+
+        match body {
+            Ok(body) => match body.get("active").and_then(|v| v.as_bool()) {
+                Some(true) => RevocationCheck::Confirmed,
+                Some(false) => {
+                    tracing::warn!(
+                        "revalidate: identity provider introspection reports token inactive"
+                    );
+                    RevocationCheck::Revoked
+                }
+                None => {
+                    tracing::debug!(
+                        "revalidate: introspection response missing 'active' field, retrying"
+                    );
+                    RevocationCheck::Inconclusive
+                }
+            },
+            Err(e) => {
+                tracing::debug!(error = %e, "revalidate: introspection response not JSON, retrying");
+                RevocationCheck::Inconclusive
+            }
+        }
     }
 
     /// Verify a JWT token and enrich claims from userinfo.
@@ -1603,8 +1669,8 @@ mod tests {
     }
 
     /// Builds a verifier + signed token against `setup_test_jwt_resolver`'s
-    /// mock server, with `userinfo_endpoint` wired to that same server so
-    /// `revalidate` has somewhere to call.
+    /// mock server, with `introspection_endpoint` and client credentials
+    /// wired up so `revalidate` has somewhere to call.
     async fn verifier_and_token_for_revalidate() -> (OidcVerifier, wiremock::MockServer, String) {
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
@@ -1614,26 +1680,29 @@ mod tests {
         let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
         let token = encode(&header, &claims, &encoding_key).unwrap();
 
-        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
+        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience")
+            .with_client_credentials("test-client", "test-secret");
         verifier
-            .userinfo_endpoint
-            .set(format!("{issuer_url}/userinfo"))
+            .introspection_endpoint
+            .set(format!("{issuer_url}/introspect"))
             .unwrap();
 
         (verifier, mock_server, token)
     }
 
-    /// A definitive rejection from the identity provider must be reported as
-    /// a confirmed revocation, not retried away.
+    /// A definitive `{"active": false}` from introspection must be reported
+    /// as a confirmed revocation, not retried away.
     #[tokio::test]
-    async fn revalidate_returns_identity_revoked_on_401() {
+    async fn revalidate_returns_identity_revoked_when_introspection_reports_inactive() {
         slim_config::tls::provider::initialize_crypto_provider();
         let _guard = AllowInsecureIssuerForTest::new();
         let (verifier, mock_server, token) = verifier_and_token_for_revalidate().await;
 
-        Mock::given(method("GET"))
-            .and(path("/userinfo"))
-            .respond_with(ResponseTemplate::new(401))
+        Mock::given(method("POST"))
+            .and(path("/introspect"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"active": false})),
+            )
             .mount(&mock_server)
             .await;
 
@@ -1653,16 +1722,18 @@ mod tests {
 
         // First two attempts see a 5xx; only the third (lower priority,
         // unlimited) sees success.
-        Mock::given(method("GET"))
-            .and(path("/userinfo"))
+        Mock::given(method("POST"))
+            .and(path("/introspect"))
             .respond_with(ResponseTemplate::new(500))
             .up_to_n_times(2)
             .with_priority(1)
             .mount(&mock_server)
             .await;
-        Mock::given(method("GET"))
-            .and(path("/userinfo"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        Mock::given(method("POST"))
+            .and(path("/introspect"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"active": true})),
+            )
             .with_priority(2)
             .mount(&mock_server)
             .await;
@@ -1685,11 +1756,12 @@ mod tests {
         let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
         let token = encode(&header, &claims, &encoding_key).unwrap();
 
-        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
+        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience")
+            .with_client_credentials("test-client", "test-secret");
         // Nothing listens here — every attempt fails to connect.
         verifier
-            .userinfo_endpoint
-            .set("http://127.0.0.1:1/userinfo".to_string())
+            .introspection_endpoint
+            .set("http://127.0.0.1:1/introspect".to_string())
             .unwrap();
 
         assert!(verifier.revalidate(token).await.is_ok());
@@ -1698,8 +1770,8 @@ mod tests {
     /// A single blip fails open (previous test), but an identity provider
     /// that stays unreachable across `MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS`
     /// separate `revalidate` calls for the same subject must fail closed —
-    /// otherwise blocking traffic to the userinfo endpoint would permanently
-    /// hide a revocation.
+    /// otherwise blocking traffic to the introspection endpoint would
+    /// permanently hide a revocation.
     #[tokio::test]
     async fn revalidate_fails_closed_after_sustained_unreachability() {
         slim_config::tls::provider::initialize_crypto_provider();
@@ -1712,11 +1784,44 @@ mod tests {
         let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
         let token = encode(&header, &claims, &encoding_key).unwrap();
 
-        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
+        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience")
+            .with_client_credentials("test-client", "test-secret");
         // Nothing listens here — every attempt fails to connect, for every call.
         verifier
-            .userinfo_endpoint
-            .set("http://127.0.0.1:1/userinfo".to_string())
+            .introspection_endpoint
+            .set("http://127.0.0.1:1/introspect".to_string())
+            .unwrap();
+
+        for _ in 0..MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS - 1 {
+            assert!(verifier.revalidate(&token).await.is_ok());
+        }
+
+        assert!(matches!(
+            verifier.revalidate(&token).await,
+            Err(AuthError::IdentityRevoked)
+        ));
+    }
+
+    /// No client credentials configured means introspection can never run,
+    /// so every call is inconclusive and eventually fails closed — same as a
+    /// permanently unreachable IdP, not a silent pass-through.
+    #[tokio::test]
+    async fn revalidate_fails_closed_without_client_credentials() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let _guard = AllowInsecureIssuerForTest::new();
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+
+        let claims = TestClaims::new("user123", issuer_url.clone(), "test-audience");
+        let header = Header::new(Algorithm::RS256);
+        let encoding_key = EncodingKey::from_rsa_pem(private_key.as_bytes()).unwrap();
+        let token = encode(&header, &claims, &encoding_key).unwrap();
+
+        // No `with_client_credentials`, even though introspection is discovered.
+        let verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
+        verifier
+            .introspection_endpoint
+            .set(format!("{issuer_url}/introspect"))
             .unwrap();
 
         for _ in 0..MAX_CONSECUTIVE_INCONCLUSIVE_REVALIDATIONS - 1 {
