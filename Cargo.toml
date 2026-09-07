@@ -138,7 +138,7 @@ mls-rs-crypto-awslc = { version = "0.23" }
 mls-rs-crypto-webcrypto = { version = "0.14" }
 # Plain (statically-bundled) SQLite backend for the persistence crate; values
 # are encrypted by us via aws-lc-rs, so no SQLCipher/OpenSSL is linked.
-mls-rs-provider-sqlite = { version = "0.22", default-features = false, features = [
+mls-rs-provider-sqlite = { version = "0.23", default-features = false, features = [
     "sqlite-bundled",
 ] }
 notify = "8.0.0"
