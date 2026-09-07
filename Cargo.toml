@@ -133,7 +133,7 @@ maybe-async = "0.2.10"
 ml-kem = { version = "0.3.2", default-features = false, features = ["alloc"] }
 mls-rs = { version = "0.54" }
 mls-rs-core = { version = "0.26" }
-mls-rs-crypto-awslc = { version = "0.23" }
+mls-rs-crypto-awslc = { version = "0.25" }
 # wasm32-only MLS crypto provider (browser SubtleCrypto, async-only).
 mls-rs-crypto-webcrypto = { version = "0.14" }
 # Plain (statically-bundled) SQLite backend for the persistence crate; values
