@@ -162,23 +162,25 @@ pub use error::{InvalidRpcCode, RpcCode, RpcError};
 pub use rpc_session::{
     HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc, send_response_stream,
 };
-pub use server::{HandlerType, RpcHandler, Server, StreamRpcHandler};
+pub use server::{HandlerType, RpcHandler, Server, SharedRpcHandler, SharedStreamRpcHandler, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
 // Native/shared stream types.
-pub use stream_types::{DecodedStream, RawStream, StreamSource};
+pub use stream_types::{DecodedStream, PeerMessage, PeerResponseStream, RawStream, StreamSource};
 
 // UniFFI handler traits and FFI stream wrapper types (compiled only under the
 // `uniffi` feature).
 #[cfg(feature = "uniffi")]
 pub use handler_traits::{
-    StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
+    StreamStreamHandler, StreamStreamSharedHandler, StreamUnaryHandler, StreamUnarySharedHandler,
+    UnaryStreamHandler, UnaryStreamSharedHandler, UnaryUnaryHandler, UnaryUnarySharedHandler,
 };
 #[cfg(feature = "uniffi")]
 pub use stream_types::{
     BidiStreamHandler, MulticastBidiStreamHandler, MulticastResponseReader, MulticastStreamMessage,
-    RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink, ResponseStreamReader,
-    RpcMessageContext, RpcMulticastItem, StreamMessage,
+    PeerStreamMessage, RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink,
+    ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
+    UniffiPeerResponseStream,
 };
 
 /// Key used in metadata for RPC deadline/timeout
@@ -203,6 +205,25 @@ pub const RPC_DIR_KEY: &str = "slimrpc-dir";
 
 /// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
 pub const RPC_DIR_REQ: &str = "req";
+
+/// Value for [`RPC_DIR_KEY`] that marks a message as a server response.
+/// Stamped on all server-originated data frames and EOS so that peers in a
+/// shared-responses multicast session can distinguish them from client requests.
+pub const RPC_DIR_RESP: &str = "resp";
+
+/// Session-level metadata key set by the client when creating a shared-responses
+/// multicast channel. Servers read this key to decide whether to deliver peer
+/// responses to their handlers.
+pub const SHARED_RESPONSES_KEY: &str = "slimrpc-shared-responses";
+
+/// Value for [`SHARED_RESPONSES_KEY`] that enables shared-responses mode.
+pub const SHARED_RESPONSES_ENABLED: &str = "true";
+
+/// Session-level metadata key carrying the total group member count as a decimal
+/// string. Set by the client alongside [`SHARED_RESPONSES_KEY`]. Servers use it
+/// to determine how many peer EOSes to wait for before closing the handler's
+/// [`PeerResponseStream`].
+pub const SHARED_RESPONSES_MEMBER_COUNT_KEY: &str = "slimrpc-member-count";
 
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);

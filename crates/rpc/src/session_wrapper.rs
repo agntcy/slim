@@ -19,7 +19,7 @@ use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
 use slim_session::{AppChannelReceiver, CompletionHandle};
 
-use super::{RpcCode, RpcError, STATUS_CODE_KEY};
+use super::{RPC_DIR_KEY, RPC_DIR_RESP, RpcCode, RpcError, STATUS_CODE_KEY};
 
 /// Received message from a session
 #[derive(Debug, Clone)]
@@ -50,6 +50,12 @@ impl ReceivedMessage {
             && RpcCode::from_metadata_str(self.metadata.get(STATUS_CODE_KEY).map(String::as_str))
                 == RpcCode::Ok
             && self.payload.is_empty()
+    }
+
+    /// Returns `true` when this message is a peer server response (carries
+    /// `slimrpc-dir = "resp"`), as opposed to a client request (`"req"`).
+    pub fn is_peer_response(&self) -> bool {
+        self.metadata.get(RPC_DIR_KEY).map(String::as_str) == Some(RPC_DIR_RESP)
     }
 }
 

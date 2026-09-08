@@ -12,6 +12,8 @@ use std::task::Poll;
 
 use tokio::sync::mpsc;
 
+use slim_datapath::api::ProtoName as Name;
+
 use super::{ReceivedMessage, RpcCode, RpcError, STATUS_CODE_KEY};
 
 // The UniFFI FFI stream wrapper types below use these; the native raw stream
@@ -163,6 +165,106 @@ impl StreamSource {
             first_code: self.first_code,
             first_done: false,
             done: false,
+        }
+    }
+}
+
+// ── Shared-responses types ────────────────────────────────────────────────────
+
+/// A single response message received from a peer server in shared-responses
+/// multicast mode.
+///
+/// The payload is the raw encoded bytes of the peer's response; the application
+/// should decode them as the expected `Res` type using [`Decoder::decode`].
+#[derive(Debug, Clone)]
+pub struct PeerMessage {
+    /// The server that produced this response.
+    pub source: Name,
+    /// Raw encoded response bytes.
+    pub payload: Vec<u8>,
+}
+
+/// Async stream of peer response messages delivered in shared-responses
+/// multicast mode.
+///
+/// Yields [`PeerMessage`] items as peer servers send their responses. Returns
+/// `None` when all peers have finished (their EOS markers have been processed).
+pub struct PeerResponseStream {
+    rx: mpsc::UnboundedReceiver<PeerMessage>,
+}
+
+impl PeerResponseStream {
+    pub fn new(rx: mpsc::UnboundedReceiver<PeerMessage>) -> Self {
+        Self { rx }
+    }
+
+    /// Receive the next peer response, or `None` if all peers are done.
+    pub async fn next(&mut self) -> Option<PeerMessage> {
+        self.rx.recv().await
+    }
+
+    /// Consume `self` and return the inner mpsc receiver.
+    pub fn into_receiver(self) -> mpsc::UnboundedReceiver<PeerMessage> {
+        self.rx
+    }
+}
+
+#[cfg(feature = "uniffi")]
+/// A single message from the peer response stream, returned by [`UniffiPeerResponseStream::next`].
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum PeerStreamMessage {
+    /// A peer server sent a response.
+    Data {
+        /// SLIM name of the peer that produced the response.
+        source: Arc<slim_bindings::Name>,
+        /// Raw encoded response bytes (decode as the expected `Res` type).
+        payload: Vec<u8>,
+    },
+    /// All peers have finished — the stream has ended.
+    End,
+}
+
+#[cfg(feature = "uniffi")]
+/// Peer-response stream reader for shared-responses multicast mode.
+///
+/// Yields one item per response sent by a peer server in the GROUP session.
+/// Returns [`PeerStreamMessage::End`] when all peers have finished.
+///
+/// Obtain an instance by registering a handler via one of the `register_*_shared`
+/// methods on [`Server`](crate::Server); the runtime passes it as the last
+/// argument to the handler callback.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
+pub struct UniffiPeerResponseStream {
+    inner: TokioMutex<mpsc::UnboundedReceiver<PeerMessage>>,
+}
+
+#[cfg(feature = "uniffi")]
+impl UniffiPeerResponseStream {
+    /// Create a new peer response stream wrapper from the raw mpsc receiver.
+    pub fn new(rx: mpsc::UnboundedReceiver<PeerMessage>) -> Self {
+        Self {
+            inner: TokioMutex::new(rx),
+        }
+    }
+}
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+impl UniffiPeerResponseStream {
+    /// Pull the next peer response message (blocking version).
+    pub fn next(&self) -> PeerStreamMessage {
+        crate::get_runtime().block_on(self.next_async())
+    }
+
+    /// Pull the next peer response message (async version).
+    pub async fn next_async(&self) -> PeerStreamMessage {
+        let mut rx = self.inner.lock().await;
+        match rx.recv().await {
+            Some(msg) => PeerStreamMessage::Data {
+                source: Arc::new(slim_bindings::Name::from_slim_name(msg.source)),
+                payload: msg.payload,
+            },
+            None => PeerStreamMessage::End,
         }
     }
 }
