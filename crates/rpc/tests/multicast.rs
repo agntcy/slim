@@ -1327,12 +1327,12 @@ async fn test_multicast_shared_responses_stream() {
     // Give peer-drain tasks time to finish.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Each server should have seen >= frames_each peer frames from the other server.
+    // Each server should have seen exactly frames_each peer data frames (no EOS leak).
     for (i, counter) in peer_counts.iter().enumerate() {
         let seen = *counter.lock().unwrap();
-        assert!(
-            seen >= frames_each,
-            "server {i} saw {seen} peer frames, expected >= {frames_each}"
+        assert_eq!(
+            seen, frames_each,
+            "server {i} saw {seen} peer frames, expected {frames_each}"
         );
     }
 
