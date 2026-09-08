@@ -40,7 +40,7 @@ const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
 
 use slim_rpc::{
     Channel, Context, DecodedStream, Decoder, Encoder, MulticastItem, PeerMessage,
-    PeerResponseStream, RpcError, Server,
+    PeerResponseReceiver, RpcError, Server,
 };
 
 // ============================================================================
@@ -1150,7 +1150,7 @@ async fn new_shared_env(test_name: &str, num_members: usize) -> MulticastTestEnv
 
 /// Collect at most `n` `PeerMessage`s from `peer_stream` within `timeout`.
 async fn collect_peer_messages(
-    peer_stream: &mut PeerResponseStream,
+    peer_stream: &mut PeerResponseReceiver,
     n: usize,
     timeout: Duration,
 ) -> Vec<PeerMessage> {
@@ -1172,7 +1172,7 @@ async fn collect_peer_messages(
 // ============================================================================
 
 /// Two servers opt in; client uses `new_with_members_shared`.
-/// Each server handler collects the *other* server's response via `PeerResponseStream`,
+/// Each server handler collects the *other* server's response via `PeerResponseReceiver`,
 /// while the client also collects both responses via the multicast stream.
 #[tokio::test]
 #[tracing_test::traced_test]
@@ -1192,7 +1192,7 @@ async fn test_multicast_shared_responses_unary() {
         server.register_unary_unary_shared(
             "TestService",
             "Echo",
-            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseStream| {
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
                 let collected = collected.clone();
                 async move {
                     // Collect peer responses in the background so this handler can
@@ -1257,7 +1257,7 @@ async fn test_multicast_shared_responses_unary() {
 // ============================================================================
 
 /// Two servers opt in with stream handlers.
-/// Each server collects the other's response frames via `PeerResponseStream`.
+/// Each server collects the other's response frames via `PeerResponseReceiver`.
 #[tokio::test]
 #[tracing_test::traced_test]
 async fn test_multicast_shared_responses_stream() {
@@ -1275,7 +1275,7 @@ async fn test_multicast_shared_responses_stream() {
         server.register_unary_stream_shared(
             "TestService",
             "StreamEcho",
-            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseStream| {
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
                 let counter = counter.clone();
                 async move {
                     let c = req.value as usize;
@@ -1357,7 +1357,7 @@ async fn test_multicast_shared_responses_peer_eos_not_terminal() {
             "Sum",
             move |mut req_stream: DecodedStream<TestRequest>,
                   _ctx: Context,
-                  mut peer: PeerResponseStream| async move {
+                  mut peer: PeerResponseReceiver| async move {
                 let mut total = 0i32;
                 while let Some(r) = req_stream.next().await {
                     let req = r?;
@@ -1444,7 +1444,7 @@ async fn test_multicast_shared_responses_server_rejects() {
     server0.register_unary_unary_shared(
         "TestService",
         "Echo",
-        |req: TestRequest, _ctx: Context, _peer: PeerResponseStream| async move {
+        |req: TestRequest, _ctx: Context, _peer: PeerResponseReceiver| async move {
             Ok(TestResponse {
                 member_id: 0,
                 result: req.message,
@@ -1596,7 +1596,7 @@ async fn test_multicast_shared_responses_three_servers() {
         server.register_unary_unary_shared(
             "TestService",
             "Echo",
-            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseStream| {
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
                 let collected = collected.clone();
                 async move {
                     // Collect peer responses in background so no deadlock.

@@ -35,7 +35,7 @@ use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcSession,
     SERVICE_KEY, send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
-    stream_types::{PeerMessage, PeerResponseStream, StreamSource},
+    stream_types::{PeerMessage, PeerResponseReceiver, StreamSource},
 };
 
 use super::{
@@ -59,14 +59,14 @@ pub type StreamRpcHandler =
 /// Receives the decoded request bytes, context, session, source, rpc-id, and
 /// a stream of peer server responses.
 pub type SharedRpcHandler = Arc<
-    dyn Fn(Item, Context, SessionTx, Name, Arc<str>, PeerResponseStream) -> ResponseStream
+    dyn Fn(Item, Context, SessionTx, Name, Arc<str>, PeerResponseReceiver) -> ResponseStream
         + Send
         + Sync,
 >;
 
 /// Handler function type for shared-responses stream-input RPC methods.
 pub type SharedStreamRpcHandler = Arc<
-    dyn Fn(StreamSource, Context, SessionTx, Name, Arc<str>, PeerResponseStream) -> ResponseStream
+    dyn Fn(StreamSource, Context, SessionTx, Name, Arc<str>, PeerResponseReceiver) -> ResponseStream
         + Send
         + Sync,
 >;
@@ -261,7 +261,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -273,10 +273,10 @@ impl ServiceRegistry {
                   session_tx: SessionTx,
                   _source: Name,
                   rpc_id: Arc<str>,
-                  peer_stream: PeerResponseStream| {
+                  peer_stream: PeerResponseReceiver| {
                 let fut = Req::decode(bytes).map(|req| handler(req, ctx, peer_stream));
                 // Broadcast to the session group so all members (including peer servers)
-                // receive this response and can observe it via PeerResponseStream.
+                // receive this response and can observe it via PeerResponseReceiver.
                 let group = session_tx.destination().clone();
                 async move {
                     let encoded = fut?.await?.encode()?;
@@ -301,7 +301,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -314,10 +314,10 @@ impl ServiceRegistry {
                   session_tx: SessionTx,
                   _source: Name,
                   rpc_id: Arc<str>,
-                  peer_stream: PeerResponseStream| {
+                  peer_stream: PeerResponseReceiver| {
                 let fut = Req::decode(bytes).map(|req| handler(req, ctx, peer_stream));
                 // Broadcast to the session group so all members (including peer servers)
-                // receive this response and can observe it via PeerResponseStream.
+                // receive this response and can observe it via PeerResponseReceiver.
                 let group = session_tx.destination().clone();
                 async move {
                     let response_stream = fut?.await?;
@@ -337,7 +337,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(DecodedStream<Req>, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -349,13 +349,13 @@ impl ServiceRegistry {
                   session_tx: SessionTx,
                   _target: Name,
                   rpc_id: Arc<str>,
-                  peer_stream: PeerResponseStream| {
+                  peer_stream: PeerResponseReceiver| {
                 let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
                     |res| res.and_then(|bytes| Req::decode(bytes));
                 let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
                 let fut = handler(decoded, ctx, peer_stream);
                 // Broadcast to the session group so all members (including peer servers)
-                // receive this response and can observe it via PeerResponseStream.
+                // receive this response and can observe it via PeerResponseReceiver.
                 let group = session_tx.destination().clone();
                 async move {
                     let encoded = fut.await?.encode()?;
@@ -380,7 +380,7 @@ impl ServiceRegistry {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(DecodedStream<Req>, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -393,13 +393,13 @@ impl ServiceRegistry {
                   session_tx: SessionTx,
                   _target: Name,
                   rpc_id: Arc<str>,
-                  peer_stream: PeerResponseStream| {
+                  peer_stream: PeerResponseReceiver| {
                 let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
                     |res| res.and_then(|bytes| Req::decode(bytes));
                 let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
                 let fut = handler(decoded, ctx, peer_stream);
                 // Broadcast to the session group so all members (including peer servers)
-                // receive this response and can observe it via PeerResponseStream.
+                // receive this response and can observe it via PeerResponseReceiver.
                 let group = session_tx.destination().clone();
                 async move {
                     let response_stream = fut.await?;
@@ -527,7 +527,7 @@ pub struct Server {
     /// Runtime handle for spawning tasks (resolved at construction)
     pub(crate) runtime: tokio::runtime::Handle,
     /// When `true`, sessions that request shared-responses mode are accepted and
-    /// peer response messages are forwarded to handlers via [`PeerResponseStream`].
+    /// peer response messages are forwarded to handlers via [`PeerResponseReceiver`].
     /// When `false` (default), such sessions are rejected with a
     /// `failed_precondition` error on their first RPC call.
     accept_shared_responses: bool,
@@ -537,7 +537,7 @@ pub struct Server {
 /// sender in `pending_streams` so that subsequent messages can be routed to the same task.
 ///
 /// When `peer_rx` is `Some`, the handler is a shared-responses variant: the receiver is
-/// wrapped in a [`PeerResponseStream`] and passed to the handler alongside the request.
+/// wrapped in a [`PeerResponseReceiver`] and passed to the handler alongside the request.
 /// The caller is responsible for storing the corresponding sender in `pending_peer_streams`.
 #[allow(clippy::too_many_arguments)]
 fn spawn_handler_task(
@@ -565,7 +565,7 @@ fn spawn_handler_task(
         HandlerInfo::Unary(_) | HandlerInfo::SharedUnary(_) => None,
     };
 
-    let peer_stream = peer_rx.map(PeerResponseStream::new);
+    let peer_stream = peer_rx.map(PeerResponseReceiver::new);
 
     tokio::spawn(async move {
         let session = match stream_rx {
@@ -600,7 +600,7 @@ fn spawn_handler_task(
 ///
 /// When `accept_shared_responses` is `true` AND the session metadata contains
 /// `SHARED_RESPONSES_KEY = "true"`, peer response messages (tagged `RPC_DIR_KEY = "resp"`)
-/// are forwarded to the handler's [`PeerResponseStream`] instead of being dropped.
+/// are forwarded to the handler's [`PeerResponseReceiver`] instead of being dropped.
 /// If the session requests shared-responses but the server does not accept it
 /// (`accept_shared_responses = false`), the first RPC call on the session is rejected
 /// with a `failed_precondition` error.
@@ -682,7 +682,7 @@ async fn run_session_demux(
 
         // ── Shared-responses: route peer response messages ────────────────────
         // In shared-responses mode, messages tagged RPC_DIR_RESP belong to a peer
-        // server's response stream.  Route them to the handler's PeerResponseStream
+        // server's response stream.  Route them to the handler's PeerResponseReceiver
         // channel if one is registered, then skip normal dispatch.
         // Self-echoes (source == our own name) are discarded — handlers only receive
         // responses from *other* members, and the self-EOS must not close the channel
@@ -710,7 +710,7 @@ async fn run_session_demux(
                     };
                     tracing::debug!(%rpc_id_str, payload_len = peer_msg.payload.len(), "forwarding peer message");
                     if tx.send(peer_msg).is_err() {
-                        // Handler dropped PeerResponseStream — clean up immediately.
+                        // Handler dropped PeerResponseReceiver — clean up immediately.
                         pending_peer_streams.remove(rpc_id_str.as_str());
                         peer_eos_counts.remove(rpc_id_str.as_str());
                     }
@@ -965,7 +965,7 @@ impl Server {
     /// Create a server that accepts shared-responses multicast sessions.
     ///
     /// In a shared-responses session, each server receives both client requests
-    /// AND the responses from all other group members via a [`PeerResponseStream`].
+    /// AND the responses from all other group members via a [`PeerResponseReceiver`].
     /// Register handlers using `register_*_shared` variants to consume peer responses.
     #[cfg(not(feature = "uniffi"))]
     pub fn new_with_shared_responses(
@@ -1317,7 +1317,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -1333,7 +1333,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -1350,7 +1350,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(DecodedStream<Req>, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -1366,7 +1366,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(DecodedStream<Req>, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -1726,7 +1726,7 @@ impl Server {
 impl Server {
     /// Register a unary-to-unary shared-responses RPC handler.
     ///
-    /// The handler receives a [`PeerResponseStream`] delivering response messages from
+    /// The handler receives a [`PeerResponseReceiver`] delivering response messages from
     /// peer servers in the multicast group.  Only meaningful when the server was
     /// constructed with [`Server::new_with_shared_responses`] and the client channel
     /// was created with [`Channel::new_group_shared`].
@@ -1736,7 +1736,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -1751,7 +1751,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(Req, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
@@ -1767,7 +1767,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(DecodedStream<Req>, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,
         Res: Encoder + Send + 'static,
@@ -1782,7 +1782,7 @@ impl Server {
         method_name: &str,
         handler: F,
     ) where
-        F: Fn(DecodedStream<Req>, Context, PeerResponseStream) -> Fut + Send + Sync + 'static,
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
         Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
         S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
         Req: Decoder + Send + 'static,

@@ -184,16 +184,18 @@ pub struct PeerMessage {
     pub payload: Vec<u8>,
 }
 
-/// Async stream of peer response messages delivered in shared-responses
-/// multicast mode.
+/// Async channel of peer response messages delivered in shared-responses
+/// multicast mode (native Rust handler side).
 ///
 /// Yields [`PeerMessage`] items as peer servers send their responses. Returns
 /// `None` when all peers have finished (their EOS markers have been processed).
-pub struct PeerResponseStream {
+///
+/// Language-binding callers receive [`PeerResponseStream`] instead.
+pub struct PeerResponseReceiver {
     rx: mpsc::UnboundedReceiver<PeerMessage>,
 }
 
-impl PeerResponseStream {
+impl PeerResponseReceiver {
     pub fn new(rx: mpsc::UnboundedReceiver<PeerMessage>) -> Self {
         Self { rx }
     }
@@ -210,7 +212,7 @@ impl PeerResponseStream {
 }
 
 #[cfg(feature = "uniffi")]
-/// A single message from the peer response stream, returned by [`UniffiPeerResponseStream::next`].
+/// A single message from the peer response stream, returned by [`PeerResponseStream::next`].
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum PeerStreamMessage {
     /// A peer server sent a response.
@@ -234,12 +236,12 @@ pub enum PeerStreamMessage {
 /// methods on [`Server`](crate::Server); the runtime passes it as the last
 /// argument to the handler callback.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
-pub struct UniffiPeerResponseStream {
+pub struct PeerResponseStream {
     inner: TokioMutex<mpsc::UnboundedReceiver<PeerMessage>>,
 }
 
 #[cfg(feature = "uniffi")]
-impl UniffiPeerResponseStream {
+impl PeerResponseStream {
     /// Create a new peer response stream wrapper from the raw mpsc receiver.
     pub fn new(rx: mpsc::UnboundedReceiver<PeerMessage>) -> Self {
         Self {
@@ -250,7 +252,7 @@ impl UniffiPeerResponseStream {
 
 #[cfg(feature = "uniffi")]
 #[uniffi::export]
-impl UniffiPeerResponseStream {
+impl PeerResponseStream {
     /// Pull the next peer response message (blocking version).
     pub fn next(&self) -> PeerStreamMessage {
         crate::get_runtime().block_on(self.next_async())

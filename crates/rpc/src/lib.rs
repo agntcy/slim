@@ -166,7 +166,7 @@ pub use server::{HandlerType, RpcHandler, Server, SharedRpcHandler, SharedStream
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
 
 // Native/shared stream types.
-pub use stream_types::{DecodedStream, PeerMessage, PeerResponseStream, RawStream, StreamSource};
+pub use stream_types::{DecodedStream, PeerMessage, PeerResponseReceiver, RawStream, StreamSource};
 
 // UniFFI handler traits and FFI stream wrapper types (compiled only under the
 // `uniffi` feature).
@@ -178,9 +178,9 @@ pub use handler_traits::{
 #[cfg(feature = "uniffi")]
 pub use stream_types::{
     BidiStreamHandler, MulticastBidiStreamHandler, MulticastResponseReader, MulticastStreamMessage,
-    PeerStreamMessage, RequestStream as UniffiRequestStream, RequestStreamWriter, ResponseSink,
-    ResponseStreamReader, RpcMessageContext, RpcMulticastItem, StreamMessage,
-    UniffiPeerResponseStream,
+    PeerResponseStream, PeerStreamMessage, RequestStream as UniffiRequestStream,
+    RequestStreamWriter, ResponseSink, ResponseStreamReader, RpcMessageContext, RpcMulticastItem,
+    StreamMessage,
 };
 
 /// Key used in metadata for RPC deadline/timeout
@@ -222,7 +222,7 @@ pub const SHARED_RESPONSES_ENABLED: &str = "true";
 /// Session-level metadata key carrying the total group member count as a decimal
 /// string. Set by the client alongside [`SHARED_RESPONSES_KEY`]. Servers use it
 /// to determine how many peer EOSes to wait for before closing the handler's
-/// [`PeerResponseStream`].
+/// [`PeerResponseReceiver`].
 pub const SHARED_RESPONSES_MEMBER_COUNT_KEY: &str = "slimrpc-member-count";
 
 /// Maximum timeout in seconds (10 hours)

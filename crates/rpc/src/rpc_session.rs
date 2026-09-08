@@ -17,7 +17,7 @@ use slim_datapath::api::ProtoName as Name;
 use super::{
     Context, RPC_DIR_KEY, RPC_DIR_RESP, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError,
     RpcHandler, STATUS_CODE_KEY, SessionTx, SharedRpcHandler, SharedStreamRpcHandler, StreamRpcHandler,
-    StreamSource, stream_types::PeerResponseStream,
+    StreamSource, stream_types::PeerResponseReceiver,
 };
 
 /// Handler information retrieved from registry
@@ -80,7 +80,7 @@ impl<'a> RpcSession<'a> {
         self,
         handler_info: HandlerInfo,
         rpc_id: Arc<str>,
-        peer_stream: Option<PeerResponseStream>,
+        peer_stream: Option<PeerResponseReceiver>,
     ) -> Result<(), RpcError> {
         let Self {
             session_tx,
@@ -123,13 +123,13 @@ impl<'a> RpcSession<'a> {
                         handler(stream_source, ctx, session_tx.clone(), source, rpc_id).await
                     }
                     HandlerInfo::SharedUnary(handler) => {
-                        let ps = peer_stream.unwrap_or_else(|| PeerResponseStream::new(
+                        let ps = peer_stream.unwrap_or_else(|| PeerResponseReceiver::new(
                             tokio::sync::mpsc::unbounded_channel::<crate::PeerMessage>().1
                         ));
                         handler(payload, ctx, session_tx.clone(), source, rpc_id, ps).await
                     }
                     HandlerInfo::SharedStream(handler) => {
-                        let ps = peer_stream.unwrap_or_else(|| PeerResponseStream::new(
+                        let ps = peer_stream.unwrap_or_else(|| PeerResponseReceiver::new(
                             tokio::sync::mpsc::unbounded_channel::<crate::PeerMessage>().1
                         ));
                         let stream_source = StreamSource { session_rx, payload, first_is_eos, first_code };

@@ -20,10 +20,10 @@ use slim_datapath::api::ProtoName as Name;
 
 use crate::{
     BidiStreamHandler, Channel, Context, DecodedStream, Metadata, MulticastBidiStreamHandler,
-    MulticastResponseReader, PeerResponseStream, RequestStreamWriter, ResponseSink,
-    ResponseStreamReader, RpcError, Server, StreamStreamHandler, StreamStreamSharedHandler,
-    StreamUnaryHandler, StreamUnarySharedHandler, UnaryStreamHandler, UnaryStreamSharedHandler,
-    UnaryUnaryHandler, UnaryUnarySharedHandler, UniffiPeerResponseStream, UniffiRequestStream,
+    MulticastResponseReader, PeerResponseReceiver, PeerResponseStream, RequestStreamWriter,
+    ResponseSink, ResponseStreamReader, RpcError, Server, StreamStreamHandler,
+    StreamStreamSharedHandler, StreamUnaryHandler, StreamUnarySharedHandler, UnaryStreamHandler,
+    UnaryStreamSharedHandler, UnaryUnaryHandler, UnaryUnarySharedHandler, UniffiRequestStream,
 };
 
 // ── Channel: FFI constructors ───────────────────────────────────────────────
@@ -83,7 +83,7 @@ impl Channel {
     /// Create a GROUP channel with shared-responses mode enabled.
     ///
     /// Each server in the group will receive response messages from peer servers
-    /// via their [`UniffiPeerResponseStream`] argument, in addition to the client's
+    /// via their [`PeerResponseStream`] argument, in addition to the client's
     /// request. Servers must be constructed with [`Server::new_with_shared_responses`]
     /// and register handlers via `register_*_shared` methods; servers that do not
     /// support shared-responses will reject the first RPC call with a
@@ -471,7 +471,7 @@ impl Server {
     /// Create a new RPC server that accepts shared-responses multicast sessions.
     ///
     /// Handlers registered via `register_*_shared` methods will receive response
-    /// messages from peer servers via a [`UniffiPeerResponseStream`] argument.
+    /// messages from peer servers via a [`PeerResponseStream`] argument.
     /// Sessions that request shared-responses mode (created via
     /// [`Channel::new_group_shared`]) will be accepted; all other sessions are
     /// handled normally.
@@ -640,9 +640,9 @@ impl Server {
         handler: Arc<dyn UnaryUnarySharedHandler>,
     ) {
         self.register_unary_unary_shared_internal(&service_name, &method_name,
-            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseStream| {
+            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseReceiver| {
                 let handler = handler.clone();
-                let peer_arc = Arc::new(UniffiPeerResponseStream::new(peer_stream.into_receiver()));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
                 async move { handler.handle(request, Arc::new(context), peer_arc).await }
             },
         );
@@ -655,9 +655,9 @@ impl Server {
         handler: Arc<dyn UnaryStreamSharedHandler>,
     ) {
         self.register_unary_stream_shared_internal(&service_name, &method_name,
-            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseStream| {
+            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseReceiver| {
                 let handler = handler.clone();
-                let peer_arc = Arc::new(UniffiPeerResponseStream::new(peer_stream.into_receiver()));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
                 async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
@@ -687,10 +687,10 @@ impl Server {
         handler: Arc<dyn StreamUnarySharedHandler>,
     ) {
         self.register_stream_unary_shared_internal(&service_name, &method_name,
-            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseStream| {
+            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseReceiver| {
                 let handler = handler.clone();
                 let request_stream = Arc::new(UniffiRequestStream::new(stream));
-                let peer_arc = Arc::new(UniffiPeerResponseStream::new(peer_stream.into_receiver()));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
                 async move { handler.handle(request_stream, Arc::new(context), peer_arc).await }
             },
         );
@@ -703,10 +703,10 @@ impl Server {
         handler: Arc<dyn StreamStreamSharedHandler>,
     ) {
         self.register_stream_stream_shared_internal(&service_name, &method_name,
-            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseStream| {
+            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseReceiver| {
                 let handler = handler.clone();
                 let request_stream = Arc::new(UniffiRequestStream::new(stream));
-                let peer_arc = Arc::new(UniffiPeerResponseStream::new(peer_stream.into_receiver()));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
                 async move {
                     let (sink, rx) = ResponseSink::receiver();
                     let sink_arc = Arc::new(sink);
