@@ -47,6 +47,7 @@ macro_rules! impl_from_error_for_slim {
 impl_from_error_for_slim!(ServiceError, ServiceError);
 impl_from_error_for_slim!(SessionError, SessionError);
 impl_from_error_for_slim!(AuthError, AuthError);
+impl_from_error_for_slim!(slim_config::auth::ConfigAuthError, ConfigError);
 
 // ============================================================================
 // Tests

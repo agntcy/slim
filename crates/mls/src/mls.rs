@@ -9,6 +9,7 @@ use mls_rs::{
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
 };
+use mls_rs_core::crypto::{CipherSuiteProvider, CryptoProvider};
 use std::collections::HashSet;
 use tracing::debug;
 
@@ -562,6 +563,45 @@ where
         Ok(())
     }
 
+    /// Confirm a signature key pair is usable with `ciphersuite`, by deriving the
+    /// public key from the secret and comparing. A wrong-curve key either fails to
+    /// derive or derives to something else.
+    ///
+    /// Motivating case: keys follow the compile-time `curve25519` feature, but
+    /// `enforce_pqc` selects `ML_KEM_768_X25519` at runtime — whose *signatures*
+    /// are Ed25519, since only its KEM is post-quantum.
+    async fn check_signature_key_matches_ciphersuite(
+        crypto_provider: &impl CryptoProvider,
+        ciphersuite: CipherSuite,
+        secret: &SignatureSecretKey,
+        public: &[u8],
+    ) -> Result<(), MlsError> {
+        let provider = crypto_provider
+            .cipher_suite_provider(ciphersuite)
+            .ok_or(MlsError::CiphersuiteUnavailable)?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let derived = provider.signature_key_derive_public(secret);
+        #[cfg(target_arch = "wasm32")]
+        let derived = provider.signature_key_derive_public(secret).await;
+
+        let derived = derived.map_err(|e| {
+            MlsError::CryptoProviderError(format!(
+                "signature key is not valid for ciphersuite {ciphersuite:?}: {e:?}"
+            ))
+        })?;
+
+        if derived.as_ref() != public {
+            return Err(MlsError::CryptoProviderError(format!(
+                "signature key does not match ciphersuite {ciphersuite:?}; the key was generated \
+                 for a different curve. With enforce_pqc, MLS signs with Ed25519, so identity \
+                 keys must be generated with the `curve25519` feature enabled."
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Generate a fresh key pair, install it into the identity provider, and
     /// assemble the corresponding `SigningIdentity`.
     async fn generate_and_install_signing_identity(
@@ -589,6 +629,19 @@ where
     /// group in an app rotate to the same key.
     pub async fn create_update_proposal(&mut self) -> Result<ProposalMsg, MlsError> {
         let (private_key, signing_identity) = self.create_signing_identity(true)?;
+
+        // Same check as `build_client`: a key rotated via `rotate_identity_key`
+        // follows the compile-time curve, not the runtime ciphersuite. Catch a
+        // mismatch here rather than proposing an unusable credential to the group.
+        let crypto_provider = crate::crypto::default_crypto_provider();
+        let ciphersuite = ciphersuite_for(self.enforce_pqc)?;
+        Self::check_signature_key_matches_ciphersuite(
+            &crypto_provider,
+            ciphersuite,
+            &private_key,
+            signing_identity.signature_key.as_ref(),
+        )
+        .await?;
 
         let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
 
@@ -648,6 +701,18 @@ where
         let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
 
         let ciphersuite = ciphersuite_for(self.enforce_pqc)?;
+
+        // The key above may come from a seeded login, a restored snapshot, or
+        // `generate_key_pair` — all curve-selected at compile time, while the
+        // ciphersuite is chosen at runtime. Catch a mismatch here, not deep inside
+        // a later group operation.
+        Self::check_signature_key_matches_ciphersuite(
+            &crypto_provider,
+            ciphersuite,
+            &private_key,
+            signing_identity.signature_key.as_ref(),
+        )
+        .await?;
 
         let client = Client::builder()
             .identity_provider(identity_provider)
@@ -959,6 +1024,34 @@ mod tests {
         assert_eq!(
             rotated_a, rotated_b,
             "a single rotation must update the identity for all sessions/clones"
+        );
+
+        Ok(())
+    }
+
+    // Rotating to a key of the wrong curve for the active ciphersuite must be
+    // caught when proposing the update, not silently proposed to the group.
+    #[tokio::test]
+    async fn create_update_proposal_rejects_a_rotated_key_of_the_wrong_ciphersuite()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut mls = Mls::new(
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+        );
+        mls.initialize().await?;
+        mls.create_group()?;
+
+        // Simulate the ciphersuite mismatch: `enforce_pqc` selects Ed25519
+        // signatures at runtime, while `rotate_identity_key` still generates a
+        // key for the compile-time `curve25519` feature (off by default, so
+        // P-256) — the same mismatch `build_client` already guards against.
+        let mut mls = mls.with_enforce_pqc(true);
+        mls.rotate_identity_key().await?;
+
+        let result = mls.create_update_proposal().await;
+        assert!(
+            matches!(result, Err(MlsError::CryptoProviderError(_))),
+            "expected a ciphersuite mismatch error, got {result:?}"
         );
 
         Ok(())
@@ -1322,6 +1415,66 @@ mod tests {
         let stolen_cred = BasicCredential::new(stolen_token.as_bytes().to_vec());
         let signing_id = SigningIdentity::new(stolen_cred.into_credential(), attacker_pub.clone());
         (signing_id, attacker_pub)
+    }
+
+    /// Reachable in practice: keys follow the compile-time curve feature, while
+    /// `enforce_pqc` selects `ML_KEM_768_X25519` (Ed25519 signatures) at runtime.
+    #[tokio::test]
+    async fn signature_key_for_wrong_ciphersuite_is_rejected() {
+        use mls_rs_core::crypto::CryptoProvider as _;
+
+        let crypto = crate::crypto::default_crypto_provider();
+
+        // A P-256 key pair, as the default build generates.
+        let p256 = crypto
+            .cipher_suite_provider(CipherSuite::P256_AES128)
+            .expect("p256 suite");
+        let (secret, public) = p256.signature_key_generate().expect("keygen");
+
+        // Correct for its own ciphersuite.
+        Mls::<SharedSecret, SharedSecret>::check_signature_key_matches_ciphersuite(
+            &crypto,
+            CipherSuite::P256_AES128,
+            &secret,
+            public.as_ref(),
+        )
+        .await
+        .expect("p256 key must be accepted for the p256 ciphersuite");
+
+        // Wrong for the PQC suite, whose signatures are Ed25519.
+        let result = Mls::<SharedSecret, SharedSecret>::check_signature_key_matches_ciphersuite(
+            &crypto,
+            CipherSuite::ML_KEM_768_X25519,
+            &secret,
+            public.as_ref(),
+        )
+        .await;
+        assert!(
+            matches!(result, Err(MlsError::CryptoProviderError(_))),
+            "a P-256 key must not be accepted for ML_KEM_768_X25519, got {result:?}"
+        );
+    }
+
+    /// Rejected even when both are the right curve.
+    #[tokio::test]
+    async fn mismatched_public_key_is_rejected() {
+        use mls_rs_core::crypto::CryptoProvider as _;
+
+        let crypto = crate::crypto::default_crypto_provider();
+        let suite = crypto
+            .cipher_suite_provider(CipherSuite::P256_AES128)
+            .expect("p256 suite");
+        let (secret, _) = suite.signature_key_generate().expect("keygen");
+        let (_, other_public) = suite.signature_key_generate().expect("keygen");
+
+        let result = Mls::<SharedSecret, SharedSecret>::check_signature_key_matches_ciphersuite(
+            &crypto,
+            CipherSuite::P256_AES128,
+            &secret,
+            other_public.as_ref(),
+        )
+        .await;
+        assert!(matches!(result, Err(MlsError::CryptoProviderError(_))));
     }
 
     fn verify_token_embeds_pubkey(token: &str, expected_pubkey_bytes: &[u8]) {

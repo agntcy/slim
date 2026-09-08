@@ -84,6 +84,30 @@ pub trait Verifier {
     fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
+
+    /// A fresh, non-cached check that the token is still valid — for the rare
+    /// call site where accepting a revoked identity has a real, ongoing cost
+    /// (e.g. it stays admitted to a group), unlike the routine per-message
+    /// [`Self::verify`]/[`Self::get_claims`] path.
+    ///
+    /// No default body: `#[trait_variant::make(Send)]` does not correctly
+    /// desugar a default `async fn` (it drops `asyncness` from the signature
+    /// but leaves the body's `.await` untouched, which fails to compile), so
+    /// every implementor provides its own — identical to [`Self::verify`]
+    /// except in [`crate::oidc::OidcVerifier`], which actually contacts the
+    /// IdP.
+    async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError>;
+
+    /// Whether [`Self::revalidate`] can ever report a live revocation for
+    /// this verifier, i.e. whether periodically forcing something for it to
+    /// run on (see the MLS moderator's epoch-refresh timer, which exists
+    /// solely to give per-epoch revalidation a static group to fire on) is
+    /// worth the cost of a forced commit and broadcast. `false` by default;
+    /// only [`crate::oidc::OidcVerifier`] has a real revocation check to
+    /// give that timer a reason to run.
+    fn supports_revocation(&self) -> bool {
+        false
+    }
 }
 
 /// Trait for signing JWT claims

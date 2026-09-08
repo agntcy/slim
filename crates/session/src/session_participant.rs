@@ -801,6 +801,12 @@ where
                     }
                 }
             }
+            slim_datapath::api::GroupUpdateOp::Update => {
+                // Periodic epoch refresh: no participant is added or
+                // removed, the commit (already applied above via
+                // `mls_state.process_control_message`) only carried a fresh
+                // path. Nothing else to do.
+            }
         }
 
         let msg = self.common.create_control_message(
@@ -1559,7 +1565,7 @@ mod tests {
         };
 
         let identity_provider = MockTokenProvider;
-        let identity_verifier = MockVerifier;
+        let identity_verifier = MockVerifier::default();
 
         let (tx_slim, rx_slim) = mpsc::channel(16);
         let (tx_app, _rx_app) = mpsc::unbounded_channel();

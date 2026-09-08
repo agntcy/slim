@@ -338,6 +338,11 @@ pub struct OidcConfig {
     pub refresh_token_file: Option<String>,
     /// Path to a file caching the current access token (optional companion to refresh_token_file)
     pub access_token_file: Option<String>,
+    /// Credentials store for the identity path, written by
+    /// `slimctl login --dpop-credentials-file <path>`. One MLS key per store, and
+    /// that key is the app's MLS identity, so give each app its own. Absent
+    /// falls back to SLIM_CREDENTIALS_FILE; there is no default.
+    pub credentials_file: Option<String>,
     /// OAuth2 scope parameter (client-side only)
     pub scope: Option<String>,
     /// HTTP timeout for token requests in seconds (default: 30, client-side only)
@@ -360,6 +365,7 @@ impl From<OidcConfig> for OidcAuthConfig {
             refresh_token: config.refresh_token,
             refresh_token_file: config.refresh_token_file,
             access_token_file: config.access_token_file,
+            credentials_file: config.credentials_file,
             scope: config.scope,
             timeout: config.timeout.map(|d| d.into()),
             jwks_ttl: config.jwks_ttl.map(|d| d.into()),
@@ -379,6 +385,7 @@ impl From<OidcAuthConfig> for OidcConfig {
             refresh_token: config.refresh_token,
             refresh_token_file: config.refresh_token_file,
             access_token_file: config.access_token_file,
+            credentials_file: config.credentials_file,
             scope: config.scope,
             timeout: config.timeout.map(|ds| ds.into()),
             jwks_ttl: config.jwks_ttl.map(|ds| ds.into()),

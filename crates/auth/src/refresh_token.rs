@@ -12,7 +12,7 @@ use crate::errors::AuthError;
 use crate::jwt::{
     extract_exp_claim_unsafe, extract_exp_iat_claims_unsafe, extract_sub_claim_unsafe,
 };
-use crate::resolver::{require_https, same_origin};
+use crate::resolver::same_origin;
 use crate::traits::TokenProvider;
 
 const REFRESH_BUFFER_SECS: u64 = 60;
@@ -73,19 +73,18 @@ pub struct RefreshTokenProvider {
     // Discovered once on first fetch; avoids repeated discovery round-trips.
     cached_token_endpoint: Arc<RwLock<Option<String>>>,
     client: ReqwestClient,
+    /// The identity key this credential is DPoP-bound to, plus the MLS leaf key
+    /// it attests. Every renewal proves the identity key, so `cnf.jkt` survives
+    /// token rotation; the leaf key is free to change independently. `None` =
+    /// plain bearer identity. Shared across clones so the renewal task and every
+    /// session see the same installs.
+    identity: crate::dpop::IdentitySlot,
 }
 
 impl RefreshTokenProvider {
     pub fn new(mut config: RefreshTokenProviderConfig) -> Result<Self, AuthError> {
         config.issuer_url = config.issuer_url.trim_end_matches('/').to_owned();
-        let parsed = url::Url::parse(&config.issuer_url)?;
-        let is_loopback = matches!(
-            parsed.host_str(),
-            Some("localhost") | Some("127.0.0.1") | Some("::1")
-        );
-        if parsed.scheme() != "https" && !is_loopback {
-            return Err(AuthError::OidcInsecureIssuerUrl(config.issuer_url.clone()));
-        }
+        crate::oidc::require_https(&config.issuer_url)?;
 
         let mut builder = ReqwestClient::builder();
         if let Some(t) = config.timeout {
@@ -100,6 +99,7 @@ impl RefreshTokenProvider {
             cached: Arc::new(RwLock::new(None)),
             cached_token_endpoint: Arc::new(RwLock::new(None)),
             client,
+            identity: crate::dpop::IdentitySlot::default(),
         })
     }
 
@@ -109,11 +109,10 @@ impl RefreshTokenProvider {
         if let Some(ep) = self.cached_token_endpoint.read().clone() {
             return Ok(ep);
         }
-        let issuer_parsed = require_https(&self.config.issuer_url)?;
-        let discovery_url = format!(
-            "{}/.well-known/openid-configuration",
-            self.config.issuer_url
-        );
+        // `new` already rejected any issuer that isn't https, so no unguarded
+        // provider can reach this.
+        let issuer_parsed = url::Url::parse(&self.config.issuer_url)?;
+        let discovery_url = crate::oidc::discovery_url(&issuer_parsed);
         let doc: serde_json::Value = self.client.get(&discovery_url).send().await?.json().await?;
         let token_endpoint = doc
             .get("token_endpoint")
@@ -129,6 +128,70 @@ impl RefreshTokenProvider {
         }
         *self.cached_token_endpoint.write() = Some(token_endpoint.clone());
         Ok(token_endpoint)
+    }
+
+    /// Install the identity key this credential is DPoP-bound to, so renewals
+    /// re-prove it and `cnf.jkt` stays the same across rotations.
+    pub fn install_identity_keys(
+        &self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.identity.install_identity_keys(private_key, public_key)
+    }
+
+    /// Take ownership of an identity key (and whatever leaf key it already
+    /// attests) from the provider that delegated renewal to us, so exactly one
+    /// copy exists.
+    pub(crate) fn adopt_identity_key(&self, identity: crate::dpop::IdentityKey) {
+        self.identity.adopt(identity);
+    }
+
+    /// Whether a DPoP-bound identity key is installed.
+    pub fn identity_key_installed(&self) -> bool {
+        self.identity.is_installed()
+    }
+
+    /// The MLS leaf key, but only once the MLS layer has installed its own.
+    /// See `OidcTokenProvider::mls_installed_leaf_keys`.
+    pub(crate) fn mls_installed_leaf_keys(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        self.identity.mls_installed_leaf_keys()
+    }
+
+    /// Install the MLS leaf key to attest. Sync counterpart to
+    /// [`TokenProvider::set_signature_keys`](crate::traits::TokenProvider::set_signature_keys).
+    pub fn install_signature_keys(
+        &self,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<(), AuthError> {
+        self.identity
+            .install_signature_keys(private_key, public_key)
+    }
+
+    /// Replace the refresh token to exchange next, for one obtained by a fresh
+    /// grant rather than a rotation — keeps this provider's persistence and
+    /// locking instead of it being rebuilt without them.
+    pub fn replace_refresh_token(&self, refresh_token: impl Into<String>) {
+        *self.current_refresh_token.write() = refresh_token.into();
+    }
+
+    /// Seed the cache with an access token obtained elsewhere, so a credential
+    /// handed over by an authorization-code exchange is servable before
+    /// [`TokenProvider::initialize`] runs. `expires_in` avoids parsing the token,
+    /// so opaque ones work too.
+    pub fn seed_access_token(&self, token: impl Into<String>, expires_in: u64) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let refresh_at = tokio::time::Instant::now()
+            + Duration::from_secs((expires_in * 2 / 3).max(REFRESH_BUFFER_SECS + 1));
+        *self.cached.write() = Some(CachedToken {
+            token: token.into(),
+            exp: now + expires_in,
+            refresh_at,
+        });
     }
 
     async fn fetch_new_token(&self) -> Result<(), AuthError> {
@@ -181,41 +244,22 @@ impl RefreshTokenProvider {
             self.current_refresh_token.read().clone()
         };
 
-        let http_resp = self
-            .client
-            .post(&token_endpoint)
-            .form(&[
+        // Carries a DPoP proof over the *identity* key when one is installed, so
+        // the renewed token keeps the same `cnf.jkt`. The MLS leaf key is never
+        // sent to the token endpoint. Error handling lives in the shared helper.
+        let keys = self.identity.pop_keys();
+        let resp = crate::oidc::post_token_request_with_dpop(
+            &self.client,
+            &token_endpoint,
+            &[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh_token.as_str()),
                 ("client_id", self.config.client_id.as_str()),
-            ])
-            .send()
-            .await?;
-
-        let status = http_resp.status();
-        let body = http_resp.text().await?;
-        let resp: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-
-        if let Some(err) = resp.get("error").and_then(|v| v.as_str()) {
-            if err == "invalid_grant" {
-                return Err(AuthError::RefreshTokenRevoked);
-            }
-            let desc = resp
-                .get("error_description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("no description");
-            return Err(AuthError::TokenEndpointError {
-                status: status.as_u16(),
-                body: format!("{err}: {desc}"),
-            });
-        }
-
-        if !status.is_success() {
-            return Err(AuthError::TokenEndpointError {
-                status: status.as_u16(),
-                body,
-            });
-        }
+            ],
+            keys.as_ref(),
+            true,
+        )
+        .await?;
 
         let access_token = resp["access_token"]
             .as_str()
@@ -238,9 +282,11 @@ impl RefreshTokenProvider {
                 // process start replays a spent token and fails with
                 // invalid_grant — exactly what persisting is meant to prevent.
                 //
-                // spawn_blocking because the callback does synchronous file I/O;
-                // no lock is held across the await (the guard above is a
-                // statement-level temporary).
+                // spawn_blocking because the callback does synchronous file I/O.
+                // `_lock_guard` above is deliberately still held across this
+                // await — that is what stops another process starting an
+                // exchange before our rotated token reaches disk. Do not detach
+                // this task on the assumption that no lock is held.
                 if let Err(e) = tokio::task::spawn_blocking(move || cb(at, rt)).await {
                     tracing::error!(
                         error = %e,
@@ -344,19 +390,36 @@ impl TokenProvider for RefreshTokenProvider {
             return Err(AuthError::GetTokenError);
         }
 
-        Ok(token)
+        // Minting an attestation caches it, so this is one ECDSA operation per
+        // TTL rather than one per call.
+        let attestation = self.identity.mint_attestation()?;
+
+        Ok(crate::oidc::present_credential(
+            &token,
+            attestation.as_deref(),
+        ))
     }
 
     fn get_id(&self) -> Result<String, AuthError> {
-        extract_sub_claim_unsafe(&self.get_token()?)
+        let credential = self.get_token()?;
+        extract_sub_claim_unsafe(crate::oidc::split_credential(&credential).0)
+    }
+
+    fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+        // The MLS leaf key. The identity key is never handed to `mls-rs`.
+        self.identity.get_signature_keys()
+    }
+
+    fn mls_signature_keys_installed(&self) -> bool {
+        self.identity.mls_signature_keys_installed()
     }
 
     async fn set_signature_keys(
         &mut self,
-        _private_key: Vec<u8>,
-        _public_key: Vec<u8>,
+        private_key: Vec<u8>,
+        public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
-        Err(AuthError::MlsNotSupported)
+        self.install_signature_keys(private_key, public_key)
     }
 }
 
@@ -402,6 +465,7 @@ mod tests {
         // reqwest builds its TLS backend eagerly, so a crypto provider must be
         // installed even though the mock server speaks plaintext.
         slim_config::tls::provider::initialize_crypto_provider();
+        let _guard = crate::oidc::AllowInsecureIssuerForTest::new();
         RefreshTokenProvider::new(RefreshTokenProviderConfig {
             refresh_token: "seed-token".to_string(),
             issuer_url: server.uri(),

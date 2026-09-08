@@ -11,9 +11,11 @@ use slim_config::auth::jwt::{Claims as JwtClaims, JwtKey};
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use std::time::Duration;
 
+use crate::common_config::OidcConfig;
 #[cfg_attr(target_family = "windows", allow(unused_imports))]
 use crate::common_config::SpireConfig;
 use crate::errors::SlimError;
+use slim_config::auth::oidc::Config as OidcAuthConfig;
 
 /// Static JWT (Bearer token) authentication configuration
 /// The token is loaded from a file and automatically reloaded when changed
@@ -320,6 +322,9 @@ pub enum IdentityProviderConfig {
     /// SPIRE-based identity provider (non-Windows only)
     #[cfg(not(target_family = "windows"))]
     Spire { config: SpireConfig },
+    /// OIDC identity bound to the MLS signing key via DPoP; the MLS identity is
+    /// the IdP's `sub`.
+    Oidc { config: OidcConfig },
     /// No identity provider configured
     None,
 }
@@ -339,6 +344,9 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
             #[cfg(not(target_family = "windows"))]
             IdentityProviderConfig::Spire { config } => {
                 CoreIdentityProviderConfig::Spire(config.into())
+            }
+            IdentityProviderConfig::Oidc { config } => {
+                CoreIdentityProviderConfig::Oidc(config.into())
             }
             IdentityProviderConfig::None => CoreIdentityProviderConfig::None,
         }
@@ -361,6 +369,9 @@ impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
             CoreIdentityProviderConfig::Spire(config) => IdentityProviderConfig::Spire {
                 config: config.into(),
             },
+            CoreIdentityProviderConfig::Oidc(config) => IdentityProviderConfig::Oidc {
+                config: config.into(),
+            },
             CoreIdentityProviderConfig::None => IdentityProviderConfig::None,
         }
     }
@@ -376,6 +387,8 @@ pub enum IdentityVerifierConfig {
     /// SPIRE-based identity verifier (non-Windows only)
     #[cfg(not(target_family = "windows"))]
     Spire { config: SpireConfig },
+    /// Verifies tokens via JWKS, resolving the presented MLS key against `cnf.jkt`.
+    Oidc { config: OidcConfig },
     /// No identity verifier configured
     None,
 }
@@ -393,6 +406,9 @@ impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
             IdentityVerifierConfig::Spire { config } => {
                 CoreIdentityVerifierConfig::Spire(config.into())
             }
+            IdentityVerifierConfig::Oidc { config } => {
+                CoreIdentityVerifierConfig::Oidc(config.into())
+            }
             IdentityVerifierConfig::None => CoreIdentityVerifierConfig::None,
         }
     }
@@ -409,6 +425,9 @@ impl From<CoreIdentityVerifierConfig> for IdentityVerifierConfig {
             },
             #[cfg(not(target_family = "windows"))]
             CoreIdentityVerifierConfig::Spire(config) => IdentityVerifierConfig::Spire {
+                config: config.into(),
+            },
+            CoreIdentityVerifierConfig::Oidc(config) => IdentityVerifierConfig::Oidc {
                 config: config.into(),
             },
             CoreIdentityVerifierConfig::None => IdentityVerifierConfig::None,
@@ -453,6 +472,10 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
                 let manager = builder.build()?;
                 Ok(AuthProvider::spire(manager))
             }
+            IdentityProviderConfig::Oidc { config } => {
+                let core_config: OidcAuthConfig = config.into();
+                Ok(AuthProvider::oidc(core_config.create_identity_provider()?))
+            }
             IdentityProviderConfig::None => Err(SlimError::InvalidArgument {
                 message: "Cannot create AuthProvider from None variant".to_string(),
             }),
@@ -491,6 +514,10 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
 
                 let manager = builder.build()?;
                 Ok(AuthVerifier::spire(manager))
+            }
+            IdentityVerifierConfig::Oidc { config } => {
+                let core_config: OidcAuthConfig = config.into();
+                Ok(AuthVerifier::oidc(core_config.create_verifier()?))
             }
             IdentityVerifierConfig::None => Err(SlimError::InvalidArgument {
                 message: "Cannot create AuthVerifier from None variant".to_string(),

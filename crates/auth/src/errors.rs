@@ -105,6 +105,13 @@ pub enum AuthError {
     JwtTokenInvalid(#[from] jsonwebtoken::errors::Error),
     #[error("token invalid - missing or invalid exp claim")]
     TokenInvalidMissingExp,
+    /// The identity provider was reached and definitively rejected this
+    /// identity (e.g. the account is disabled). Distinct from a transient
+    /// network failure: a caller doing a revalidation check should treat this
+    /// as a confirmed revocation, but treat any other error from that check
+    /// as inconclusive.
+    #[error("identity revoked by identity provider")]
+    IdentityRevoked,
 
     // HTTP / networking
     #[cfg(not(target_arch = "wasm32"))]
@@ -189,6 +196,25 @@ pub enum AuthError {
     MlsKeyGenerationFailed,
     #[error("public key not found in identity claims")]
     PublicKeyNotFound,
+
+    // DPoP
+    #[error("key type has no JOSE/DPoP mapping")]
+    DpopUnsupportedKeyType,
+    #[error("credential presents a key attestation but the token carries no cnf.jkt to bind it to")]
+    DpopMissingConfirmation,
+    #[error("attestation signer does not match the token's cnf.jkt thumbprint")]
+    DpopThumbprintMismatch,
+    #[error("MLS key attestation is malformed: {0}")]
+    AttestationMalformed(&'static str),
+    #[error("MLS key attestation signature does not verify under the key it advertises")]
+    AttestationSignatureInvalid,
+    #[error("MLS key attestation is expired or not yet valid")]
+    AttestationNotCurrent,
+    #[error(
+        "no DPoP-bound identity key is installed, so the MLS key cannot be attested; run \
+         `slimctl login --dpop-credentials-file <path>` and point the app at that store"
+    )]
+    AttestationNoIdentityKey,
     #[error("subject not found in identity claims")]
     SubjectNotFound,
 }

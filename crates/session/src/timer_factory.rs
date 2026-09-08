@@ -152,19 +152,36 @@ impl TimerFactory {
         t
     }
 
+    fn observer(
+        &self,
+        message_type: ProtoSessionMessageType,
+        name: Option<EncodedName>,
+    ) -> Arc<ReliableTimerObserver> {
+        Arc::new(ReliableTimerObserver {
+            tx: self.tx.clone(),
+            message_type,
+            name,
+        })
+    }
+
     pub fn start_timer(
         &self,
         timer: &Timer,
         message_type: ProtoSessionMessageType,
         name: Option<EncodedName>,
     ) {
-        // start timer
-        let observer = ReliableTimerObserver {
-            tx: self.tx.clone(),
-            message_type,
-            name,
-        };
-        timer.start(Arc::new(observer));
+        timer.start(self.observer(message_type, name));
+    }
+
+    /// Restart `timer` so it next fires a full interval from now, instead of
+    /// from whenever it was originally started.
+    pub fn reset_timer(
+        &self,
+        timer: &mut Timer,
+        message_type: ProtoSessionMessageType,
+        name: Option<EncodedName>,
+    ) {
+        timer.reset(self.observer(message_type, name));
     }
 }
 

@@ -708,6 +708,10 @@ impl Verifier for VerifierJwt {
             .map(|_| ())
     }
 
+    async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+        self.verify(token).await
+    }
+
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         // Just verify the token is valid, don't extract claims
         self.try_verify_claims::<StandardClaims>(token).map(|_| ())

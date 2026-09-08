@@ -43,40 +43,50 @@ where
     V: Verifier + Send + Sync,
 {
     let identity = msg.get_slim_header().get_identity();
-    if verifier.try_verify(&identity).is_err() {
-        verifier.verify(&identity).await?;
+
+    if !(e2e_integrity_required && msg.get_session_message_type().is_command_message()) {
+        // No claims needed here, so verify the token alone — preferring the sync
+        // path when the JWKS is already cached.
+        if verifier.try_verify(&identity).is_err() {
+            verifier.verify(&identity).await?;
+        }
+        return Ok(());
     }
 
-    if e2e_integrity_required && msg.get_session_message_type().is_command_message() {
-        let slim_header = msg.get_slim_header();
-        let Some(sig) = &slim_header.e2e_header_sig else {
-            return Err(SessionError::Auth(
-                slim_auth::errors::AuthError::TokenInvalid,
-            ));
-        };
+    let slim_header = msg.get_slim_header();
+    let Some(sig) = &slim_header.e2e_header_sig else {
+        return Err(SessionError::Auth(
+            slim_auth::errors::AuthError::TokenInvalid,
+        ));
+    };
 
-        let claims_json: Value = verifier.get_claims(&identity).await?;
-        let identity_claims = slim_auth::identity_claims::IdentityClaims::from_json(&claims_json)?;
-        let pubkey = identity_claims.public_key;
+    // Verifies the token as part of extracting claims — signature, `iss`, `aud`
+    // and `exp` — so a separate pre-verify would only repeat that work. Relies on
+    // the claim cache never outliving a token's `exp`
+    // (`OidcVerifier::claim_cache_lifetime`); without that clamp a cache hit
+    // would skip the expiry check this is the only remaining enforcement of.
+    let claims_json: Value = verifier.get_claims(&identity).await?;
+    let identity_claims = slim_auth::identity_claims::IdentityClaims::from_json(&claims_json)?;
+    let pubkey = identity_claims.public_key;
 
-        use base64::Engine as _;
-        let pubkey_bytes_res = base64::engine::general_purpose::STANDARD.decode(&pubkey);
-        if let Err(ref e) = pubkey_bytes_res {
-            tracing::error!(
-                "verify_identity: base64 decode of pubkey failed with: {:?}",
-                e
-            );
-        }
-        let pubkey_bytes = pubkey_bytes_res
-            .map_err(|_| SessionError::Auth(slim_auth::errors::AuthError::TokenMalformed))?;
-
-        let aad = crate::mls_state::build_aad(msg);
-        let verify_res = slim_auth::utils::verify_header_aad(&aad, sig, &pubkey_bytes);
-        if let Err(ref e) = verify_res {
-            tracing::error!("verify_identity: verify_header_aad failed: {:?}", e);
-        }
-        verify_res?;
+    use base64::Engine as _;
+    let pubkey_bytes_res = base64::engine::general_purpose::STANDARD.decode(&pubkey);
+    if let Err(ref e) = pubkey_bytes_res {
+        tracing::error!(
+            "verify_identity: base64 decode of pubkey failed with: {:?}",
+            e
+        );
     }
+    let pubkey_bytes = pubkey_bytes_res
+        .map_err(|_| SessionError::Auth(slim_auth::errors::AuthError::TokenMalformed))?;
+
+    let aad = crate::mls_state::build_aad(msg);
+    let verify_res = slim_auth::utils::verify_header_aad(&aad, sig, &pubkey_bytes);
+    if let Err(ref e) = verify_res {
+        tracing::error!("verify_identity: verify_header_aad failed: {:?}", e);
+    }
+    verify_res?;
+
     Ok(())
 }
 

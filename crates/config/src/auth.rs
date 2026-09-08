@@ -60,8 +60,13 @@ pub enum ConfigAuthError {
 
     #[error("client id cannot be empty")]
     AuthOidcEmptyClientId,
-    #[error("client secret cannot be empty")]
-    AuthOidcEmptyClientSecret,
+    #[error("issuer url cannot be empty")]
+    AuthOidcEmptyIssuerUrl,
+    #[error(
+        "OIDC identity cannot use client_secret: a client-credentials token is not DPoP-bound, \
+         so it carries no MLS key"
+    )]
+    AuthOidcIdentityClientSecretNotAllowed,
 
     // App auth validation
     #[error("auth.secret cannot be empty for shared_secret")]

@@ -123,7 +123,16 @@ where
     ) -> Result<Vec<u8>, Self::Error> {
         let identity_claims = self.resolve_slim_identity(signing_identity)?;
 
-        Ok(identity_claims.subject.into_bytes())
+        // mls-rs requires this to be unique per member (it keys leaf lookup and
+        // add/remove/successor checks on it). Subject alone is the person, not
+        // the device: two of that person's apps joining the same group with
+        // different keys would collide on subject and mls-rs would refuse the
+        // second add as a conflicting identity. Salting with the member's own
+        // public key keeps one leaf per key while `valid_successor` above still
+        // matches purely on subject, so a genuine key rotation for the same
+        // device is still recognized as a succession rather than a new member.
+        let id = format!("{}:{}", identity_claims.subject, identity_claims.public_key);
+        Ok(id.into_bytes())
     }
 
     async fn valid_successor(

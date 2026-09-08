@@ -256,6 +256,9 @@ enum GroupUpdateOp {
   ADD = 0;
   REMOVE = 1;
   REJOIN = 2;
+  // periodic epoch refresh: no participant is added or removed, the commit
+  // only carries a fresh path for forward secrecy / post-compromise security
+  UPDATE = 3;
 }
 
 // Group Update Payload

@@ -3,6 +3,7 @@
 
 // Core modules available on every target
 pub mod auth_provider;
+pub mod dpop;
 pub mod errors;
 pub mod identity_claims;
 pub(crate) mod mac;

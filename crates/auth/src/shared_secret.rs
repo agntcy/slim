@@ -598,6 +598,10 @@ impl Verifier for SharedSecret {
         self.try_verify(token)
     }
 
+    async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+        self.verify(token).await
+    }
+
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         let token_str = token.as_ref();
         let now = self.get_current_timestamp();

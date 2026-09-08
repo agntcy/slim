@@ -821,6 +821,10 @@ impl Verifier for SpireIdentityManager {
         self.try_verify(token)
     }
 
+    async fn revalidate(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+        self.verify(token).await
+    }
+
     fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         let bundles = self.get_jwt_bundles()?;
         JwtSvid::parse_and_validate(token.as_ref(), &*bundles, &self.inner.jwt_audiences)?;

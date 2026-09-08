@@ -145,4 +145,10 @@ pub enum SessionMessage {
     /// Performs route/subscription cleanup that must happen after the LeaveReply
     /// is sent (in the return-based output model, dispatch happens after on_message returns).
     LeaveCleanup,
+    /// A background identity revalidation (started by the moderator's
+    /// `on_group_ack` off the sequential message-processing path, since the
+    /// IdP round trip it needs can be slow) came back confirmed-revoked.
+    /// Fed back through the session's own channel so building and sending
+    /// the eviction message still only ever happens on `&mut self`.
+    IdentityRevalidationFailed { participant: ProtoName },
 }

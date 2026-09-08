@@ -36,6 +36,17 @@ pub struct OidcCredentials {
     pub issuer: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub token_endpoint: String,
+
+    /// MLS signature key pair (standard base64) the access token is DPoP-bound
+    /// to, present only after `slimctl login --dpop-credentials-file <path>`.
+    ///
+    /// An app seeded from this file installs it as its MLS signing identity.
+    /// Written 0600: this is private key material, so the file is now the app's
+    /// identity, not just its token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_private_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_public_key: Option<String>,
 }
 
 /// Merge a file-level `ClientConfig` with CLI overrides.
@@ -370,14 +381,25 @@ fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
         .write_all(data)
 }
 
+/// Write just the credentials store at `path`, mode 0600.
+///
+/// Unlike [`save_credentials`], writes nothing else. A per-app store is an app
+/// identity: logging in for one app must not retarget slimctl's own bearer
+/// token or connection config, nor clobber another app's token file.
+pub fn save_credentials_to(path: &std::path::Path, creds: &OidcCredentials) -> Result<()> {
+    // A bare filename has a parent of "", which create_dir_all rejects.
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
+    }
+    let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
+    write_private(path, data.as_bytes())
+        .with_context(|| format!("failed to write credentials: {}", path.display()))
+}
+
 pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
     let path = credentials_file_path()?;
-    let dir = path.parent().expect("credentials path must have a parent");
-    std::fs::create_dir_all(dir)
-        .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
-    let data = serde_yaml::to_string(creds).context("failed to serialize credentials")?;
-    write_private(&path, data.as_bytes())
-        .with_context(|| format!("failed to write credentials: {}", path.display()))?;
+    save_credentials_to(&path, creds)?;
     // Write bearer token for StaticJwt auto-injection; prefer access_token (longer TTL).
     let token = creds.access_token.as_deref().unwrap_or(&creds.id_token);
     let token_path = token_file_path()?;
@@ -1079,7 +1101,34 @@ mod tests {
             client_id: "myclient".to_string(),
             issuer: "https://issuer.example.com".to_string(),
             token_endpoint: "https://issuer.example.com/token".to_string(),
+            identity_private_key: None,
+            identity_public_key: None,
         }
+    }
+
+    /// A plain login must not persist keys, or an app could mistake an unbound
+    /// login for a bound one.
+    #[test]
+    fn mls_keys_round_trip_through_credentials_yaml() {
+        let mut creds = creds_with(Some("rt"));
+        assert!(!serde_yaml::to_string(&creds).unwrap().contains("mls_"));
+
+        creds.identity_private_key = Some("cHJpdmF0ZQ==".to_string());
+        creds.identity_public_key = Some("cHVibGlj".to_string());
+        let yaml = serde_yaml::to_string(&creds).unwrap();
+
+        let parsed: OidcCredentials = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(parsed.identity_private_key.as_deref(), Some("cHJpdmF0ZQ=="));
+        assert_eq!(parsed.identity_public_key.as_deref(), Some("cHVibGlj"));
+    }
+
+    /// Files written before DPoP logins existed must still load.
+    #[test]
+    fn credentials_without_mls_keys_still_parse() {
+        let parsed: OidcCredentials =
+            serde_yaml::from_str("id_token: t\nclient_id: c\nissuer: https://i.example.com\n")
+                .unwrap();
+        assert!(parsed.identity_private_key.is_none());
     }
 
     #[test]
