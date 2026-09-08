@@ -11,7 +11,7 @@ use std::sync::Arc;
 use super::{Context, RpcError, stream_types::{RequestStream, ResponseSink}};
 
 #[cfg(feature = "uniffi")]
-use super::stream_types::UniffiPeerResponseStream;
+use super::stream_types::PeerResponseStream;
 
 /// Unary-to-Unary RPC handler trait
 ///
@@ -121,7 +121,7 @@ pub trait UnaryUnarySharedHandler: Send + Sync {
         &self,
         request: Vec<u8>,
         context: Arc<Context>,
-        peer_stream: Arc<UniffiPeerResponseStream>,
+        peer_stream: Arc<PeerResponseStream>,
     ) -> Result<Vec<u8>, RpcError>;
 }
 
@@ -137,7 +137,7 @@ pub trait UnaryStreamSharedHandler: Send + Sync {
         request: Vec<u8>,
         context: Arc<Context>,
         sink: Arc<ResponseSink>,
-        peer_stream: Arc<UniffiPeerResponseStream>,
+        peer_stream: Arc<PeerResponseStream>,
     ) -> Result<(), RpcError>;
 }
 
@@ -152,7 +152,7 @@ pub trait StreamUnarySharedHandler: Send + Sync {
         &self,
         stream: Arc<RequestStream>,
         context: Arc<Context>,
-        peer_stream: Arc<UniffiPeerResponseStream>,
+        peer_stream: Arc<PeerResponseStream>,
     ) -> Result<Vec<u8>, RpcError>;
 }
 
@@ -168,6 +168,6 @@ pub trait StreamStreamSharedHandler: Send + Sync {
         stream: Arc<RequestStream>,
         context: Arc<Context>,
         sink: Arc<ResponseSink>,
-        peer_stream: Arc<UniffiPeerResponseStream>,
+        peer_stream: Arc<PeerResponseStream>,
     ) -> Result<(), RpcError>;
 }
