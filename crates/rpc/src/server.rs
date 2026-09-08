@@ -703,19 +703,22 @@ async fn run_session_demux(
             };
             tracing::debug!(%rpc_id_str, source = %msg.source, is_eos = msg.is_eos(), is_self, "shared-responses: peer response");
             if !is_self {
-                if let Some(tx) = pending_peer_streams.get(rpc_id_str.as_str()) {
-                    let peer_msg = PeerMessage {
-                        source: msg.source.clone(),
-                        payload: msg.payload.clone(),
-                    };
-                    tracing::debug!(%rpc_id_str, payload_len = peer_msg.payload.len(), "forwarding peer message");
-                    if tx.send(peer_msg).is_err() {
-                        // Handler dropped PeerResponseReceiver — clean up immediately.
-                        pending_peer_streams.remove(rpc_id_str.as_str());
-                        peer_eos_counts.remove(rpc_id_str.as_str());
+                // Only forward data frames — EOS is a termination signal, not a payload.
+                if !msg.is_eos() {
+                    if let Some(tx) = pending_peer_streams.get(rpc_id_str.as_str()) {
+                        let peer_msg = PeerMessage {
+                            source: msg.source.clone(),
+                            payload: msg.payload.clone(),
+                        };
+                        tracing::debug!(%rpc_id_str, payload_len = peer_msg.payload.len(), "forwarding peer message");
+                        if tx.send(peer_msg).is_err() {
+                            // Handler dropped PeerResponseReceiver — clean up immediately.
+                            pending_peer_streams.remove(rpc_id_str.as_str());
+                            peer_eos_counts.remove(rpc_id_str.as_str());
+                        }
+                    } else {
+                        tracing::debug!(%rpc_id_str, "Dropping peer response: no handler registered yet");
                     }
-                } else {
-                    tracing::debug!(%rpc_id_str, "Dropping peer response: no handler registered yet");
                 }
                 // Count peer EOSes; only close the channel once all N-1 peers have finished.
                 if msg.is_eos() {
