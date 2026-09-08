@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
-use super::{
-    Context, RpcError,
-    stream_types::{RequestStream, ResponseSink},
-};
+use super::{Context, RpcError, stream_types::{RequestStream, ResponseSink}};
+
+#[cfg(feature = "uniffi")]
+use super::stream_types::UniffiPeerResponseStream;
 
 /// Unary-to-Unary RPC handler trait
 ///
@@ -104,5 +104,70 @@ pub trait StreamStreamHandler: Send + Sync {
         stream: Arc<RequestStream>,
         context: Arc<Context>,
         sink: Arc<ResponseSink>,
+    ) -> Result<(), RpcError>;
+}
+
+// ── Shared-responses handler traits ────────────────────────────────────────
+
+/// Unary-to-Unary shared-responses RPC handler trait
+///
+/// Like [`UnaryUnaryHandler`] but also receives a stream of response messages
+/// from peer servers in the multicast GROUP.
+#[cfg(feature = "uniffi")]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+#[async_trait::async_trait]
+pub trait UnaryUnarySharedHandler: Send + Sync {
+    async fn handle(
+        &self,
+        request: Vec<u8>,
+        context: Arc<Context>,
+        peer_stream: Arc<UniffiPeerResponseStream>,
+    ) -> Result<Vec<u8>, RpcError>;
+}
+
+/// Unary-to-Stream shared-responses RPC handler trait
+///
+/// Like [`UnaryStreamHandler`] but also receives peer response messages.
+#[cfg(feature = "uniffi")]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+#[async_trait::async_trait]
+pub trait UnaryStreamSharedHandler: Send + Sync {
+    async fn handle(
+        &self,
+        request: Vec<u8>,
+        context: Arc<Context>,
+        sink: Arc<ResponseSink>,
+        peer_stream: Arc<UniffiPeerResponseStream>,
+    ) -> Result<(), RpcError>;
+}
+
+/// Stream-to-Unary shared-responses RPC handler trait
+///
+/// Like [`StreamUnaryHandler`] but also receives peer response messages.
+#[cfg(feature = "uniffi")]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+#[async_trait::async_trait]
+pub trait StreamUnarySharedHandler: Send + Sync {
+    async fn handle(
+        &self,
+        stream: Arc<RequestStream>,
+        context: Arc<Context>,
+        peer_stream: Arc<UniffiPeerResponseStream>,
+    ) -> Result<Vec<u8>, RpcError>;
+}
+
+/// Stream-to-Stream shared-responses RPC handler trait
+///
+/// Like [`StreamStreamHandler`] but also receives peer response messages.
+#[cfg(feature = "uniffi")]
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+#[async_trait::async_trait]
+pub trait StreamStreamSharedHandler: Send + Sync {
+    async fn handle(
+        &self,
+        stream: Arc<RequestStream>,
+        context: Arc<Context>,
+        sink: Arc<ResponseSink>,
+        peer_stream: Arc<UniffiPeerResponseStream>,
     ) -> Result<(), RpcError>;
 }
