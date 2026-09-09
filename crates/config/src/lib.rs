@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod conn_type;
+pub mod sub_conn;
 
 cfg_if::cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {

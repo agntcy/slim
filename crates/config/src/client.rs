@@ -24,6 +24,7 @@ use crate::errors::ConfigError;
 use crate::grpc::compression::CompressionType;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::grpc::proxy::ProxyConfig;
+use crate::sub_conn::SubConnPolicy;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::tls::client::TlsClientConfig as TLSSetting;
 #[cfg(not(target_arch = "wasm32"))]
@@ -277,6 +278,21 @@ pub struct ClientConfig {
     /// or `remote` for control-plane-managed inter-deployment links.
     #[serde(default)]
     pub connection_type: ConnType,
+
+    /// How the logical connection to this peer selects among its
+    /// sub-connections. Only has an effect once more than one physical
+    /// connection is grouped under the same logical connection.
+    #[serde(default)]
+    pub sub_conn_policy: SubConnPolicy,
+
+    /// Explicit logical-connection group key.
+    ///
+    /// When set, every connection sharing this key is grouped under one logical
+    /// connection regardless of the identity the remote advertises during link
+    /// negotiation. Leave unset to group by the remote's `node_id`, which is the
+    /// normal case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_group: Option<String>,
 }
 
 /// Defaults for ClientConfig
@@ -307,6 +323,8 @@ impl Default for ClientConfig {
             link_id: default_link_id(),
             require_header_mac: true,
             connection_type: ConnType::default(),
+            sub_conn_policy: SubConnPolicy::default(),
+            logical_group: None,
         }
     }
 }
