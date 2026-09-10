@@ -114,6 +114,11 @@ impl Channel {
             slim_bindings::get_runtime(),
         )
     }
+
+    /// Returns the local SLIM name of the app that owns this channel.
+    pub fn local_name(&self) -> Arc<slim_bindings::Name> {
+        Arc::new(slim_bindings::Name::from(self.app.app_name().clone()))
+    }
 }
 
 // ── Channel: blocking raw-bytes RPC call API ────────────────────────
