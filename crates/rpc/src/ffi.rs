@@ -20,9 +20,10 @@ use slim_datapath::api::ProtoName as Name;
 
 use crate::{
     BidiStreamHandler, Channel, Context, DecodedStream, Metadata, MulticastBidiStreamHandler,
-    MulticastResponseReader, RequestStreamWriter, ResponseSink, ResponseStreamReader, RpcError,
-    Server, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
-    UniffiRequestStream,
+    MulticastResponseReader, PeerResponseReceiver, PeerResponseStream, RequestStreamWriter,
+    ResponseSink, ResponseStreamReader, RpcError, Server, StreamStreamHandler,
+    StreamStreamSharedHandler, StreamUnaryHandler, StreamUnarySharedHandler, UnaryStreamHandler,
+    UnaryStreamSharedHandler, UnaryUnaryHandler, UnaryUnarySharedHandler, UniffiRequestStream,
 };
 
 // ── Channel: FFI constructors ───────────────────────────────────────────────
@@ -45,6 +46,7 @@ impl Channel {
         Self::new_with_members_internal(
             slim_app,
             vec![slim_name],
+            false,
             false,
             connection_id,
             slim_bindings::get_runtime(),
@@ -72,9 +74,50 @@ impl Channel {
             slim_app,
             slim_names,
             true,
+            false,
             connection_id,
             slim_bindings::get_runtime(),
         )
+    }
+
+    /// Create a GROUP channel with shared-responses mode enabled.
+    ///
+    /// Each server in the group will receive response messages from peer servers
+    /// via their [`PeerResponseStream`] argument, in addition to the client's
+    /// request. Servers must be constructed with [`Server::new_with_shared_responses`]
+    /// and register handlers via `register_*_shared` methods; servers that do not
+    /// support shared-responses will reject the first RPC call with a
+    /// `failed_precondition` error.
+    #[uniffi::constructor]
+    pub fn new_group_shared(
+        app: Arc<slim_bindings::App>,
+        members: Vec<Arc<slim_bindings::Name>>,
+    ) -> Result<Self, RpcError> {
+        Self::new_group_shared_with_connection(app, members, None)
+    }
+
+    /// Like [`new_group_shared`](Self::new_group_shared) but with a connection ID.
+    #[uniffi::constructor]
+    pub fn new_group_shared_with_connection(
+        app: Arc<slim_bindings::App>,
+        members: Vec<Arc<slim_bindings::Name>>,
+        connection_id: Option<u64>,
+    ) -> Result<Self, RpcError> {
+        let slim_app = app.inner_app().clone();
+        let slim_names: Vec<Name> = members.iter().map(|n| n.as_slim_name().clone()).collect();
+        Self::new_with_members_internal(
+            slim_app,
+            slim_names,
+            true,
+            true,
+            connection_id,
+            slim_bindings::get_runtime(),
+        )
+    }
+
+    /// Returns the local SLIM name of the app that owns this channel.
+    pub fn local_name(&self) -> Arc<slim_bindings::Name> {
+        Arc::new(slim_bindings::Name::from(self.app().app_name().clone()))
     }
 }
 
@@ -429,6 +472,45 @@ impl Server {
             Some(slim_bindings::get_runtime()),
         )
     }
+
+    /// Create a new RPC server that accepts shared-responses multicast sessions.
+    ///
+    /// Handlers registered via `register_*_shared` methods will receive response
+    /// messages from peer servers via a [`PeerResponseStream`] argument.
+    /// Sessions that request shared-responses mode (created via
+    /// [`Channel::new_group_shared`]) will be accepted; all other sessions are
+    /// handled normally.
+    ///
+    /// A server built with the standard [`Server::new`] constructor will reject
+    /// any session that requests shared-responses mode with a `failed_precondition`
+    /// error on the first RPC call.
+    #[uniffi::constructor]
+    pub fn new_with_shared_responses(
+        app: &Arc<slim_bindings::App>,
+        base_name: Arc<slim_bindings::Name>,
+    ) -> Self {
+        Self::new_with_shared_responses_and_connection(app, base_name, None)
+    }
+
+    /// Like [`new_with_shared_responses`](Self::new_with_shared_responses) but
+    /// with an optional connection ID for routing setup.
+    #[uniffi::constructor]
+    pub fn new_with_shared_responses_and_connection(
+        app: &Arc<slim_bindings::App>,
+        base_name: Arc<slim_bindings::Name>,
+        connection_id: Option<u64>,
+    ) -> Self {
+        let app_inner = app.inner();
+        let rx = app.notification_receiver();
+
+        Self::new_with_shared_rx_and_shared_responses(
+            app_inner,
+            base_name.as_ref().into(),
+            connection_id,
+            rx,
+            Some(slim_bindings::get_runtime()),
+        )
+    }
 }
 
 // ── Server: trait-object handler registration ───────────────────────
@@ -547,6 +629,104 @@ impl Server {
                     drop(handler_task);
 
                     // Convert the receiver to a stream
+                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+                    Ok(stream)
+                }
+            },
+        );
+    }
+
+    // ── Shared-responses handler registration ────────────────────────────────
+
+    pub fn register_unary_unary_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn UnaryUnarySharedHandler>,
+    ) {
+        self.register_unary_unary_shared_internal(&service_name, &method_name,
+            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move { handler.handle(request, Arc::new(context), peer_arc).await }
+            },
+        );
+    }
+
+    pub fn register_unary_stream_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn UnaryStreamSharedHandler>,
+    ) {
+        self.register_unary_stream_shared_internal(&service_name, &method_name,
+            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move {
+                    let (sink, rx) = ResponseSink::receiver();
+                    let sink_arc = Arc::new(sink);
+                    let handler_task = {
+                        let sink = sink_arc.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handler
+                                .handle(request, Arc::new(context), sink.clone(), peer_arc)
+                                .await
+                            {
+                                let _ = sink.send_error_async(e).await;
+                            }
+                        })
+                    };
+                    drop(handler_task);
+                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+                    Ok(stream)
+                }
+            },
+        );
+    }
+
+    pub fn register_stream_unary_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn StreamUnarySharedHandler>,
+    ) {
+        self.register_stream_unary_shared_internal(&service_name, &method_name,
+            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let request_stream = Arc::new(UniffiRequestStream::new(stream));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move { handler.handle(request_stream, Arc::new(context), peer_arc).await }
+            },
+        );
+    }
+
+    pub fn register_stream_stream_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn StreamStreamSharedHandler>,
+    ) {
+        self.register_stream_stream_shared_internal(&service_name, &method_name,
+            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let request_stream = Arc::new(UniffiRequestStream::new(stream));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move {
+                    let (sink, rx) = ResponseSink::receiver();
+                    let sink_arc = Arc::new(sink);
+                    let handler_task = {
+                        let sink = sink_arc.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handler
+                                .handle(request_stream, Arc::new(context), sink.clone(), peer_arc)
+                                .await
+                            {
+                                let _ = sink.send_error_async(e).await;
+                            }
+                        })
+                    };
+                    drop(handler_task);
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
                 }
