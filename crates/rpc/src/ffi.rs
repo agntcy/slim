@@ -117,7 +117,7 @@ impl Channel {
 
     /// Returns the local SLIM name of the app that owns this channel.
     pub fn local_name(&self) -> Arc<slim_bindings::Name> {
-        Arc::new(slim_bindings::Name::from(self.app.app_name().clone()))
+        Arc::new(slim_bindings::Name::from(self.app().app_name().clone()))
     }
 }
 
