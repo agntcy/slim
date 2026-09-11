@@ -140,11 +140,7 @@ mls-rs-crypto-webcrypto = { version = "0.15" }
 # Plain (statically-bundled) SQLite backend for the persistence crate; values
 # are encrypted by us via aws-lc-rs, so no SQLCipher/OpenSSL is linked.
 mls-rs-provider-sqlite = { version = "0.23", default-features = false, features = [
-<<<<<<< HEAD
-    "sqlite-bundled",
-=======
   "sqlite-bundled",
->>>>>>> 329ae4de (chore(deps): update rust crate mls-rs to 0.56 (#2038))
 ] }
 notify = "8.0.0"
 num_cpus = "1.16"
