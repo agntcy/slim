@@ -4,12 +4,14 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use clap::Args;
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
-use oauth2::{CsrfToken, PkceCodeChallenge};
 use reqwest::Client;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::Instant;
@@ -295,6 +297,19 @@ async fn validate_id_token(
     Ok(claims)
 }
 
+/// Random URL-safe (base64, no padding) token of `num_bytes` random bytes.
+/// Used for the PKCE code verifier and the CSRF state/nonce values.
+fn random_url_safe_token(num_bytes: usize) -> String {
+    let mut bytes = vec![0u8; num_bytes];
+    rand::fill(bytes.as_mut_slice());
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+/// RFC 7636 S256 PKCE code challenge derived from a code verifier.
+fn pkce_code_challenge(verifier: &str) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+}
+
 // Constant-time comparison to resist timing oracle attacks on the CSRF state token.
 fn ct_str_eq(a: &str, b: &str) -> bool {
     a.len() == b.len() && {
@@ -356,9 +371,10 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         .context("redirect URI must include the port")?;
     let path = parsed_redirect.path().to_owned();
 
-    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-    let state = CsrfToken::new_random();
-    let nonce = CsrfToken::new_random().secret().clone();
+    let pkce_verifier = random_url_safe_token(32);
+    let pkce_challenge = pkce_code_challenge(&pkce_verifier);
+    let state = random_url_safe_token(16);
+    let nonce = random_url_safe_token(16);
 
     let mut auth_url = Url::parse(&meta.authorization_endpoint)?;
     auth_url
@@ -367,9 +383,9 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         .append_pair("client_id", &args.client_id)
         .append_pair("redirect_uri", &args.redirect_uri)
         .append_pair("scope", "openid profile email offline_access groups")
-        .append_pair("state", state.secret())
+        .append_pair("state", &state)
         .append_pair("nonce", &nonce)
-        .append_pair("code_challenge", pkce_challenge.as_str())
+        .append_pair("code_challenge", &pkce_challenge)
         .append_pair("code_challenge_method", "S256");
     let listener = bind_callback_listener(host, port).await?;
     eprintln!("listening on {}", args.redirect_uri);
@@ -391,7 +407,7 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
     eprintln!("\nOpen this URL if no browser window appeared:\n\n{auth_url}\n");
 
     let (code, got_state) = wait_for_callback(listener, &path, args.callback_timeout).await?;
-    if !ct_str_eq(&got_state, state.secret()) {
+    if !ct_str_eq(&got_state, &state) {
         bail!("state mismatch; discarding authorization code");
     }
 
@@ -400,7 +416,7 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
         ("code", code.as_str()),
         ("redirect_uri", args.redirect_uri.as_str()),
         ("client_id", args.client_id.as_str()),
-        ("code_verifier", pkce_verifier.secret()),
+        ("code_verifier", pkce_verifier.as_str()),
     ];
 
     let token_resp: Value = http
@@ -470,6 +486,27 @@ pub async fn run(args: &LoginArgs, config_file: Option<&str>, server: Option<&st
 mod tests {
     use super::*;
     use clap::Parser;
+
+    // RFC 7636 Appendix B test vector.
+    #[test]
+    fn pkce_code_challenge_matches_rfc7636_vector() {
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        assert_eq!(
+            pkce_code_challenge(verifier),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+    }
+
+    #[test]
+    fn random_url_safe_token_has_no_padding_and_varies() {
+        let a = random_url_safe_token(32);
+        let b = random_url_safe_token(32);
+        assert_ne!(a, b);
+        assert!(
+            a.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
+    }
 
     /// Wrap LoginArgs in a throwaway top-level parser so we can exercise clap
     /// validation without going through the full `Cli` struct.
