@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.3](https://github.com/agntcy/slim/compare/slim-bindings-v2.3.2...slim-bindings-v2.3.3) - 2026-09-11
+
+### Other
+
+- updated the following local packages: agntcy-slim-auth, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-datapath, agntcy-slim-persistence, agntcy-slim-tracing
+
 ## [2.2.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.1.1...slim-bindings-v2.2.0) - 2026-08-13
 
 ### Added
