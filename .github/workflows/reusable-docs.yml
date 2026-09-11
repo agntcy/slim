@@ -26,26 +26,10 @@ on:
         default: ""
 
 # The effective token permission is the intersection of this declaration and the
-<<<<<<< HEAD
-<<<<<<< HEAD
-# caller's job permissions. Top level stays read-only per least-privilege
-# best practice; the job below declares the write permission it actually needs
-# (deploy-release, which needs contents: write for mike --push).
-permissions:
-  contents: read
-=======
 # caller's job permissions, so this only needs to cover the most privileged mode
 # (deploy-release, which needs contents: write for mike --push).
 permissions:
   contents: write
->>>>>>> 8d8851cd (fix(security): address code scanning alerts (#2032))
-=======
-# caller's job permissions. Top level stays read-only per least-privilege
-# best practice; the job below declares the write permission it actually needs
-# (deploy-release, which needs contents: write for mike --push).
-permissions:
-  contents: read
->>>>>>> d86d46e0 (fix(security): pin container base images by digest (#2033))
 
 jobs:
   docs:
