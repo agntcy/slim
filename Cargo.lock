@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.15.4"
+version = "0.15.5"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.16.1"
+version = "0.16.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.18.7"
+version = "0.18.8"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-persistence"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-proto"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.4.20"
+version = "0.4.21"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
