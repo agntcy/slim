@@ -929,40 +929,6 @@ impl ProtoMessage {
         }
     }
 
-    /// Insert a typed metadata value into the v3 metadata field.
-    pub fn insert_metadata_v3(&mut self, key: String, value: impl Into<prost_types::Value>) {
-        self.metadata_v3
-            .get_or_insert_default()
-            .fields
-            .insert(key, value.into());
-    }
-
-    /// Remove a typed metadata value from the v3 metadata field.
-    pub fn remove_metadata_v3(&mut self, key: &str) -> Option<prost_types::Value> {
-        self.metadata_v3.as_mut()?.fields.remove(key)
-    }
-
-    /// Check whether the v3 metadata field contains a key.
-    pub fn contains_metadata_v3(&self, key: &str) -> bool {
-        self.metadata_v3
-            .as_ref()
-            .is_some_and(|metadata| metadata.fields.contains_key(key))
-    }
-
-    /// Get a typed metadata value from the v3 metadata field.
-    pub fn get_metadata_v3(&self, key: &str) -> Option<&prost_types::Value> {
-        self.metadata_v3.as_ref()?.fields.get(key)
-    }
-
-    /// Get the complete v3 metadata Struct, if present.
-    pub fn get_metadata_map_v3(&self) -> Option<&prost_types::Struct> {
-        self.metadata_v3.as_ref()
-    }
-    /// Replace the complete v3 metadata Struct.
-    pub fn set_metadata_map_v3(&mut self, metadata: prost_types::Struct) {
-        self.metadata_v3 = Some(metadata);
-    }
-
     pub fn get_slim_header(&self) -> &SlimHeader {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => {
