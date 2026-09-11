@@ -4193,18 +4193,8 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
-<<<<<<< HEAD
-<<<<<<< HEAD
- "reqwest 0.13.4",
-<<<<<<< HEAD
- "thiserror 2.0.19",
-=======
  "reqwest 0.13.5",
  "thiserror 2.0.20",
->>>>>>> 3472fb16 (feat(control-plane): support segment templates)
-=======
- "thiserror 2.0.20",
->>>>>>> 781bfbc3 (chore(deps): update rust crate mls-rs to 0.56 (#2038))
  "tokio",
  "tonic",
  "tonic-types",
@@ -6863,15 +6853,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-<<<<<<< HEAD
 version = "1.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ef6dac1e96601b4fb3acccccff2139741fcb757cb9a36089bf5be91cfb285ce"
-=======
-version = "1.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
->>>>>>> 781bfbc3 (chore(deps): update rust crate mls-rs to 0.56 (#2038))
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -7400,7 +7384,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
-<<<<<<< HEAD
 name = "wnaf"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7416,17 +7399,7 @@ dependencies = [
 name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-<<<<<<< HEAD
-checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
-=======
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
->>>>>>> 3472fb16 (feat(control-plane): support segment templates)
-=======
-name = "writeable"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
->>>>>>> 781bfbc3 (chore(deps): update rust crate mls-rs to 0.56 (#2038))
 
 [[package]]
 name = "x25519-dalek"
@@ -7480,42 +7453,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-<<<<<<< HEAD
-<<<<<<< HEAD
-version = "0.8.55"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5a105cd7b140f6eeec8acff2ea38135d3cab283ada58540f629fe51e46696eb"
-=======
 version = "0.8.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d35102a9f36d089ccae9e4c6802bc118be4487b80aaffc0ab4e0cf5ce92d2873"
->>>>>>> 3472fb16 (feat(control-plane): support segment templates)
-=======
-version = "0.8.56"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "556764e583adb45a9f8d413c2a147fa7e8d821e48e12b14fd560b607998b75eb"
->>>>>>> 781bfbc3 (chore(deps): update rust crate mls-rs to 0.56 (#2038))
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-<<<<<<< HEAD
-<<<<<<< HEAD
-version = "0.8.55"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fe976fb70c78cd64cccfe3a6fc142244e8a77b70959b30faf9d0ac37ee228eb"
-=======
 version = "0.8.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "146c01f5ab44258da43cf276c74a2763db2ff3969c9c652c3f2de07041d0b2bc"
->>>>>>> 3472fb16 (feat(control-plane): support segment templates)
-=======
-version = "0.8.56"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2ab42fc20575779bd240faa45f94a74256f755c0fa9e89f0ede20d91d0cdfc1"
->>>>>>> 781bfbc3 (chore(deps): update rust crate mls-rs to 0.56 (#2038))
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7593,12 +7542,7 @@ checksum = "34df6fc39dbd26ddc9c10e6a2984476e13acce22e64e4487636ef494369225da"
 dependencies = [
  "proc-macro2",
  "quote",
-<<<<<<< HEAD
-
- "syn 2.0.119",
-=======
  "syn 3.0.5",
->>>>>>> 781bfbc3 (chore(deps): update rust crate mls-rs to 0.56 (#2038))
 ]
 
 [[package]]
