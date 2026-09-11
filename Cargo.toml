@@ -172,13 +172,13 @@ regex = "1.11.1"
 regorus = "0.11.0"
 
 reqwest = { version = "0.13", features = [
-  "json",
-  "rustls-tls-no-provider",
-  "rustls-tls-native-roots-no-provider",
-  "charset",
-  "http2",
-  "system-proxy",
-  "blocking",
+    "json",
+    "rustls-no-provider",
+    "charset",
+    "http2",
+    "system-proxy",
+    "blocking",
+    "form",
 ], default-features = false }
 rlimit = "0.11.0"
 rstest = "0.25"
