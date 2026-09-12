@@ -57,7 +57,6 @@ headers = { workspace = true }
 jsonwebtoken = { workspace = true }
 mls-rs-crypto-awslc = { workspace = true }
 notify = { workspace = true }
-oauth2 = { workspace = true, features = ["reqwest"] }
 pin-project = { workspace = true }
 regorus = { workspace = true }
 reqwest = { workspace = true }
