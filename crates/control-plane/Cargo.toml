@@ -38,6 +38,7 @@ drain = { workspace = true }
 duration-string = { workspace = true }
 futures = { workspace = true }
 libsqlite3-sys = { workspace = true }
+minijinja = { workspace = true }
 parking_lot = { workspace = true }
 petgraph = { workspace = true }
 prost = { workspace = true }

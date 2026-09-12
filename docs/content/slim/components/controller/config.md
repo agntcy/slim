@@ -183,6 +183,29 @@ topology:
           neighbors: [$domain]
 ```
 
+For conditional membership or segments that combine multiple matching domains,
+use `segments-template`. The template uses MiniJinja syntax and receives
+`groups`, a sorted list of all currently registered domain names. It is
+re-rendered whenever that set changes.
+
+```yaml
+topology:
+  segments-template: |
+    - name: customer-a
+      links:
+    {% for group in groups %}
+    {% if group is startingwith("customer-a-") %}
+        - domain: {{ group | tojson }}
+          neighbors: [customer-a]
+    {% endif %}
+    {% endfor %}
+```
+
+Use the built-in `tojson` filter when inserting a group into YAML. JSON strings
+are valid YAML scalars and safely quote special characters. `links`, `segments`,
+and `segments-template` are mutually exclusive. The legacy `$domain` form
+remains supported for simple per-domain isolation.
+
 ## Registration Authentication
 
 The `topology.registration_auth` field configures how data-plane nodes authenticate when registering with the controller:

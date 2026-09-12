@@ -9,7 +9,7 @@ pub mod reconciler;
 mod routes;
 pub mod spt;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -46,6 +46,12 @@ struct Inner {
     /// Each entry is (segment_name, graph). For Links, there's a single "default" entry.
     /// For Segments, one entry per segment. For ApiManaged, loaded from DB.
     segment_graphs: tokio::sync::RwLock<Vec<(String, UnGraph<String, u32>)>>,
+    /// The last domain set that failed to render via `build_graph`, if any.
+    /// Lets `rebuild_link_graph` short-circuit repeated attempts for the same
+    /// failing domain set instead of re-running the template compile+render+
+    /// YAML-parse (and re-logging an error) on every unrelated node
+    /// register/deregister event.
+    last_failed_domains: tokio::sync::Mutex<Option<HashSet<String>>>,
 }
 
 #[derive(Clone)]
@@ -98,6 +104,7 @@ impl RouteService {
             domain_locks: tokio::sync::Mutex::new(HashMap::new()),
             topology,
             segment_graphs: tokio::sync::RwLock::new(Vec::new()),
+            last_failed_domains: tokio::sync::Mutex::new(None),
         }));
 
         // Periodic full-sweep reconciliation with clean shutdown support.

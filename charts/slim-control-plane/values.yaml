@@ -57,7 +57,7 @@ config:
 
   # Topology management mode:
   # - Empty or absent = API mode (manage topology via slimctl / gRPC at runtime)
-  # - With links/segments = Config mode (config file is source of truth)
+  # - With links/segments/segments-template = Config mode (config file is source of truth)
   topology: {}
 
 spire:
