@@ -1090,7 +1090,8 @@ mod tests {
 
         let mut proto_msg = ProtoMessage {
             message_type: Some(ProtoPublishType(publish)),
-            metadata,
+            metadata: metadata.clone(),
+            metadata_v3: None,
         };
 
         proto_msg.set_incoming_conn(Some(connection_id));
