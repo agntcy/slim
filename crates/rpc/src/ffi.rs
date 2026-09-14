@@ -20,9 +20,10 @@ use slim_datapath::api::ProtoName as Name;
 
 use crate::{
     BidiStreamHandler, Channel, Context, DecodedStream, Metadata, MulticastBidiStreamHandler,
-    MulticastResponseReader, RequestStreamWriter, ResponseSink, ResponseStreamReader, RpcError,
-    Server, StreamStreamHandler, StreamUnaryHandler, UnaryStreamHandler, UnaryUnaryHandler,
-    UniffiRequestStream,
+    MulticastResponseReader, PeerResponseReceiver, PeerResponseStream, RequestStreamWriter,
+    ResponseSink, ResponseStreamReader, RpcError, Server, StreamStreamHandler,
+    StreamStreamSharedHandler, StreamUnaryHandler, StreamUnarySharedHandler, UnaryStreamHandler,
+    UnaryStreamSharedHandler, UnaryUnaryHandler, UnaryUnarySharedHandler, UniffiRequestStream,
 };
 
 // ── Channel: FFI constructors ───────────────────────────────────────────────
@@ -75,6 +76,11 @@ impl Channel {
             connection_id,
             slim_bindings::get_runtime(),
         )
+    }
+
+    /// Returns the local SLIM name of the app that owns this channel.
+    pub fn local_name(&self) -> Arc<slim_bindings::Name> {
+        Arc::new(slim_bindings::Name::from(self.app().app_name().clone()))
     }
 }
 
@@ -429,6 +435,22 @@ impl Server {
             Some(slim_bindings::get_runtime()),
         )
     }
+
+}
+
+// ── Shared-responses metadata helper ───────────────────────────────────────
+
+#[uniffi::export]
+/// Build the per-call metadata map that opts a GROUP channel call into
+/// shared-responses mode. Pass the returned map as the `metadata` argument
+/// to any `Channel::call_*` or `Channel::*` RPC method.
+pub fn make_shared_responses_metadata() -> Metadata {
+    let mut m = HashMap::new();
+    m.insert(
+        crate::SHARED_RESPONSES_KEY.to_string(),
+        crate::SHARED_RESPONSES_ENABLED.to_string(),
+    );
+    m
 }
 
 // ── Server: trait-object handler registration ───────────────────────
@@ -547,6 +569,104 @@ impl Server {
                     drop(handler_task);
 
                     // Convert the receiver to a stream
+                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+                    Ok(stream)
+                }
+            },
+        );
+    }
+
+    // ── Shared-responses handler registration ────────────────────────────────
+
+    pub fn register_unary_unary_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn UnaryUnarySharedHandler>,
+    ) {
+        self.register_unary_unary_shared_internal(&service_name, &method_name,
+            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move { handler.handle(request, Arc::new(context), peer_arc).await }
+            },
+        );
+    }
+
+    pub fn register_unary_stream_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn UnaryStreamSharedHandler>,
+    ) {
+        self.register_unary_stream_shared_internal(&service_name, &method_name,
+            move |request: Vec<u8>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move {
+                    let (sink, rx) = ResponseSink::receiver();
+                    let sink_arc = Arc::new(sink);
+                    let handler_task = {
+                        let sink = sink_arc.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handler
+                                .handle(request, Arc::new(context), sink.clone(), peer_arc)
+                                .await
+                            {
+                                let _ = sink.send_error_async(e).await;
+                            }
+                        })
+                    };
+                    drop(handler_task);
+                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+                    Ok(stream)
+                }
+            },
+        );
+    }
+
+    pub fn register_stream_unary_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn StreamUnarySharedHandler>,
+    ) {
+        self.register_stream_unary_shared_internal(&service_name, &method_name,
+            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let request_stream = Arc::new(UniffiRequestStream::new(stream));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move { handler.handle(request_stream, Arc::new(context), peer_arc).await }
+            },
+        );
+    }
+
+    pub fn register_stream_stream_shared(
+        &self,
+        service_name: String,
+        method_name: String,
+        handler: Arc<dyn StreamStreamSharedHandler>,
+    ) {
+        self.register_stream_stream_shared_internal(&service_name, &method_name,
+            move |stream: DecodedStream<Vec<u8>>, context: crate::Context, peer_stream: PeerResponseReceiver| {
+                let handler = handler.clone();
+                let request_stream = Arc::new(UniffiRequestStream::new(stream));
+                let peer_arc = Arc::new(PeerResponseStream::new(peer_stream.into_receiver()));
+                async move {
+                    let (sink, rx) = ResponseSink::receiver();
+                    let sink_arc = Arc::new(sink);
+                    let handler_task = {
+                        let sink = sink_arc.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handler
+                                .handle(request_stream, Arc::new(context), sink.clone(), peer_arc)
+                                .await
+                            {
+                                let _ = sink.send_error_async(e).await;
+                            }
+                        })
+                    };
+                    drop(handler_task);
                     let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
                     Ok(stream)
                 }
