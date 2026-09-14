@@ -181,7 +181,7 @@ reqwest = { version = "0.13", features = [
     "form",
 ], default-features = false }
 rlimit = "0.11.0"
-rstest = "0.25"
+rstest = "0.27"
 rustls = { version = "0.23.31" }
 rustls-native-certs = "0.8"
 rustls-pki-types = "1.10.0"
@@ -211,7 +211,7 @@ tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 tonic-tls = { version = "0.7", default-features = false, features = ["rustls"] }
 tower = "0.5.2"
-tower-http = { version = "0.6", features = ["auth"] }
+tower-http = { version = "0.7", features = ["auth"] }
 tower-layer = "0.3.3"
 tower-service = "0.3.3"
 tracing = "0.1.41"
