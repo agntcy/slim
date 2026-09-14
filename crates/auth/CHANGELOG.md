@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/agntcy/slim/compare/slim-auth-v0.15.4...slim-auth-v0.16.0) - 2026-09-14
+
+### Fixed
+
+- *(security)* address code scanning alerts ([#2032](https://github.com/agntcy/slim/pull/2032))
+
+### Other
+
+- *(deps)* update rust crate spiffe to 0.16.0 ([#2052](https://github.com/agntcy/slim/pull/2052))
+- *(deps)* remove oauth2 dep with deprecated transients ([#2048](https://github.com/agntcy/slim/pull/2048))
+- *(deps)* update rust crate p256 to 0.14 ([#2043](https://github.com/agntcy/slim/pull/2043))
+
 ## [0.15.4](https://github.com/agntcy/slim/compare/slim-auth-v0.15.3...slim-auth-v0.15.4) - 2026-09-01
 
 ### Other
