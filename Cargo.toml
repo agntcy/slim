@@ -181,7 +181,7 @@ reqwest = { version = "0.13", features = [
     "form",
 ], default-features = false }
 rlimit = "0.11.0"
-rstest = "0.25"
+rstest = "0.27"
 rustls = { version = "0.23.31" }
 rustls-native-certs = "0.8"
 rustls-pki-types = "1.10.0"
