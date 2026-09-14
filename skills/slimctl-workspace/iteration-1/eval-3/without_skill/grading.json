@@ -1,0 +1,31 @@
+{
+  "eval_id": 3,
+  "run": "without_skill",
+  "expectations": [
+    {
+      "text": "Sets server to myhost.internal:9090 via 'config set server'",
+      "passed": true,
+      "evidence": "slimctl config set server myhost.internal:9090"
+    },
+    {
+      "text": "Sets tls-ca-file to /etc/pki/ca.pem",
+      "passed": true,
+      "evidence": "slimctl config set tls-ca-file /etc/pki/ca.pem"
+    },
+    {
+      "text": "Sets tls-cert-file to /etc/pki/client.pem",
+      "passed": true,
+      "evidence": "slimctl config set tls-cert-file /etc/pki/client.pem"
+    },
+    {
+      "text": "Sets tls-key-file to /etc/pki/client.key",
+      "passed": true,
+      "evidence": "slimctl config set tls-key-file /etc/pki/client.key"
+    },
+    {
+      "text": "Disables tls-insecure (sets to false) since real TLS is being configured",
+      "passed": true,
+      "evidence": "slimctl config set tls-insecure false — explicitly included as step 2"
+    }
+  ]
+}

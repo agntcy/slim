@@ -1,0 +1,35 @@
+{
+  "skill_name": "slimctl",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need to add a route on my SLIM node for agent acme/production/assistant/1 that goes via the remote node at http://10.0.0.5:8080. How do I do this with slimctl?",
+      "expected_output": "A correct slimctl command using 'node route add' with the route in org/ns/agent/id format, a connection config JSON file, and the 'via' keyword.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "List all routes the control plane knows about for node 'edge-node-1', then delete the route for acme/prod/chatbot/3 that goes via http://gateway:9090.",
+      "expected_output": "Correct slimctl controller commands: 'controller route list -n edge-node-1' and 'controller route del -n edge-node-1 acme/prod/chatbot/3 via http://gateway:9090'.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Set up slimctl to always connect to my SLIM node at myhost.internal:9090 using TLS with my CA cert at /etc/pki/ca.pem, client cert at /etc/pki/client.pem, and key at /etc/pki/client.key.",
+      "expected_output": "Correct slimctl config set commands for server, tls-ca-file, tls-cert-file, tls-key-file, and turning off tls-insecure.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I want to create a SLIM channel with alice as a moderator, then add participants bob and carol to it, and finally list the participants. Walk me through the slimctl commands.",
+      "expected_output": "Correct sequence: controller channel create moderators=alice, then controller participant add bob/carol -c <channel-id>, then controller participant list -c <channel-id>.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Show me all the routes and connections currently active on my local SLIM node.",
+      "expected_output": "Correct slimctl commands: 'node route list' and 'node connection list' (both talk directly to the node at default 127.0.0.1:46357).",
+      "files": []
+    }
+  ]
+}

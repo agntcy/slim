@@ -1,0 +1,31 @@
+{
+  "eval_id": 1,
+  "run": "without_skill",
+  "expectations": [
+    {
+      "text": "Uses 'node route add' subcommand (not controller)",
+      "passed": true,
+      "evidence": "slimctl node route add acme/production/assistant/1 via /tmp/conn.json"
+    },
+    {
+      "text": "Route is in org/ns/agent/id format: acme/production/assistant/1",
+      "passed": true,
+      "evidence": "four slash-separated components: org/namespace/agentname/agentid"
+    },
+    {
+      "text": "Includes the 'via' keyword",
+      "passed": true,
+      "evidence": "node route add ... via /tmp/conn.json"
+    },
+    {
+      "text": "References a JSON connection config file (not inline URL)",
+      "passed": true,
+      "evidence": "via /tmp/conn.json — creates cat > /tmp/conn.json"
+    },
+    {
+      "text": "Shows or mentions the JSON file should contain the endpoint http://10.0.0.5:8080",
+      "passed": true,
+      "evidence": "{ \"endpoint\": \"http://10.0.0.5:8080\" }"
+    }
+  ]
+}

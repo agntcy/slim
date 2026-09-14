@@ -1,0 +1,22 @@
+{
+  "eval_id": 5,
+  "eval_name": "list-routes-and-connections",
+  "prompt": "Show me all the routes and connections currently active on my local SLIM node.",
+  "assertions": [
+    {
+      "text": "Uses 'node route list' (direct node command, not controller)",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Uses 'node connection list' (or alias 'node conn list')",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Mentions default server 127.0.0.1:46357 or explains the local node assumption",
+      "passed": null,
+      "evidence": null
+    }
+  ]
+}

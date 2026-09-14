@@ -1,0 +1,31 @@
+{
+  "eval_id": 4,
+  "run": "with_skill",
+  "expectations": [
+    {
+      "text": "Uses 'controller channel create' with moderators=alice",
+      "passed": true,
+      "evidence": "slimctl controller channel create moderators=alice"
+    },
+    {
+      "text": "Uses 'controller participant add bob -c <channel-id>'",
+      "passed": true,
+      "evidence": "slimctl controller participant add bob -c <channel-id>"
+    },
+    {
+      "text": "Uses 'controller participant add carol -c <channel-id>'",
+      "passed": true,
+      "evidence": "slimctl controller participant add carol -c <channel-id>"
+    },
+    {
+      "text": "Uses 'controller participant list -c <channel-id>'",
+      "passed": true,
+      "evidence": "slimctl controller participant list -c <channel-id>"
+    },
+    {
+      "text": "Explains that the channel ID comes from the output of the channel create step",
+      "passed": true,
+      "evidence": "The <channel-id> placeholder should be replaced with the actual ID returned by the 'channel create' command"
+    }
+  ]
+}

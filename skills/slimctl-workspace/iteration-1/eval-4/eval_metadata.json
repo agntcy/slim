@@ -1,0 +1,32 @@
+{
+  "eval_id": 4,
+  "eval_name": "channel-and-participants",
+  "prompt": "I want to create a SLIM channel with alice as a moderator, then add participants bob and carol to it, and finally list the participants. Walk me through the slimctl commands.",
+  "assertions": [
+    {
+      "text": "Uses 'controller channel create' with moderators=alice",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Uses 'controller participant add bob -c <channel-id>'",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Uses 'controller participant add carol -c <channel-id>'",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Uses 'controller participant list -c <channel-id>'",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Explains that the channel ID comes from the output of the channel create step",
+      "passed": null,
+      "evidence": null
+    }
+  ]
+}

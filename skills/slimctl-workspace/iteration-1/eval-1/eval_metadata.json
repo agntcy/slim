@@ -1,0 +1,32 @@
+{
+  "eval_id": 1,
+  "eval_name": "node-route-add",
+  "prompt": "I need to add a route on my SLIM node for agent acme/production/assistant/1 that goes via the remote node at http://10.0.0.5:8080. How do I do this with slimctl?",
+  "assertions": [
+    {
+      "text": "Uses 'node route add' subcommand (not controller)",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Route is in org/ns/agent/id format: acme/production/assistant/1",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Includes the 'via' keyword",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "References a JSON connection config file (not inline URL)",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Shows or mentions the JSON file should contain the endpoint http://10.0.0.5:8080",
+      "passed": null,
+      "evidence": null
+    }
+  ]
+}

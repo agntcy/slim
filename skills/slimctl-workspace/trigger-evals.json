@@ -1,0 +1,82 @@
+[
+  {
+    "query": "how do i add a route for my agent acme/prod/assistant/0 on my SLIM node? it needs to forward to http://10.0.1.5:8080",
+    "should_trigger": true
+  },
+  {
+    "query": "slimctl keeps saying connection refused when i run controller route list -n node1, what am i doing wrong",
+    "should_trigger": true
+  },
+  {
+    "query": "i want to create a SLIM channel with alice and bob as moderators and then add charlie as a participant",
+    "should_trigger": true
+  },
+  {
+    "query": "what's the slimctl command to see all the connections on my local SLIM instance?",
+    "should_trigger": true
+  },
+  {
+    "query": "need to set up slimctl to talk to a remote node at prod-slim.mycompany.com:9090 over mtls, i have the certs in /etc/pki/",
+    "should_trigger": true
+  },
+  {
+    "query": "how do i start a slim node locally with slimctl using a custom config file at /etc/slim/prod.yaml",
+    "should_trigger": true
+  },
+  {
+    "query": "list all nodes registered in the SLIM control plane",
+    "should_trigger": true
+  },
+  {
+    "query": "i need to delete the route org/ns/bot/2 from edge-node-1 via the control plane, not directly on the node",
+    "should_trigger": true
+  },
+  {
+    "query": "what does `slimctl config set tls-insecure false` actually do? why do i need it if i already set tls-ca-file?",
+    "should_trigger": true
+  },
+  {
+    "query": "can i use environment variables instead of flags to configure the slimctl server address and credentials",
+    "should_trigger": true
+  },
+  {
+    "query": "how do i add a static route in linux for the 192.168.1.0/24 subnet via gateway 10.0.0.1",
+    "should_trigger": false
+  },
+  {
+    "query": "i'm setting up mutual TLS for my go grpc server, which tls.Config fields do i need to set for client certificate verification",
+    "should_trigger": false
+  },
+  {
+    "query": "how do i create a channel in slack via the api and invite users to it programmatically",
+    "should_trigger": false
+  },
+  {
+    "query": "my kubernetes ingress isn't routing traffic to the right service, here's my ingress.yaml - what's wrong with the path rules",
+    "should_trigger": false
+  },
+  {
+    "query": "i'm using the agntcy python SDK to send a message from one agent to another, how do i set up the session",
+    "should_trigger": false
+  },
+  {
+    "query": "how do i configure a rabbitmq exchange and bind queues to route messages by routing key",
+    "should_trigger": false
+  },
+  {
+    "query": "need to list all active tcp connections on my linux server and see which ports are listening",
+    "should_trigger": false
+  },
+  {
+    "query": "how do i manage participants in a google meet or zoom call via their REST api",
+    "should_trigger": false
+  },
+  {
+    "query": "setting up envoy proxy to route gRPC traffic between microservices with TLS termination",
+    "should_trigger": false
+  },
+  {
+    "query": "i want to check what routes my istio service mesh has configured for my payment-service",
+    "should_trigger": false
+  }
+]

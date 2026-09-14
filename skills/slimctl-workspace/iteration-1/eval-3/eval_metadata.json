@@ -1,0 +1,32 @@
+{
+  "eval_id": 3,
+  "eval_name": "configure-tls",
+  "prompt": "Set up slimctl to always connect to my SLIM node at myhost.internal:9090 using TLS with my CA cert at /etc/pki/ca.pem, client cert at /etc/pki/client.pem, and key at /etc/pki/client.key.",
+  "assertions": [
+    {
+      "text": "Sets server to myhost.internal:9090 via 'config set server'",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Sets tls-ca-file to /etc/pki/ca.pem",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Sets tls-cert-file to /etc/pki/client.pem",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Sets tls-key-file to /etc/pki/client.key",
+      "passed": null,
+      "evidence": null
+    },
+    {
+      "text": "Disables tls-insecure (sets to false) since real TLS is being configured",
+      "passed": null,
+      "evidence": null
+    }
+  ]
+}
