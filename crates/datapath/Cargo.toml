@@ -69,7 +69,7 @@ ml-kem = { workspace = true }
 rand_core = { workspace = true }
 semver = { workspace = true }
 sha2 = { workspace = true }
-tokio = { package = "tokio_with_wasm", version = "0.9", features = [
+tokio = { package = "tokio_with_wasm", version = "0.10", features = [
     "sync",
     "macros",
     "rt",
