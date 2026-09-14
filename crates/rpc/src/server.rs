@@ -28,7 +28,6 @@ use slim_session::notification::Notification;
 
 use super::{
     RPC_DIR_KEY, RPC_DIR_REQ, SHARED_RESPONSES_ENABLED, SHARED_RESPONSES_KEY,
-    SHARED_RESPONSES_MEMBER_COUNT_KEY,
 };
 
 use super::{
@@ -526,11 +525,6 @@ pub struct Server {
     drain_watch: RwLock<Option<drain::Watch>>,
     /// Runtime handle for spawning tasks (resolved at construction)
     pub(crate) runtime: tokio::runtime::Handle,
-    /// When `true`, sessions that request shared-responses mode are accepted and
-    /// peer response messages are forwarded to handlers via [`PeerResponseReceiver`].
-    /// When `false` (default), such sessions are rejected with a
-    /// `failed_precondition` error on their first RPC call.
-    accept_shared_responses: bool,
 }
 
 /// Spawn a handler task for a new RPC call and, for stream-input handlers, register the mpsc
@@ -594,61 +588,36 @@ fn spawn_handler_task(
     });
 }
 
+/// Per-call state for a shared-responses RPC: the peer channel sender and the number
+/// of peer EOSes to wait for before closing the channel.
+struct PeerChannelEntry {
+    tx: mpsc::UnboundedSender<PeerMessage>,
+    expected_peers: usize,
+}
+
 /// Per-session demultiplexer: routes incoming messages by `rpc-id` and dispatches each new
 /// RPC call to a dedicated handler task.  Runs until the drain signal fires or the session
 /// closes, then aborts any still-running handler tasks and cleans up the session.
 ///
-/// When `accept_shared_responses` is `true` AND the session metadata contains
-/// `SHARED_RESPONSES_KEY = "true"`, peer response messages (tagged `RPC_DIR_KEY = "resp"`)
-/// are forwarded to the handler's [`PeerResponseReceiver`] instead of being dropped.
-/// If the session requests shared-responses but the server does not accept it
-/// (`accept_shared_responses = false`), the first RPC call on the session is rejected
-/// with a `failed_precondition` error.
+/// Shared-responses mode is opted in per-call: when the first message of an RPC carries
+/// `SHARED_RESPONSES_KEY = "true"` in its metadata, peer response messages are forwarded
+/// to the handler's [`PeerResponseReceiver`]. Otherwise they are dropped silently.
 async fn run_session_demux(
     session_tx: SessionTx,
     mut session_rx: SessionRx,
     registry: ServiceRegistry,
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
     drain_watch: drain::Watch,
-    accept_shared_responses: bool,
     own_name: Name,
 ) {
-    // Determine whether this session operates in shared-responses mode.
-    let session_wants_shared = session_tx
-        .metadata()
-        .get(SHARED_RESPONSES_KEY)
-        .map(String::as_str)
-        == Some(SHARED_RESPONSES_ENABLED);
-    let shared_mode = session_wants_shared && accept_shared_responses;
-    // When the client requests shared-responses but we don't support it, we
-    // reject the first RPC call then continue with normal (non-shared) filtering.
-    let should_reject_shared = session_wants_shared && !accept_shared_responses;
-
-    // Number of peer servers expected to respond per RPC in shared-responses mode.
-    // Derived from the member count the client embedded in session metadata.
-    // N members → N-1 peers per server. Falls back to 0 (no peers) if missing.
-    let expected_peers: usize = if shared_mode {
-        session_tx
-            .metadata()
-            .get(SHARED_RESPONSES_MEMBER_COUNT_KEY)
-            .and_then(|s| s.parse::<usize>().ok())
-            .map(|n| n.saturating_sub(1))
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
     // Map rpc_id → mpsc sender for live stream-input handlers (client requests).
     let mut pending_streams: HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>> =
         HashMap::new();
-    // In shared-responses mode: map rpc_id → sender for the peer-response channel.
-    let mut pending_peer_streams: HashMap<Arc<str>, mpsc::UnboundedSender<PeerMessage>> =
-        HashMap::new();
+    // Map rpc_id → peer-response channel entry (shared-responses calls only).
+    let mut pending_peer_streams: HashMap<Arc<str>, PeerChannelEntry> = HashMap::new();
     // Count of peer EOSes received per rpc_id. When count reaches expected_peers,
     // the peer channel is closed and the entry removed from pending_peer_streams.
     let mut peer_eos_counts: HashMap<Arc<str>, usize> = HashMap::new();
-    // Track whether we have already sent the rejection for this session.
-    let mut rejection_sent = false;
 
     // Per-session drain: signals all active handler tasks when the session closes.
     // drain().await serves as a barrier — it resolves once every task has dropped its Watch.
@@ -681,13 +650,11 @@ async fn run_session_demux(
         };
 
         // ── Shared-responses: route peer response messages ────────────────────
-        // In shared-responses mode, messages tagged RPC_DIR_RESP belong to a peer
-        // server's response stream.  Route them to the handler's PeerResponseReceiver
-        // channel if one is registered, then skip normal dispatch.
-        // Self-echoes (source == our own name) are discarded — handlers only receive
-        // responses from *other* members, and the self-EOS must not close the channel
-        // prematurely before those arrive.
-        if shared_mode && msg.is_peer_response() {
+        // Messages tagged RPC_DIR_RESP are peer server responses in a shared-
+        // responses call. Route them to the handler's PeerResponseReceiver channel
+        // if one is registered for this rpc_id, then skip normal dispatch.
+        // Self-echoes (source == our own name) are discarded.
+        if msg.is_peer_response() {
             // Compare only the three name components, ignoring the name_id suffix
             // that the session layer appends.
             let is_self = match (
@@ -705,19 +672,19 @@ async fn run_session_demux(
             if !is_self {
                 // Only forward data frames — EOS is a termination signal, not a payload.
                 if !msg.is_eos() {
-                    if let Some(tx) = pending_peer_streams.get(rpc_id_str.as_str()) {
+                    if let Some(entry) = pending_peer_streams.get(rpc_id_str.as_str()) {
                         let peer_msg = PeerMessage {
                             source: msg.source.clone(),
                             payload: msg.payload.clone(),
                         };
                         tracing::debug!(%rpc_id_str, payload_len = peer_msg.payload.len(), "forwarding peer message");
-                        if tx.send(peer_msg).is_err() {
+                        if entry.tx.send(peer_msg).is_err() {
                             // Handler dropped PeerResponseReceiver — clean up immediately.
                             pending_peer_streams.remove(rpc_id_str.as_str());
                             peer_eos_counts.remove(rpc_id_str.as_str());
                         }
                     } else {
-                        tracing::debug!(%rpc_id_str, "Dropping peer response: no handler registered yet");
+                        tracing::debug!(%rpc_id_str, "Dropping peer response: no handler registered");
                     }
                 }
                 // Count peer EOSes; only close the channel once all N-1 peers have finished.
@@ -725,7 +692,11 @@ async fn run_session_demux(
                     let rpc_id_arc: Arc<str> = Arc::from(rpc_id_str.as_str());
                     let count = peer_eos_counts.entry(rpc_id_arc).or_insert(0);
                     *count += 1;
-                    if *count >= expected_peers {
+                    let expected = pending_peer_streams
+                        .get(rpc_id_str.as_str())
+                        .map(|e| e.expected_peers)
+                        .unwrap_or(0);
+                    if *count >= expected {
                         peer_eos_counts.remove(rpc_id_str.as_str());
                         pending_peer_streams.remove(rpc_id_str.as_str());
                     }
@@ -767,20 +738,9 @@ async fn run_session_demux(
         // New RPC call — create Arc now that we know we need it.
         let rpc_id: Arc<str> = Arc::from(rpc_id_str.as_str());
 
-        // Reject if client requested shared-responses but this server doesn't support it.
-        if should_reject_shared && !rejection_sent {
-            rejection_sent = true;
-            tracing::warn!(%rpc_id, "Client requested shared-responses mode but server does not support it");
-            let _ = send_error_for_rpc(
-                &session_tx,
-                RpcError::failed_precondition(
-                    "Server does not support shared-responses mode; register handlers with register_*_shared and construct server with new_with_shared_responses",
-                ),
-                &rpc_id,
-            )
-            .await;
-            continue;
-        }
+        // Detect per-call shared-responses opt-in from the first-message metadata.
+        let call_shared = msg.metadata.get(SHARED_RESPONSES_KEY).map(String::as_str)
+            == Some(SHARED_RESPONSES_ENABLED);
 
         let (Some(service), Some(method)) = (
             msg.metadata
@@ -811,14 +771,32 @@ async fn run_session_demux(
             continue;
         };
 
-        // In shared-responses mode, create a peer-response channel for the handler.
-        // When expected_peers == 0 (single-server group) the sender is dropped
-        // immediately so the handler's peer.next() returns None right away.
-        let peer_rx = if shared_mode {
+        // For shared-responses calls, create a peer-response channel for the handler and
+        // derive expected_peers from the live session participant list.
+        // The list includes self, the client, and peer servers. We subtract:
+        //   - 1 for self (own_name)
+        //   - 1 for the caller (msg.source, the client that sent the request)
+        // The result is the number of peer servers that will send responses.
+        // When expected_peers == 0 (single-server group) the sender is dropped immediately
+        // so peer.next() returns None right away.
+        let peer_rx = if call_shared {
+            let client_src = msg.source.clone();
+            let expected_peers = session_tx
+                .controller()
+                .participants_list()
+                .await
+                .map(|list| {
+                    list.iter()
+                        .filter(|(name, _)| {
+                            // Exclude self and the client (source of this request).
+                            !name.match_prefix(&own_name) && !name.match_prefix(&client_src)
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
             let (peer_tx, peer_rx) = mpsc::unbounded_channel::<PeerMessage>();
             if expected_peers > 0 {
-                pending_peer_streams.insert(rpc_id.clone(), peer_tx);
-                // peer_tx dropped here only when expected_peers == 0
+                pending_peer_streams.insert(rpc_id.clone(), PeerChannelEntry { tx: peer_tx, expected_peers });
             }
             Some(peer_rx)
         } else {
@@ -893,7 +871,6 @@ impl Server {
             None,
             NotificationReceiver::Owned(notification_rx),
             None,
-            false,
         )
     }
 
@@ -918,7 +895,6 @@ impl Server {
             connection_id,
             NotificationReceiver::Owned(notification_rx),
             runtime,
-            false,
         )
     }
 
@@ -961,50 +937,6 @@ impl Server {
             connection_id,
             NotificationReceiver::Shared(notification_rx),
             runtime,
-            false,
-        )
-    }
-
-    /// Create a server that accepts shared-responses multicast sessions.
-    ///
-    /// In a shared-responses session, each server receives both client requests
-    /// AND the responses from all other group members via a [`PeerResponseReceiver`].
-    /// Register handlers using `register_*_shared` variants to consume peer responses.
-    #[cfg(not(feature = "uniffi"))]
-    pub fn new_with_shared_responses(
-        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-        base_name: Name,
-        connection_id: Option<u64>,
-        notification_rx: mpsc::Receiver<Result<Notification, SessionError>>,
-        runtime: Option<tokio::runtime::Handle>,
-    ) -> Self {
-        Self::construct_internal(
-            app,
-            base_name,
-            connection_id,
-            NotificationReceiver::Owned(notification_rx),
-            runtime,
-            true,
-        )
-    }
-
-    /// Like [`new_with_shared_responses`](Self::new_with_shared_responses) but with a shared notification receiver.
-    pub fn new_with_shared_rx_and_shared_responses(
-        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-        base_name: Name,
-        connection_id: Option<u64>,
-        notification_rx: Arc<
-            tokio::sync::RwLock<mpsc::Receiver<Result<Notification, SessionError>>>,
-        >,
-        runtime: Option<tokio::runtime::Handle>,
-    ) -> Self {
-        Self::construct_internal(
-            app,
-            base_name,
-            connection_id,
-            NotificationReceiver::Shared(notification_rx),
-            runtime,
-            true,
         )
     }
 
@@ -1022,7 +954,6 @@ impl Server {
         connection_id: Option<u64>,
         notification_rx: NotificationReceiver,
         runtime: Option<tokio::runtime::Handle>,
-        accept_shared_responses: bool,
     ) -> Self {
         let (drain_signal, drain_watch) = drain::channel();
 
@@ -1041,7 +972,6 @@ impl Server {
             drain_signal: RwLock::new(Some(drain_signal)),
             drain_watch: RwLock::new(Some(drain_watch)),
             runtime,
-            accept_shared_responses,
         }
     }
 
@@ -1464,8 +1394,6 @@ impl Server {
             .read()
             .clone()
             .ok_or_else(|| RpcError::internal("drain_watch not available"))?;
-        let accept_shared_responses = self.accept_shared_responses;
-
         let ret = self.runtime.spawn(Server::serve_internal(
             notification,
             registry,
@@ -1473,7 +1401,6 @@ impl Server {
             base_name,
             app,
             drain_watch,
-            accept_shared_responses,
         ));
 
         Ok(ret)
@@ -1490,7 +1417,6 @@ impl Server {
         base_name: Name,
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         drain_watch: drain::Watch,
-        accept_shared_responses: bool,
     ) -> (NotificationReceiver, Result<(), RpcError>) {
         tracing::info!(
             %base_name,
@@ -1540,7 +1466,6 @@ impl Server {
                         registry.clone(),
                         app.clone(),
                         drain_watch.clone(),
-                        accept_shared_responses,
                         base_name.clone(),
                     )));
                 }
@@ -1730,9 +1655,8 @@ impl Server {
     /// Register a unary-to-unary shared-responses RPC handler.
     ///
     /// The handler receives a [`PeerResponseReceiver`] delivering response messages from
-    /// peer servers in the multicast group.  Only meaningful when the server was
-    /// constructed with [`Server::new_with_shared_responses`] and the client channel
-    /// was created with [`Channel::new_group_shared`].
+    /// peer servers in the multicast group. Shared-responses mode is opted in per-call
+    /// by the client passing `SHARED_RESPONSES_KEY = "true"` in the call metadata.
     pub fn register_unary_unary_shared<F, Req, Res, Fut>(
         &self,
         service_name: &str,

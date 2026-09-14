@@ -219,12 +219,6 @@ pub const SHARED_RESPONSES_KEY: &str = "slimrpc-shared-responses";
 /// Value for [`SHARED_RESPONSES_KEY`] that enables shared-responses mode.
 pub const SHARED_RESPONSES_ENABLED: &str = "true";
 
-/// Session-level metadata key carrying the total group member count as a decimal
-/// string. Set by the client alongside [`SHARED_RESPONSES_KEY`]. Servers use it
-/// to determine how many peer EOSes to wait for before closing the handler's
-/// [`PeerResponseReceiver`].
-pub const SHARED_RESPONSES_MEMBER_COUNT_KEY: &str = "slimrpc-member-count";
-
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
 

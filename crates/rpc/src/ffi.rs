@@ -47,7 +47,6 @@ impl Channel {
             slim_app,
             vec![slim_name],
             false,
-            false,
             connection_id,
             slim_bindings::get_runtime(),
         )
@@ -73,42 +72,6 @@ impl Channel {
         Self::new_with_members_internal(
             slim_app,
             slim_names,
-            true,
-            false,
-            connection_id,
-            slim_bindings::get_runtime(),
-        )
-    }
-
-    /// Create a GROUP channel with shared-responses mode enabled.
-    ///
-    /// Each server in the group will receive response messages from peer servers
-    /// via their [`PeerResponseStream`] argument, in addition to the client's
-    /// request. Servers must be constructed with [`Server::new_with_shared_responses`]
-    /// and register handlers via `register_*_shared` methods; servers that do not
-    /// support shared-responses will reject the first RPC call with a
-    /// `failed_precondition` error.
-    #[uniffi::constructor]
-    pub fn new_group_shared(
-        app: Arc<slim_bindings::App>,
-        members: Vec<Arc<slim_bindings::Name>>,
-    ) -> Result<Self, RpcError> {
-        Self::new_group_shared_with_connection(app, members, None)
-    }
-
-    /// Like [`new_group_shared`](Self::new_group_shared) but with a connection ID.
-    #[uniffi::constructor]
-    pub fn new_group_shared_with_connection(
-        app: Arc<slim_bindings::App>,
-        members: Vec<Arc<slim_bindings::Name>>,
-        connection_id: Option<u64>,
-    ) -> Result<Self, RpcError> {
-        let slim_app = app.inner_app().clone();
-        let slim_names: Vec<Name> = members.iter().map(|n| n.as_slim_name().clone()).collect();
-        Self::new_with_members_internal(
-            slim_app,
-            slim_names,
-            true,
             true,
             connection_id,
             slim_bindings::get_runtime(),
@@ -473,44 +436,21 @@ impl Server {
         )
     }
 
-    /// Create a new RPC server that accepts shared-responses multicast sessions.
-    ///
-    /// Handlers registered via `register_*_shared` methods will receive response
-    /// messages from peer servers via a [`PeerResponseStream`] argument.
-    /// Sessions that request shared-responses mode (created via
-    /// [`Channel::new_group_shared`]) will be accepted; all other sessions are
-    /// handled normally.
-    ///
-    /// A server built with the standard [`Server::new`] constructor will reject
-    /// any session that requests shared-responses mode with a `failed_precondition`
-    /// error on the first RPC call.
-    #[uniffi::constructor]
-    pub fn new_with_shared_responses(
-        app: &Arc<slim_bindings::App>,
-        base_name: Arc<slim_bindings::Name>,
-    ) -> Self {
-        Self::new_with_shared_responses_and_connection(app, base_name, None)
-    }
+}
 
-    /// Like [`new_with_shared_responses`](Self::new_with_shared_responses) but
-    /// with an optional connection ID for routing setup.
-    #[uniffi::constructor]
-    pub fn new_with_shared_responses_and_connection(
-        app: &Arc<slim_bindings::App>,
-        base_name: Arc<slim_bindings::Name>,
-        connection_id: Option<u64>,
-    ) -> Self {
-        let app_inner = app.inner();
-        let rx = app.notification_receiver();
+// ── Shared-responses metadata helper ───────────────────────────────────────
 
-        Self::new_with_shared_rx_and_shared_responses(
-            app_inner,
-            base_name.as_ref().into(),
-            connection_id,
-            rx,
-            Some(slim_bindings::get_runtime()),
-        )
-    }
+#[uniffi::export]
+/// Build the per-call metadata map that opts a GROUP channel call into
+/// shared-responses mode. Pass the returned map as the `metadata` argument
+/// to any `Channel::call_*` or `Channel::*` RPC method.
+pub fn make_shared_responses_metadata() -> Metadata {
+    let mut m = HashMap::new();
+    m.insert(
+        crate::SHARED_RESPONSES_KEY.to_string(),
+        crate::SHARED_RESPONSES_ENABLED.to_string(),
+    );
+    m
 }
 
 // ── Server: trait-object handler registration ───────────────────────

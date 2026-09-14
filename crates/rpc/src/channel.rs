@@ -61,8 +61,7 @@ pub struct MulticastItem<T> {
 
 use super::{
     Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
-    RpcError, SERVICE_KEY, SHARED_RESPONSES_ENABLED, SHARED_RESPONSES_KEY,
-    SHARED_RESPONSES_MEMBER_COUNT_KEY, STATUS_CODE_KEY,
+    RpcError, SERVICE_KEY, STATUS_CODE_KEY,
     calculate_timeout_duration,
     codec::{Decoder, Encoder},
     send_eos,
@@ -251,10 +250,6 @@ pub struct Channel {
     /// `true` for GROUP channels (`new_group` / `new_group_with_connection`),
     /// `false` for P2P channels (`new` / `new_with_connection`).
     is_group: bool,
-    /// When `true`, the session is created with `SHARED_RESPONSES_KEY` set in
-    /// `SessionConfig.metadata`, requesting that all servers in the group deliver
-    /// peer responses to their handlers. Only meaningful for GROUP channels.
-    shared_responses: bool,
     /// Initial group members set at construction time. Used to seed a new
     /// session on the first call. Dynamically invited members are stored
     /// in `ChannelSession::members` and inherited across session recreations.
@@ -278,7 +273,6 @@ impl Channel {
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         members: Vec<Name>,
         is_group: bool,
-        shared_responses: bool,
         connection_id: Option<u64>,
         runtime: tokio::runtime::Handle,
     ) -> Result<Self, RpcError> {
@@ -303,7 +297,6 @@ impl Channel {
             app,
             remote,
             is_group,
-            shared_responses,
             initial_members: members_set,
             connection_id,
             runtime,
@@ -397,8 +390,6 @@ impl Channel {
         let app = self.app.clone();
         let remote = self.remote.clone();
         let connection_id = self.connection_id;
-        let shared_responses = self.shared_responses;
-        let member_count = self.initial_members.len();
         let runtime = &self.runtime;
 
         // Runs in a tokio task because create_session needs tokio runtime
@@ -421,23 +412,12 @@ impl Channel {
 
             tracing::debug!(remote = %remote, ?session_type, "Creating persistent session");
 
-            let mut session_metadata = HashMap::new();
-            if shared_responses {
-                session_metadata.insert(
-                    SHARED_RESPONSES_KEY.to_string(),
-                    SHARED_RESPONSES_ENABLED.to_string(),
-                );
-                session_metadata.insert(
-                    SHARED_RESPONSES_MEMBER_COUNT_KEY.to_string(),
-                    member_count.to_string(),
-                );
-            }
             let slim_config = slim_session::session_config::SessionConfig {
                 session_type,
                 max_retries: Some(10),
                 interval: Some(Duration::from_secs(1)),
                 initiator: true,
-                metadata: session_metadata,
+                metadata: HashMap::new(),
                 mls_settings: Some(MlsSettings::default()),
             };
 
@@ -918,7 +898,6 @@ impl Channel {
             app,
             members,
             is_group,
-            false,
             connection_id,
             tokio::runtime::Handle::current(),
         )
@@ -941,7 +920,6 @@ impl Channel {
         Self::new_with_members_internal(
             slim_app,
             vec![slim_name],
-            false,
             false,
             connection_id,
             tokio::runtime::Handle::current(),
@@ -966,57 +944,6 @@ impl Channel {
         Self::new_with_members_internal(
             slim_app,
             slim_names,
-            true,
-            false,
-            connection_id,
-            tokio::runtime::Handle::current(),
-        )
-    }
-
-    /// Create a GROUP channel in shared-responses mode.
-    ///
-    /// In shared-responses mode the session is flagged so that each server
-    /// receives both client requests AND the responses sent by all other servers
-    /// in the group. Servers must opt in by setting `accept_shared_responses`
-    /// on their [`Server`](crate::Server); servers that do not opt in will
-    /// return an error for the first RPC call on the shared session.
-    pub fn new_group_shared(
-        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-        members: Vec<Arc<Name>>,
-    ) -> Result<Self, RpcError> {
-        Self::new_group_shared_with_connection(app, members, None)
-    }
-
-    /// Like [`new_group_shared`](Self::new_group_shared) but with a connection ID.
-    pub fn new_group_shared_with_connection(
-        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-        members: Vec<Arc<Name>>,
-        connection_id: Option<u64>,
-    ) -> Result<Self, RpcError> {
-        let slim_app = app.clone();
-        let slim_names = members.iter().map(|n| n.as_ref().clone()).collect();
-        Self::new_with_members_internal(
-            slim_app,
-            slim_names,
-            true,
-            true,
-            connection_id,
-            tokio::runtime::Handle::current(),
-        )
-    }
-
-    /// Like [`new_with_members`](Channel::new_with_members) but with shared-responses mode enabled.
-    ///
-    /// Equivalent to `new_with_members(..., is_group = true, shared_responses = true)`.
-    pub fn new_with_members_shared(
-        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
-        members: Vec<Name>,
-        connection_id: Option<u64>,
-    ) -> Result<Self, RpcError> {
-        Self::new_with_members_internal(
-            app,
-            members,
-            true,
             true,
             connection_id,
             tokio::runtime::Handle::current(),

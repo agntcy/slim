@@ -39,8 +39,8 @@ use slim_service::service::Service;
 const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
 
 use slim_rpc::{
-    Channel, Context, DecodedStream, Decoder, Encoder, MulticastItem, PeerMessage,
-    PeerResponseReceiver, RpcError, Server,
+    Channel, Context, DecodedStream, Decoder, Encoder, Metadata, MulticastItem, PeerMessage,
+    PeerResponseReceiver, RpcError, Server, SHARED_RESPONSES_ENABLED, SHARED_RESPONSES_KEY,
 };
 
 // ============================================================================
@@ -1098,8 +1098,17 @@ async fn test_channel_close_after_rpc() {
 // Shared-responses helpers
 // ============================================================================
 
-/// Build a fresh `MulticastTestEnv` whose channel uses shared-responses mode
-/// and whose servers opt in via `Server::new_with_shared_responses`.
+/// Metadata map that opts a single RPC call into shared-responses mode.
+fn shared_metadata() -> Metadata {
+    Metadata::from([(
+        SHARED_RESPONSES_KEY.to_string(),
+        SHARED_RESPONSES_ENABLED.to_string(),
+    )])
+}
+
+/// Build a fresh `MulticastTestEnv` for shared-responses tests.
+/// Uses plain `Server::new` and `Channel::new_with_members`; shared mode is
+/// triggered per-call by passing `shared_metadata()` to the RPC method.
 async fn new_shared_env(test_name: &str, num_members: usize) -> MulticastTestEnv {
     let id = ID::new_with_name(Kind::new("slim").unwrap(), test_name).unwrap();
     let service = Arc::new(Service::new(id));
@@ -1117,13 +1126,7 @@ async fn new_shared_env(test_name: &str, num_members: usize) -> MulticastTestEnv
             )
             .unwrap();
         let app = Arc::new(app);
-        let server = Arc::new(Server::new_with_shared_responses(
-            app.clone(),
-            member_app_name.clone(),
-            None,
-            notifications,
-            None,
-        ));
+        let server = Arc::new(Server::new(app.clone(), member_app_name.clone(), notifications));
         member_app_names.push(member_app_name);
         member_servers.push(server);
     }
@@ -1137,9 +1140,8 @@ async fn new_shared_env(test_name: &str, num_members: usize) -> MulticastTestEnv
             AuthVerifier::shared_secret(secret),
         )
         .unwrap();
-    let channel =
-        Channel::new_with_members_shared(Arc::new(client_app), member_app_names, None)
-            .expect("failed to create shared-responses channel");
+    let channel = Channel::new_with_members(Arc::new(client_app), member_app_names, true, None)
+        .expect("failed to create channel");
 
     MulticastTestEnv {
         service,
@@ -1228,7 +1230,7 @@ async fn test_multicast_shared_responses_unary() {
             value: 10,
         },
         Some(Duration::from_secs(10)),
-        None,
+        Some(shared_metadata()),
     );
     let responses =
         collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "shared-unary").await;
@@ -1313,7 +1315,7 @@ async fn test_multicast_shared_responses_stream() {
             value: frames_each as i32,
         },
         Some(Duration::from_secs(10)),
-        None,
+        Some(shared_metadata()),
     );
     let responses = collect_n_multicast(
         stream,
@@ -1392,7 +1394,7 @@ async fn test_multicast_shared_responses_peer_eos_not_terminal() {
             "Sum",
             request_stream,
             Some(Duration::from_secs(10)),
-            None,
+            Some(shared_metadata()),
         );
     let responses =
         collect_n_multicast(result_stream, NUM_MEMBERS, Duration::from_secs(10), "peer-eos").await;
@@ -1405,119 +1407,111 @@ async fn test_multicast_shared_responses_peer_eos_not_terminal() {
 }
 
 // ============================================================================
-// Test: server rejects shared-responses session
+// Test: mixed calls — plain multicast then shared-responses on the same channel
 // ============================================================================
 
-/// One server opts in (`accept_shared_responses = true`), the other does not.
-/// The non-opting server should return a `failed_precondition` error while the
-/// opting server succeeds.
+/// Verify that the same GROUP channel can be used for a plain multicast call
+/// (no peer messages) followed by a shared-responses call (peer messages arrive),
+/// proving per-call opt-in works without separate channel types.
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_multicast_shared_responses_server_rejects() {
-    use slim_rpc::RpcCode;
+async fn test_multicast_mixed_plain_then_shared() {
+    use std::sync::Mutex;
 
-    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-shared-reject").unwrap();
-    let service = Arc::new(Service::new(id));
+    const NUM_MEMBERS: usize = 2;
+    let mut env = new_shared_env("test-mixed-plain-shared", NUM_MEMBERS).await;
 
-    let make_app = |app_name: &Name| {
-        let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
-        let (app, notifications) = service
-            .create_app(
-                app_name,
-                AuthProvider::shared_secret(secret.clone()),
-                AuthVerifier::shared_secret(secret),
-            )
-            .unwrap();
-        (Arc::new(app), notifications)
-    };
+    // Register normal unary handler on all servers.
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_unary_unary(
+            "TestService",
+            "Plain",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
 
-    // Member 0 — accepts shared-responses.
-    let name0 = Name::from_strings(["org", "ns", "reject-member-0"]);
-    let (app0, notif0) = make_app(&name0);
-    let server0 = Arc::new(Server::new_with_shared_responses(
-        app0.clone(),
-        name0.clone(),
-        None,
-        notif0,
-        None,
-    ));
-    server0.register_unary_unary_shared(
+    // Register shared handler on all servers for a different method.
+    let peer_counts: Vec<Arc<Mutex<usize>>> = (0..NUM_MEMBERS)
+        .map(|_| Arc::new(Mutex::new(0usize)))
+        .collect();
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let counter = peer_counts[i].clone();
+        server.register_unary_unary_shared(
+            "TestService",
+            "Shared",
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
+                let counter = counter.clone();
+                async move {
+                    tokio::spawn(async move {
+                        let mut seen = 0;
+                        while let Some(_) = peer.next().await {
+                            seen += 1;
+                        }
+                        *counter.lock().unwrap() = seen;
+                    });
+                    Ok(TestResponse {
+                        member_id: i,
+                        result: req.message,
+                        count: req.value + i as i32,
+                    })
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    // ── First call: plain multicast, no shared metadata ──────────────────────
+    let plain_stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
         "TestService",
-        "Echo",
-        |req: TestRequest, _ctx: Context, _peer: PeerResponseReceiver| async move {
-            Ok(TestResponse {
-                member_id: 0,
-                result: req.message,
-                count: 0,
-            })
-        },
-    );
-
-    // Member 1 — standard server, does NOT accept shared-responses.
-    let name1 = Name::from_strings(["org", "ns", "reject-member-1"]);
-    let (app1, notif1) = make_app(&name1);
-    let server1 = Arc::new(Server::new(app1.clone(), name1.clone(), notif1));
-    server1.register_unary_unary(
-        "TestService",
-        "Echo",
-        |req: TestRequest, _ctx: Context| async move {
-            Ok(TestResponse {
-                member_id: 1,
-                result: req.message,
-                count: 0,
-            })
-        },
-    );
-
-    let s0 = server0.clone();
-    tokio::spawn(async move { s0.serve().await });
-    let s1 = server1.clone();
-    tokio::spawn(async move { s1.serve().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    let client_name = Name::from_strings(["org", "ns", "reject-client"]);
-    let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
-    let (client_app, _) = service
-        .create_app(
-            &client_name,
-            AuthProvider::shared_secret(secret.clone()),
-            AuthVerifier::shared_secret(secret),
-        )
-        .unwrap();
-    let channel =
-        Channel::new_with_members_shared(Arc::new(client_app), vec![name0, name1], None)
-            .expect("channel creation ok");
-
-    let stream = channel.multicast_unary::<TestRequest, TestResponse>(
-        "TestService",
-        "Echo",
+        "Plain",
         TestRequest {
-            message: "test".to_string(),
-            value: 0,
+            message: "plain".to_string(),
+            value: 1,
         },
         Some(Duration::from_secs(10)),
         None,
     );
-    // Collect 2 items: one success (server0) and one error (server1).
-    let results =
-        collect_n_mixed(stream, 2, Duration::from_secs(10), "reject-test").await;
-    assert_eq!(results.len(), 2);
-    let errors: Vec<_> = results.iter().filter(|r| r.is_err()).collect();
-    let successes: Vec<_> = results.iter().filter(|r| r.is_ok()).collect();
-    assert_eq!(successes.len(), 1, "expected 1 success");
-    assert_eq!(errors.len(), 1, "expected 1 error");
-    let err = errors[0].as_ref().unwrap_err();
-    assert_eq!(
-        err.code(),
-        RpcCode::FailedPrecondition,
-        "rejecting server must return failed_precondition, got {:?}",
-        err.code()
-    );
+    let plain_responses =
+        collect_n_multicast(plain_stream, NUM_MEMBERS, Duration::from_secs(10), "plain").await;
+    assert_eq!(plain_responses.len(), NUM_MEMBERS);
+    assert!(plain_responses.iter().all(|r| r.message.result == "plain"));
 
-    channel.close(None).await.ok();
-    server0.shutdown().await;
-    server1.shutdown().await;
-    service.shutdown().await.unwrap();
+    // ── Second call: shared-responses, same channel ──────────────────────────
+    let shared_stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Shared",
+        TestRequest {
+            message: "shared".to_string(),
+            value: 10,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let shared_responses =
+        collect_n_multicast(shared_stream, NUM_MEMBERS, Duration::from_secs(10), "shared").await;
+    assert_eq!(shared_responses.len(), NUM_MEMBERS);
+
+    // Give background peer-drain tasks time to finish.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Each server should have seen exactly NUM_MEMBERS-1 peer messages.
+    for (i, counter) in peer_counts.iter().enumerate() {
+        let seen = *counter.lock().unwrap();
+        assert_eq!(
+            seen,
+            NUM_MEMBERS - 1,
+            "server {i} saw {seen} peer messages on shared call, expected {}",
+            NUM_MEMBERS - 1
+        );
+    }
+
+    env.shutdown().await;
 }
 
 // ============================================================================
@@ -1631,7 +1625,7 @@ async fn test_multicast_shared_responses_three_servers() {
             value: 1,
         },
         Some(Duration::from_secs(10)),
-        None,
+        Some(shared_metadata()),
     );
     let responses =
         collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "three-servers").await;
