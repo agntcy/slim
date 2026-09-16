@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rand::Rng;
+use rand::RngExt;
 use slim_datapath::api::{EncodedName, Participant, ProtoSessionType};
 use slim_datapath::messages::utils::{MAX_PUBLISH_ID, PUBLISH_TO};
 use slim_datapath::{api::ProtoMessage as Message, api::ProtoName};
@@ -211,7 +211,7 @@ impl SessionSender {
                 %dst,
                 "cannot forward the message to the select destination",
             );
-            return Err(SessionError::UnknownDestination(dst));
+            return Err(SessionError::UnknownDestination(Box::new(dst)));
         }
 
         let (message_id, fanout) = self.id_and_fanout(is_publish_to);

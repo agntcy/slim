@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build container
-FROM --platform=${BUILDPLATFORM} rust:1.95-slim-bookworm AS rust
+FROM --platform=${BUILDPLATFORM} rust:1.95-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082 AS rust
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -87,10 +87,10 @@ mv target/${RUSTARCH}/release/channel-manager.dbg /channel-manager.dbg
 EOF
 
 # Grab libgcc from the CC image
-FROM gcr.io/distroless/cc-debian12 AS libgcc-provider
+FROM gcr.io/distroless/cc-debian12@sha256:e5d81ddde149641e2a9ba55be4545bc125c67de07508b03ba4c22e6eb0ded5aa AS libgcc-provider
 
 # Runtime images  - debug executable, debug symbols and, most importantly, a shell :)
-FROM debian:bookworm-slim AS slim-debug
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS slim-debug
 
 ARG TARGETARCH
 
@@ -99,7 +99,7 @@ COPY --from=rust /slim /slim
 COPY --from=rust /slim.dbg /slim.dbg
 
 # Runtime images - release executable
-FROM gcr.io/distroless/base-nossl-debian12:nonroot AS slim-release
+FROM gcr.io/distroless/base-nossl-debian12:nonroot@sha256:be40c00dfabd86576d92666e87e406714d5618342de1a0c213ad232de255172e AS slim-release
 
 ARG TARGETARCH
 
@@ -110,7 +110,7 @@ COPY --from=libgcc-provider /lib/*-linux-gnu/libgcc_s.so.1 /lib/
 COPY --from=rust /slim /slim
 
 # Runtime image - control plane debug executable, debug symbols and a shell
-FROM debian:bookworm-slim AS control-plane-debug
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS control-plane-debug
 
 ARG TARGETARCH
 
@@ -119,7 +119,7 @@ COPY --from=rust /slim-control-plane /slim-control-plane
 COPY --from=rust /slim-control-plane.dbg /slim-control-plane.dbg
 
 # Runtime image - control plane release executable
-FROM gcr.io/distroless/base-nossl-debian12:nonroot AS control-plane-release
+FROM gcr.io/distroless/base-nossl-debian12:nonroot@sha256:be40c00dfabd86576d92666e87e406714d5618342de1a0c213ad232de255172e AS control-plane-release
 
 ARG TARGETARCH
 
@@ -133,7 +133,7 @@ ENTRYPOINT ["/slim-control-plane"]
 
 
 # Runtime image - channel manager debug executable, debug symbols and a shell
-FROM debian:bookworm-slim AS channel-manager-debug
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS channel-manager-debug
 
 ARG TARGETARCH
 
@@ -142,7 +142,7 @@ COPY --from=rust /channel-manager /channel-manager
 COPY --from=rust /channel-manager.dbg /channel-manager.dbg
 
 # Runtime image - channel manager release executable
-FROM gcr.io/distroless/base-nossl-debian12:nonroot AS channel-manager-release
+FROM gcr.io/distroless/base-nossl-debian12:nonroot@sha256:be40c00dfabd86576d92666e87e406714d5618342de1a0c213ad232de255172e AS channel-manager-release
 
 ARG TARGETARCH
 

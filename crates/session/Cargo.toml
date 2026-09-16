@@ -2,7 +2,7 @@
 name = "agntcy-slim-session"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.7.10"
+version = "0.7.11"
 description = "SLIM session internal implementation."
 
 [lib]
@@ -39,7 +39,7 @@ tonic = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 maybe-async = { workspace = true }
-tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "macros", "rt", "time"] }
+tokio = { package = "tokio_with_wasm", version = "0.10", features = ["sync", "macros", "rt", "time"] }
 tonic = { version = "0.14", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

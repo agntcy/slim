@@ -54,8 +54,6 @@ pub enum AuthError {
     OidcMissingKidWithMultipleKeys,
     #[error("OIDC Token Provider does not support custom claims")]
     OidcUnsupportedCustomClaims,
-    #[error("OAuth2 request error: {0}")]
-    OAuth2Request(Box<dyn std::error::Error + Send + Sync>),
     #[error("Token endpoint error: status {status}, body: {body}")]
     TokenEndpointError { status: u16, body: String },
     #[error("Invalid client credentials")]
