@@ -1,0 +1,333 @@
+/* Copyright AGNTCY Contributors (https://github.com/agntcy) */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* Interactive slimctl terminal on the home page */
+
+.slimctl-terminal-section {
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.slimctl-terminal-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 2rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.slimctl-terminal-main {
+  flex: 1 1 52%;
+  min-width: 0;
+}
+
+.slimctl-terminal-side {
+  flex: 1 1 42%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  container-type: inline-size;
+  container-name: slimctl-terminal-side;
+}
+
+.slimctl-terminal-intro-group {
+  width: 100%;
+  text-align: left;
+}
+
+.md-typeset .md-content__inner > .slimctl-terminal-intro-group {
+  display: none;
+}
+
+.slimctl-terminal-side > .slimctl-terminal-intro-group {
+  display: block;
+}
+
+.slimctl-terminal-intro {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0 0 1rem;
+}
+
+.slimctl-terminal-intro a {
+  color: var(--md-accent-fg-color);
+}
+
+.slimctl-terminal {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  text-align: left;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: var(--slimctl-terminal-height, 20rem);
+  min-height: var(--slimctl-terminal-height, 20rem);
+  background: var(--md-code-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+[data-md-color-scheme="slate"] .slimctl-terminal {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+.slimctl-terminal-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.4rem 0.35rem 0.85rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-default-bg-color--light);
+}
+
+.slimctl-terminal-title {
+  color: var(--md-default-fg-color--light);
+  font-family: var(--md-code-font, "Roboto Mono"), ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.slimctl-terminal-controls {
+  display: flex;
+  gap: 1px;
+}
+
+.slimctl-terminal-control {
+  width: 1.75rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: default;
+  padding: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.md-typeset .slimctl-terminal-output {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  padding: 1rem 0.9rem;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-family: var(--md-code-font, "Roboto Mono"), ui-monospace, monospace;
+  font-size: 0.82rem;
+  line-height: 1.65;
+  color: var(--md-default-fg-color);
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-cmd {
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-user {
+  color: var(--md-accent-fg-color);
+  font-weight: 500;
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-agent {
+  color: #2e7d32;
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-tool {
+  color: #6a1b9a;
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-out {
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-comment {
+  color: var(--md-default-fg-color--light);
+  font-style: italic;
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-muted {
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .slimctl-terminal-output .slimctl-terminal-err {
+  color: #c62828;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .slimctl-terminal-output .slimctl-terminal-agent {
+  color: #81c784;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .slimctl-terminal-output .slimctl-terminal-tool {
+  color: #ce93d8;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .slimctl-terminal-output .slimctl-terminal-err {
+  color: #ef9a9a;
+}
+
+.slimctl-terminal-cursor {
+  display: inline-block;
+  width: 0.55em;
+  color: var(--md-accent-fg-color);
+  animation: slimctl-terminal-blink 1s step-end infinite;
+}
+
+@keyframes slimctl-terminal-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slimctl-terminal-cursor {
+    animation: none;
+  }
+}
+
+/* Input row — override MkDocs Material form/input focus styles inside .md-typeset */
+.md-typeset .slimctl-terminal-input {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.55rem 0.9rem;
+  border: none;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0;
+  background: var(--md-default-bg-color--light);
+  box-shadow: none;
+}
+
+.md-typeset .slimctl-terminal-prompt {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  font-family: var(--md-code-font, "Roboto Mono"), ui-monospace, monospace;
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--md-accent-fg-color);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.md-typeset .slimctl-terminal-command,
+.md-typeset .slimctl-terminal-command:hover,
+.md-typeset .slimctl-terminal-command:focus,
+.md-typeset .slimctl-terminal-command:focus-visible {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  font-family: var(--md-code-font, "Roboto Mono"), ui-monospace, monospace;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--md-default-fg-color);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.md-typeset .slimctl-terminal-command::selection {
+  background: rgba(24, 122, 220, 0.25);
+}
+
+.slimctl-terminal-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  justify-content: flex-start;
+  align-items: center;
+  width: 100%;
+}
+
+.slimctl-terminal-actions .slimctl-terminal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--md-text-font, "Roboto"), sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--slim-action-btn-color);
+  background: var(--slim-action-btn-bg);
+  border: 2px solid var(--slim-action-btn-border);
+  border-radius: 50px;
+  padding: calc(0.4rem - 1px) calc(0.9rem - 1px);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.slimctl-terminal-actions .slimctl-terminal-btn:not(.is-active):hover {
+  border-color: var(--md-accent-fg-color);
+}
+
+.slimctl-terminal-actions .slimctl-terminal-btn.is-active {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--slim-action-btn-bg-active), var(--slim-action-btn-bg-active)) padding-box,
+    var(--slim-hero-gradient) border-box;
+}
+
+.slimctl-terminal-intro[hidden],
+.slimctl-terminal-input[hidden] {
+  display: none !important;
+}
+
+@container slimctl-terminal-side (max-width: 22rem) {
+  .slimctl-terminal-actions {
+    flex-direction: column;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+  }
+}
+
+@media (max-width: 768px) {
+  .slimctl-terminal-layout {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .slimctl-terminal-side {
+    align-items: stretch;
+  }
+
+  .slimctl-terminal-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 600px) {
+  .slimctl-terminal {
+    --slimctl-terminal-height: 18rem;
+  }
+
+  .md-typeset .slimctl-terminal-output {
+    font-size: 0.78rem;
+  }
+}
