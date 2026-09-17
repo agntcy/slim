@@ -5,13 +5,14 @@ use crate::errors::AuthError;
 use crate::jwt::extract_sub_claim_unsafe;
 use crate::resolver::JwksCache;
 use crate::traits::{TokenProvider, Verifier};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use display_error_chain::ErrorChainExt;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet, KeyAlgorithm};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 
 use crate::jwt::key_alg_to_algorithm;
 use crate::resolver::same_origin;
-use oauth2::{AuthUrl, ClientId, ClientSecret, Scope, TokenResponse, TokenUrl, basic::BasicClient};
 use parking_lot::RwLock;
 use reqwest::Client as ReqwestClient;
 use std::collections::HashMap;
@@ -247,33 +248,61 @@ impl OidcTokenProvider {
             });
         }
 
-        let auth_url_str = discovery_response
-            .get("authorization_endpoint")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("{}/authorize", self.config.issuer_url));
-
-        // Create OAuth2 client (updated for new oauth2 builder API)
-        let client = BasicClient::new(ClientId::new(self.config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(self.config.client_secret.clone()))
-            .set_auth_uri(AuthUrl::new(auth_url_str)?)
-            .set_token_uri(TokenUrl::new(token_endpoint.to_string())?);
-
-        let mut token_request = client.exchange_client_credentials();
-
+        let mut params = vec![("grant_type", "client_credentials")];
         if let Some(ref scope) = self.config.scope {
-            token_request = token_request.add_scope(Scope::new(scope.clone()));
+            params.push(("scope", scope.as_str()));
         }
 
-        let token_response = token_request
-            .request_async(&self.client)
-            .await
-            .map_err(|e| AuthError::OAuth2Request(Box::new(e)))?;
+        // RFC 6749 section 2.3.1: authenticate via HTTP Basic auth, with the
+        // client_id and client_secret separately percent-encoded before being
+        // joined and base64-encoded (plain HTTP Basic auth does not do this,
+        // but the spec requires it so that a ':' inside either value can't be
+        // confused with the id:secret separator).
+        let urlencoded_id: String =
+            url::form_urlencoded::byte_serialize(self.config.client_id.as_bytes()).collect();
+        let urlencoded_secret: String =
+            url::form_urlencoded::byte_serialize(self.config.client_secret.as_bytes()).collect();
+        let basic_credential =
+            BASE64_STANDARD.encode(format!("{urlencoded_id}:{urlencoded_secret}"));
 
-        let access_token = token_response.access_token().secret();
+        let http_resp = self
+            .client
+            .post(token_endpoint)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Basic {basic_credential}"),
+            )
+            .form(&params)
+            .send()
+            .await?;
+        let status = http_resp.status();
+        let body = http_resp.text().await?;
+        let token_response: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+
+        if let Some(err) = token_response.get("error").and_then(|v| v.as_str()) {
+            let desc = token_response
+                .get("error_description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("no description");
+            return Err(AuthError::TokenEndpointError {
+                status: status.as_u16(),
+                body: format!("{err}: {desc}"),
+            });
+        }
+        if !status.is_success() {
+            return Err(AuthError::TokenEndpointError {
+                status: status.as_u16(),
+                body,
+            });
+        }
+
+        let access_token = token_response
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .ok_or(AuthError::GetTokenError)?;
         let expires_in = token_response
-            .expires_in()
-            .map(|duration| duration.as_secs())
+            .get("expires_in")
+            .and_then(|v| v.as_u64())
             .unwrap_or(3600); // Default to 1 hour
 
         // Calculate expiry timestamp
@@ -646,7 +675,7 @@ mod tests {
     use super::*;
     use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use serde_json::json;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // Use the test utilities from the testutils module
@@ -672,6 +701,66 @@ mod tests {
         // Test token retrieval
         let token = provider.get_token().unwrap();
         assert_eq!(token, expected_token);
+    }
+
+    /// RFC 6749 section 2.3.1: the client_credentials grant must authenticate
+    /// via HTTP Basic auth (percent-encoded id/secret, base64-joined), not by
+    /// putting client_id/client_secret in the POST body. Providers that only
+    /// accept client_secret_basic (many enterprise IdPs) would silently reject
+    /// requests if this regressed.
+    #[tokio::test]
+    async fn test_oidc_token_provider_uses_http_basic_auth() {
+        slim_config::tls::provider::initialize_crypto_provider();
+
+        let mock_server = MockServer::start().await;
+        let issuer_url = mock_server.uri();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/openid-configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "issuer": issuer_url,
+                "authorization_endpoint": format!("{}/auth", issuer_url),
+                "token_endpoint": format!("{}/token", issuer_url),
+                "jwks_uri": format!("{}/jwks.json", issuer_url),
+            })))
+            .mount(&mock_server)
+            .await;
+
+        // client_id and client_secret each contain a ':' and a '/' to exercise
+        // the percent-encoding step, per RFC 6749 section 2.3.1.
+        let client_id = "cl:ent/id";
+        let client_secret = "se:cret/val";
+        let urlencoded_id: String =
+            url::form_urlencoded::byte_serialize(client_id.as_bytes()).collect();
+        let urlencoded_secret: String =
+            url::form_urlencoded::byte_serialize(client_secret.as_bytes()).collect();
+        let expected_credential =
+            BASE64_STANDARD.encode(format!("{urlencoded_id}:{urlencoded_secret}"));
+
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .and(header(
+                "Authorization",
+                format!("Basic {expected_credential}").as_str(),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "basic-auth-token",
+                "expires_in": 3600
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = OidcProviderConfig {
+            client_id: client_id.to_string(),
+            client_secret: client_secret.to_string(),
+            issuer_url,
+            scope: None,
+            timeout: None,
+        };
+        let provider = OidcTokenProvider::new(config).unwrap();
+
+        let token = provider.fetch_new_token().await.unwrap();
+        assert_eq!(token, "basic-auth-token");
     }
 
     #[tokio::test]
@@ -1141,20 +1230,20 @@ mod tests {
         let result = provider.fetch_new_token().await;
         assert!(result.is_err());
 
-        // Should get an OAuth2Request (boxed RequestTokenError) due to the OAuth2 error response
+        // Should get a TokenEndpointError describing the OAuth2 error response
         match result {
-            Err(AuthError::OAuth2Request(e)) => {
-                // The typed RequestTokenError implements Display; inspect its message
-                let msg = e.to_string();
+            Err(AuthError::TokenEndpointError { status, body }) => {
+                assert_eq!(status, 400);
                 assert!(
-                    msg.contains("Server returned error response"),
+                    body.contains("invalid_client")
+                        && body.contains("Client authentication failed"),
                     "OAuth2 error message did not contain expected text: {}",
-                    msg
+                    body
                 );
             }
             other => {
                 panic!(
-                    "Expected OAuth2Request containing OAuth2 error, but got: {:?}",
+                    "Expected TokenEndpointError containing OAuth2 error, but got: {:?}",
                     other
                 );
             }
