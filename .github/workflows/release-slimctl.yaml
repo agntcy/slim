@@ -25,7 +25,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --title "$TAG" --notes "" --repo "${{ github.repository }}"
+          REPO: ${{ github.repository }}
+        run: gh release create "$TAG" --title "$TAG" --notes "" --repo "$REPO"
 
   build-binaries:
     name: "${{ matrix.platform.target }}"
@@ -84,6 +85,7 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
+        id: build
         with:
           bin: slimctl
           target: ${{ matrix.platform.target }}
@@ -97,28 +99,30 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # The build step leaves the archive in the workspace and reports its file
+      # name (`zip` on Windows, `tar` elsewhere), so sign it in place. Signing
+      # the local file means the bytes we sign are the bytes we just built,
+      # with no round-trip through the release.
+      #
+      # Every expression below is passed through `env:` rather than expanded
+      # into the script. A tag name is attacker-controllable, so interpolating
+      # it into `run:` is a code-injection sink (zizmor template-injection).
       - name: Sign the release archive
         id: sign
         shell: bash
+        env:
+          ARCHIVE: ${{ steps.build.outputs.zip || steps.build.outputs.tar }}
         run: |
-          # Note: upload-rust-binary-action uploads the archive directly.
-          # To sign it, we need to download it or use a different approach.
-          # For now, we'll assume the binary is available in the workspace 
-          # or we'll fetch it from the release.
-          TAG=${{ github.ref_name }}
-          ARCHIVE="slimctl-${{ matrix.platform.archive }}.${{ matrix.platform.target == 'x86_64-pc-windows-msvc' && 'zip' || (matrix.platform.target == 'aarch64-pc-windows-msvc' && 'zip' || 'tar.gz') }}"
-          
-          gh release download "$TAG" \
-            --pattern "$ARCHIVE" \
-            --dir ./dist \
-            --repo "${{ github.repository }}"
-          
-          ARCHIVE_PATH="./dist/$ARCHIVE"
-          BUNDLE="$ARCHIVE_PATH.sigstore.json"
-          
-          cosign sign-blob --yes --bundle "$BUNDLE" "$ARCHIVE_PATH"
-          echo "bundle_path=$BUNDLE" >> "$GITHUB_OUTPUT"
-          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -z "$ARCHIVE" ]; then
+            echo "::error::build step reported no archive name"
+            exit 1
+          fi
+          cosign sign-blob --yes --bundle "${ARCHIVE}.sigstore.json" "$ARCHIVE"
+          {
+            echo "archive_path=${ARCHIVE}"
+            echo "bundle_path=${ARCHIVE}.sigstore.json"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Attest build provenance
         id: provenance
@@ -133,20 +137,26 @@ jobs:
           BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
           ARCHIVE: ${{ steps.sign.outputs.archive_path }}
         run: |
+          set -euo pipefail
           cp "$BUNDLE" "${ARCHIVE}.intoto.jsonl"
           echo "path=${ARCHIVE}.intoto.jsonl" >> "$GITHUB_OUTPUT"
 
-      - name: Upload signed and attested assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Only the signature bundle and the provenance need uploading: the
+      # archive itself was already published by the build step above.
+      - name: Upload signature and provenance
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          BUNDLE_PATH: ${{ steps.sign.outputs.bundle_path }}
+          PROVENANCE_PATH: ${{ steps.provenance_asset.outputs.path }}
         run: |
-          TAG=${{ github.ref_name }}
+          set -euo pipefail
           gh release upload "$TAG" \
-            "${{ steps.sign.outputs.archive_path }}" \
-            "${{ steps.sign.outputs.bundle_path }}" \
-            "${{ steps.provenance_asset.outputs.path }}" \
-            --repo "${{ github.repository }}" \
+            "$BUNDLE_PATH" \
+            "$PROVENANCE_PATH" \
+            --repo "$REPO" \
             --clobber
 
   homebrew:
