@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGNTCY SLIM Architecture Visualizer</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons for UI -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- Decoupled Modular Styling -->
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/theme.js"></script>
+</head>
+<body>
+
+  <div class="app-grid">
+    
+    <!-- 2D Viewport -->
+    <main class="viewport">
+      
+      <!-- Journey controls + playback -->
+      <div class="graph-controls">
+        <div class="journey-pills" role="tablist" aria-label="Message journey">
+          <button class="journey-btn active j-p2p" data-journey="p2p" role="tab" aria-selected="true">
+            <i class="fa-solid fa-message" aria-hidden="true"></i>
+            <span></span>
+          </button>
+          <button class="journey-btn j-p2p-mcp" data-journey="p2p-mcp" role="tab" aria-selected="false">
+            <i class="fa-solid fa-plug" aria-hidden="true"></i>
+            <span></span>
+          </button>
+          <button class="journey-btn j-multicast" data-journey="multicast" role="tab" aria-selected="false">
+            <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+            <span></span>
+          </button>
+        </div>
+        <div class="graph-controls-actions">
+          <button type="button" class="graph-control-btn" id="btn-step-pause" title="Pause" aria-label="Pause playback">
+            <i class="fa-solid fa-pause" id="btn-step-pause-icon" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Arrow stepper (v3) -->
+      <section class="arrow-stepper-wrap" aria-label="Journey step navigation">
+        <div id="step-tooltip" class="step-tooltip" hidden>
+          <div id="step-tooltip-title" class="step-tooltip__title"></div>
+          <div id="step-tooltip-desc" class="step-tooltip__desc"></div>
+        </div>
+        <div id="arrow-stepper" class="arrow-stepper" role="tablist" aria-label="Journey steps"></div>
+      </section>
+
+      <div class="viewport-stage">
+      
+      <!-- SVG Node Graph -->
+      <svg class="visual-graph" viewBox="0 0 812 372" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+
+        <rect class="diagram-backdrop" width="100%" height="100%" fill="var(--diagram-surface)" />
+
+        <g id="paths-group">
+          <path id="path_A_to_Node1" class="connection-path" d="M 196 84 C 209 125, 214 173, 228 189"/>
+          <path id="path_E_to_Node1" class="connection-path" d="M 196 189 L 228 189"/>
+          <path id="path_Node1_to_Node2" class="connection-path" d="M 388 189 L 432 189"/>
+          <path id="path_Node2_to_B" class="connection-path" d="M 592 189 C 605 148, 610 100, 616 84"/>
+          <path id="path_Node2_to_C" class="connection-path" d="M 592 189 L 616 189"/>
+          <path id="path_Node2_to_D" class="connection-path" d="M 592 189 C 605 228, 610 264, 616 294"/>
+          <path id="path_Node1_to_MCP" class="connection-path" d="M 228 189 C 215 228, 210 264, 196 294"/>
+        </g>
+
+        <!-- Dynamic Particles Container -->
+        <g id="particles-group"></g>
+
+        <!-- Node Layout -->
+        <g id="nodes-group">
+
+          <g id="node_Agent_A" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_A" class="node-rect agent node-rect--sender" x="24" y="36" width="172" height="96" rx="12"/>
+            <foreignObject x="24" y="36" width="172" height="96">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--claude">
+                    <img src="icons/claude.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+          <g id="node_Agent_E" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_E" class="node-rect agent" x="24" y="141" width="172" height="96" rx="12"/>
+            <foreignObject x="24" y="141" width="172" height="96">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--langchain">
+                    <img src="icons/langchain.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+          <g id="node_Node1" class="interactive-node" cursor="pointer">
+            <rect id="core_Node1" class="node-rect router" x="228" y="144" width="160" height="90" rx="12"/>
+            <foreignObject x="228" y="144" width="160" height="90">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node graph-node--hub">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--slim">
+                    <img src="icons/slim.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title graph-node__title--hub"></div>
+                    <div class="graph-node__desc"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+          <g id="node_Node2" class="interactive-node" cursor="pointer">
+            <rect id="core_Node2" class="node-rect router node-rect--remote" x="432" y="144" width="160" height="90" rx="12"/>
+            <foreignObject x="432" y="144" width="160" height="90">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node graph-node--hub">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--slim">
+                    <img src="icons/slim.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title graph-node__title--hub"></div>
+                    <div class="graph-node__desc"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+          <g id="node_Agent_B" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_B" class="node-rect agent" x="616" y="36" width="172" height="96" rx="12"/>
+            <foreignObject x="616" y="36" width="172" height="96">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--crewai">
+                    <img src="icons/crewai.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+          <g id="node_Agent_C" class="interactive-node" cursor="pointer">
+            <rect id="core_Agent_C" class="node-rect agent" x="616" y="141" width="172" height="96" rx="12"/>
+            <foreignObject x="616" y="141" width="172" height="96">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--langgraph">
+                    <img src="icons/langgraph.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+          <g id="node_Agent_D" class="interactive-node" cursor="pointer" opacity="0.4">
+            <rect id="core_Agent_D" class="node-rect agent" x="616" y="246" width="172" height="96" rx="12"/>
+            <foreignObject x="616" y="246" width="172" height="96">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--opencode">
+                    <img src="icons/opencode.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+          <g id="node_MCP" class="interactive-node" cursor="pointer">
+            <rect id="core_MCP" class="node-rect node-rect--mcp" x="24" y="246" width="172" height="96" rx="12"/>
+            <foreignObject x="24" y="246" width="172" height="96">
+              <div xmlns="http://www.w3.org/1999/xhtml" class="graph-node">
+                <div class="graph-node__row">
+                  <div class="graph-node__icon graph-node__icon--mcp">
+                    <img src="icons/mcp.svg" alt="" />
+                  </div>
+                  <div class="graph-node__copy">
+                    <div class="graph-node__title"></div>
+                    <div class="graph-node__desc" id="badge_MCP"></div>
+                  </div>
+                </div>
+              </div>
+            </foreignObject>
+          </g>
+
+        </g>
+      </svg>
+      </div>
+
+      <!-- Protocol log (v3 compact) -->
+      <section class="protocol-log" id="terminal-panel">
+        <div class="protocol-log__header">
+          <button
+            type="button"
+            class="protocol-log__toggle"
+            id="btn-toggle-term"
+            aria-expanded="true"
+            aria-controls="terminal-body"
+          >
+            <span class="protocol-log__title">
+              <span id="terminal-pulse" class="protocol-log__dot" aria-hidden="true"></span>
+              <span>SLIM Networking Protocol Log</span>
+            </span>
+            <i class="fa-solid fa-chevron-down protocol-log__chevron" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="protocol-log__clear" id="btn-clear-term" title="Clear logs">
+            <i class="fa-solid fa-trash-can" aria-hidden="true"></i> Clear
+          </button>
+        </div>
+        <div id="terminal-body" class="protocol-log__body"></div>
+      </section>
+    </main>
+
+  </div>
+
+  <div id="tooltip" class="tooltip-2d" hidden>
+    <div id="tooltip-title" class="tooltip-title">Node Title</div>
+    <div id="tooltip-desc" class="tooltip-desc">Description of node function.</div>
+  </div>
+
+  <!-- Decoupled Modular Scripts (Loaded sequentially for local file:// compatibility) -->
+  <script src="js/config.js"></script>
+  <script src="js/logger.js"></script>
+  <script src="js/particle.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
