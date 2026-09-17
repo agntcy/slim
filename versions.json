@@ -460,6 +460,13 @@
     "aliases": []
   },
   {
+    "version": "slim-rpc-v2.3.3",
+    "title": "slim-rpc-v2.3.3",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-rpc-v2.3.0",
     "title": "slim-rpc-v2.3.0",
     "aliases": []
@@ -922,9 +929,7 @@
   {
     "version": "slim-bindings-v2.3.3",
     "title": "slim-bindings-v2.3.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-bindings-v2.3.0",
