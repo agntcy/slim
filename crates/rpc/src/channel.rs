@@ -61,7 +61,8 @@ pub struct MulticastItem<T> {
 
 use super::{
     Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
-    RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_timeout_duration,
+    RpcError, SERVICE_KEY, STATUS_CODE_KEY,
+    calculate_timeout_duration,
     codec::{Decoder, Encoder},
     send_eos,
     session_wrapper::{SessionRx, SessionTx, new_session},
@@ -497,15 +498,14 @@ impl Channel {
 
         // When the stream was empty `first` is still true: the EOS must carry
         // service + method so the server can dispatch without a preceding data frame.
-        let extra = if first {
-            Some(HashMap::from([
-                (SERVICE_KEY.to_string(), service_name.to_string()),
-                (METHOD_KEY.to_string(), method_name.to_string()),
-            ]))
-        } else {
-            None
-        };
-        send_eos(session, session.destination(), rpc_id, extra).await?;
+        // Always include dir=req so servers in shared-responses mode don't treat this
+        // client-originated EOS as a peer server response.
+        let mut extra = HashMap::from([(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string())]);
+        if first {
+            extra.insert(SERVICE_KEY.to_string(), service_name.to_string());
+            extra.insert(METHOD_KEY.to_string(), method_name.to_string());
+        }
+        send_eos(session, session.destination(), rpc_id, Some(extra)).await?;
         Ok(())
     }
 

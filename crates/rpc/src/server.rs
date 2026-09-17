@@ -26,13 +26,15 @@ use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
-use super::{RPC_DIR_KEY, RPC_DIR_REQ};
+use super::{
+    RPC_DIR_KEY, RPC_DIR_REQ, SHARED_RESPONSES_ENABLED, SHARED_RESPONSES_KEY,
+};
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcSession,
     SERVICE_KEY, send_error_for_rpc,
     session_wrapper::{SessionRx, SessionTx, new_session},
-    stream_types::StreamSource,
+    stream_types::{PeerMessage, PeerResponseReceiver, StreamSource},
 };
 
 use super::{
@@ -51,6 +53,22 @@ pub type RpcHandler =
 /// Handler function type for stream-input RPC methods
 pub type StreamRpcHandler =
     Arc<dyn Fn(StreamSource, Context, SessionTx, Name, Arc<str>) -> ResponseStream + Send + Sync>;
+
+/// Handler function type for shared-responses unary-input RPC methods.
+/// Receives the decoded request bytes, context, session, source, rpc-id, and
+/// a stream of peer server responses.
+pub type SharedRpcHandler = Arc<
+    dyn Fn(Item, Context, SessionTx, Name, Arc<str>, PeerResponseReceiver) -> ResponseStream
+        + Send
+        + Sync,
+>;
+
+/// Handler function type for shared-responses stream-input RPC methods.
+pub type SharedStreamRpcHandler = Arc<
+    dyn Fn(StreamSource, Context, SessionTx, Name, Arc<str>, PeerResponseReceiver) -> ResponseStream
+        + Send
+        + Sync,
+>;
 
 /// Type of RPC handler
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +90,10 @@ struct ServiceRegistry {
     handlers: HashMap<String, RpcHandler>,
     /// Map of method paths to stream handlers (for stream-input methods)
     stream_handlers: HashMap<String, StreamRpcHandler>,
+    /// Shared-responses variants (unary-input)
+    shared_handlers: HashMap<String, SharedRpcHandler>,
+    /// Shared-responses variants (stream-input)
+    shared_stream_handlers: HashMap<String, SharedStreamRpcHandler>,
 }
 
 impl ServiceRegistry {
@@ -80,6 +102,8 @@ impl ServiceRegistry {
         Self {
             handlers: HashMap::new(),
             stream_handlers: HashMap::new(),
+            shared_handlers: HashMap::new(),
+            shared_stream_handlers: HashMap::new(),
         }
     }
 
@@ -229,12 +253,183 @@ impl ServiceRegistry {
         self.stream_handlers.insert(method_path, wrapper);
     }
 
-    /// Get handler info (either stream or unary) in one lookup
+    /// Register a shared-responses unary-unary handler.
+    fn register_unary_unary_shared<F, Req, Res, Fut>(
+        &mut self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        let method_path = format!("{service_name}/{method_name}");
+        let wrapper = Arc::new(
+            move |bytes: Vec<u8>,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  _source: Name,
+                  rpc_id: Arc<str>,
+                  peer_stream: PeerResponseReceiver| {
+                let fut = Req::decode(bytes).map(|req| handler(req, ctx, peer_stream));
+                // Broadcast to the session group so all members (including peer servers)
+                // receive this response and can observe it via PeerResponseReceiver.
+                let group = session_tx.destination().clone();
+                async move {
+                    let encoded = fut?.await?.encode()?;
+                    send_response_stream(
+                        &session_tx,
+                        stream::once(std::future::ready(Ok(encoded))),
+                        &rpc_id,
+                        &group,
+                    )
+                    .await
+                }
+                .boxed()
+            },
+        );
+        self.shared_handlers.insert(method_path, wrapper);
+    }
+
+    /// Register a shared-responses unary-stream handler.
+    pub fn register_unary_stream_shared<F, Req, Res, S, Fut>(
+        &mut self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        let method_path = format!("{service_name}/{method_name}");
+        let wrapper = Arc::new(
+            move |bytes: Vec<u8>,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  _source: Name,
+                  rpc_id: Arc<str>,
+                  peer_stream: PeerResponseReceiver| {
+                let fut = Req::decode(bytes).map(|req| handler(req, ctx, peer_stream));
+                // Broadcast to the session group so all members (including peer servers)
+                // receive this response and can observe it via PeerResponseReceiver.
+                let group = session_tx.destination().clone();
+                async move {
+                    let response_stream = fut?.await?;
+                    let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                    send_response_stream(&session_tx, byte_mapped, &rpc_id, &group).await
+                }
+                .boxed()
+            },
+        );
+        self.shared_handlers.insert(method_path, wrapper);
+    }
+
+    /// Register a shared-responses stream-unary handler.
+    pub fn register_stream_unary_shared<F, Req, Res, Fut>(
+        &mut self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        let method_path = format!("{service_name}/{method_name}");
+        let wrapper = Arc::new(
+            move |source: StreamSource,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  _target: Name,
+                  rpc_id: Arc<str>,
+                  peer_stream: PeerResponseReceiver| {
+                let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
+                    |res| res.and_then(|bytes| Req::decode(bytes));
+                let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
+                let fut = handler(decoded, ctx, peer_stream);
+                // Broadcast to the session group so all members (including peer servers)
+                // receive this response and can observe it via PeerResponseReceiver.
+                let group = session_tx.destination().clone();
+                async move {
+                    let encoded = fut.await?.encode()?;
+                    send_response_stream(
+                        &session_tx,
+                        stream::once(std::future::ready(Ok(encoded))),
+                        &rpc_id,
+                        &group,
+                    )
+                    .await
+                }
+                .boxed()
+            },
+        );
+        self.shared_stream_handlers.insert(method_path, wrapper);
+    }
+
+    /// Register a shared-responses stream-stream handler.
+    pub fn register_stream_stream_shared<F, Req, Res, S, Fut>(
+        &mut self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        let method_path = format!("{service_name}/{method_name}");
+        let wrapper = Arc::new(
+            move |source: StreamSource,
+                  ctx: Context,
+                  session_tx: SessionTx,
+                  _target: Name,
+                  rpc_id: Arc<str>,
+                  peer_stream: PeerResponseReceiver| {
+                let decode_fn: fn(Result<Vec<u8>, RpcError>) -> Result<Req, RpcError> =
+                    |res| res.and_then(|bytes| Req::decode(bytes));
+                let decoded: DecodedStream<Req> = source.into_raw_stream().map(decode_fn);
+                let fut = handler(decoded, ctx, peer_stream);
+                // Broadcast to the session group so all members (including peer servers)
+                // receive this response and can observe it via PeerResponseReceiver.
+                let group = session_tx.destination().clone();
+                async move {
+                    let response_stream = fut.await?;
+                    let byte_mapped = response_stream.map(|res| res.and_then(|r| r.encode()));
+                    send_response_stream(&session_tx, byte_mapped, &rpc_id, &group).await
+                }
+                .boxed()
+            },
+        );
+        self.shared_stream_handlers.insert(method_path, wrapper);
+    }
+
+    /// Get handler info (either stream or unary) in one lookup.
+    /// Shared-responses variants take priority when present.
     fn get_handler_info(&self, method_path: &str) -> Option<HandlerInfo> {
-        self.stream_handlers
+        self.shared_stream_handlers
             .get(method_path)
             .cloned()
-            .map(HandlerInfo::Stream)
+            .map(HandlerInfo::SharedStream)
+            .or_else(|| {
+                self.shared_handlers
+                    .get(method_path)
+                    .cloned()
+                    .map(HandlerInfo::SharedUnary)
+            })
+            .or_else(|| {
+                self.stream_handlers
+                    .get(method_path)
+                    .cloned()
+                    .map(HandlerInfo::Stream)
+            })
             .or_else(|| {
                 self.handlers
                     .get(method_path)
@@ -247,6 +442,8 @@ impl ServiceRegistry {
     fn methods(&self) -> Vec<String> {
         let mut methods: Vec<String> = self.handlers.keys().cloned().collect();
         methods.extend(self.stream_handlers.keys().cloned());
+        methods.extend(self.shared_handlers.keys().cloned());
+        methods.extend(self.shared_stream_handlers.keys().cloned());
         methods
     }
 }
@@ -332,6 +529,11 @@ pub struct Server {
 
 /// Spawn a handler task for a new RPC call and, for stream-input handlers, register the mpsc
 /// sender in `pending_streams` so that subsequent messages can be routed to the same task.
+///
+/// When `peer_rx` is `Some`, the handler is a shared-responses variant: the receiver is
+/// wrapped in a [`PeerResponseReceiver`] and passed to the handler alongside the request.
+/// The caller is responsible for storing the corresponding sender in `pending_peer_streams`.
+#[allow(clippy::too_many_arguments)]
 fn spawn_handler_task(
     handler_info: HandlerInfo,
     msg: ReceivedMessage,
@@ -340,21 +542,24 @@ fn spawn_handler_task(
     session_tx: SessionTx,
     pending_streams: &mut HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>>,
     session_drain_watch: drain::Watch,
+    peer_rx: Option<mpsc::UnboundedReceiver<PeerMessage>>,
 ) {
     // For stream-input handlers, create the mpsc channel and register the sender
     // so that subsequent messages can be routed to the same handler task.
     // Only register if the first message is not already terminal; otherwise drop
     // stream_tx immediately so the handler's channel closes after the first message.
     let stream_rx = match &handler_info {
-        HandlerInfo::Stream(_) => {
+        HandlerInfo::Stream(_) | HandlerInfo::SharedStream(_) => {
             let (stream_tx, stream_rx) = mpsc::unbounded_channel();
             if !msg.is_eos() {
                 pending_streams.insert(rpc_id.clone(), stream_tx);
             }
             Some(stream_rx)
         }
-        HandlerInfo::Unary(_) => None,
+        HandlerInfo::Unary(_) | HandlerInfo::SharedUnary(_) => None,
     };
+
+    let peer_stream = peer_rx.map(PeerResponseReceiver::new);
 
     tokio::spawn(async move {
         let session = match stream_rx {
@@ -362,7 +567,7 @@ fn spawn_handler_task(
             None => RpcSession::new_unary(&session_tx, &method_path, msg),
         };
         let handler_fut = async {
-            match session.handle(handler_info, rpc_id.clone()).await {
+            match session.handle(handler_info, rpc_id.clone(), peer_stream).await {
                 Ok(_) => None,
                 Err(e) => {
                     tracing::error!(%method_path, error = %e, "Error in RPC handler");
@@ -383,19 +588,36 @@ fn spawn_handler_task(
     });
 }
 
+/// Per-call state for a shared-responses RPC: the peer channel sender and the number
+/// of peer EOSes to wait for before closing the channel.
+struct PeerChannelEntry {
+    tx: mpsc::UnboundedSender<PeerMessage>,
+    expected_peers: usize,
+}
+
 /// Per-session demultiplexer: routes incoming messages by `rpc-id` and dispatches each new
 /// RPC call to a dedicated handler task.  Runs until the drain signal fires or the session
 /// closes, then aborts any still-running handler tasks and cleans up the session.
+///
+/// Shared-responses mode is opted in per-call: when the first message of an RPC carries
+/// `SHARED_RESPONSES_KEY = "true"` in its metadata, peer response messages are forwarded
+/// to the handler's [`PeerResponseReceiver`]. Otherwise they are dropped silently.
 async fn run_session_demux(
     session_tx: SessionTx,
     mut session_rx: SessionRx,
     registry: ServiceRegistry,
     app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
     drain_watch: drain::Watch,
+    own_name: Name,
 ) {
-    // Map rpc_id → mpsc sender for live stream-input handlers.
+    // Map rpc_id → mpsc sender for live stream-input handlers (client requests).
     let mut pending_streams: HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>> =
         HashMap::new();
+    // Map rpc_id → peer-response channel entry (shared-responses calls only).
+    let mut pending_peer_streams: HashMap<Arc<str>, PeerChannelEntry> = HashMap::new();
+    // Count of peer EOSes received per rpc_id. When count reaches expected_peers,
+    // the peer channel is closed and the entry removed from pending_peer_streams.
+    let mut peer_eos_counts: HashMap<Arc<str>, usize> = HashMap::new();
 
     // Per-session drain: signals all active handler tasks when the session closes.
     // drain().await serves as a barrier — it resolves once every task has dropped its Watch.
@@ -427,13 +649,69 @@ async fn run_session_demux(
             continue;
         };
 
+        // ── Shared-responses: route peer response messages ────────────────────
+        // Messages tagged RPC_DIR_RESP are peer server responses in a shared-
+        // responses call. Route them to the handler's PeerResponseReceiver channel
+        // if one is registered for this rpc_id, then skip normal dispatch.
+        // Self-echoes (source == our own name) are discarded.
+        if msg.is_peer_response() {
+            // Compare only the three name components, ignoring the name_id suffix
+            // that the session layer appends.
+            let is_self = match (
+                msg.source.name.as_ref(),
+                own_name.name.as_ref(),
+            ) {
+                (Some(src), Some(own)) => {
+                    src.component_0 == own.component_0
+                        && src.component_1 == own.component_1
+                        && src.component_2 == own.component_2
+                }
+                _ => msg.source == own_name,
+            };
+            tracing::debug!(%rpc_id_str, source = %msg.source, is_eos = msg.is_eos(), is_self, "shared-responses: peer response");
+            if !is_self {
+                // Only forward data frames — EOS is a termination signal, not a payload.
+                if !msg.is_eos() {
+                    if let Some(entry) = pending_peer_streams.get(rpc_id_str.as_str()) {
+                        let peer_msg = PeerMessage {
+                            source: msg.source.clone(),
+                            payload: msg.payload.clone(),
+                        };
+                        tracing::debug!(%rpc_id_str, payload_len = peer_msg.payload.len(), "forwarding peer message");
+                        if entry.tx.send(peer_msg).is_err() {
+                            // Handler dropped PeerResponseReceiver — clean up immediately.
+                            pending_peer_streams.remove(rpc_id_str.as_str());
+                            peer_eos_counts.remove(rpc_id_str.as_str());
+                        }
+                    } else {
+                        tracing::debug!(%rpc_id_str, "Dropping peer response: no handler registered");
+                    }
+                }
+                // Count peer EOSes; only close the channel once all N-1 peers have finished.
+                if msg.is_eos() {
+                    let rpc_id_arc: Arc<str> = Arc::from(rpc_id_str.as_str());
+                    let count = peer_eos_counts.entry(rpc_id_arc).or_insert(0);
+                    *count += 1;
+                    let expected = pending_peer_streams
+                        .get(rpc_id_str.as_str())
+                        .map(|e| e.expected_peers)
+                        .unwrap_or(0);
+                    if *count >= expected {
+                        peer_eos_counts.remove(rpc_id_str.as_str());
+                        pending_peer_streams.remove(rpc_id_str.as_str());
+                    }
+                }
+            }
+            continue;
+        }
+
         if let Some(tx) = pending_streams.get(rpc_id_str.as_str()).cloned() {
             // Route client request messages (data or EOS) to the existing stream-input handler.
             //
             // All client-originated messages carry RPC_DIR_KEY="req".  Server responses
             // (data frames, EOSes, and error replies — including echoes of this server's own
-            // responses in a GROUP session and responses from peer servers) do not carry
-            // this key.  Drop anything that isn't tagged as a client request.
+            // responses in a GROUP session and responses from peer servers) carry
+            // RPC_DIR_KEY="resp".  Drop anything that isn't tagged as a client request.
             if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ) {
                 tracing::trace!(%rpc_id_str, "Skipping server response for active stream");
                 continue;
@@ -451,9 +729,7 @@ async fn run_session_demux(
         // No active stream for this rpc_id.
         // Drop server responses: every client-originated message — data frame or
         // EOS — carries RPC_DIR_KEY="req", so anything without it is a response
-        // echoed back to us on a shared session.  (This used to key off
-        // STATUS_CODE_KEY, which no longer holds now that response data frames
-        // carry no status.)
+        // echoed back to us on a shared session.
         if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ) {
             tracing::trace!("Skipping server response (no pending stream)");
             continue;
@@ -461,6 +737,10 @@ async fn run_session_demux(
 
         // New RPC call — create Arc now that we know we need it.
         let rpc_id: Arc<str> = Arc::from(rpc_id_str.as_str());
+
+        // Detect per-call shared-responses opt-in from the first-message metadata.
+        let call_shared = msg.metadata.get(SHARED_RESPONSES_KEY).map(String::as_str)
+            == Some(SHARED_RESPONSES_ENABLED);
 
         let (Some(service), Some(method)) = (
             msg.metadata
@@ -491,6 +771,38 @@ async fn run_session_demux(
             continue;
         };
 
+        // For shared-responses calls, create a peer-response channel for the handler and
+        // derive expected_peers from the live session participant list.
+        // The list includes self, the client, and peer servers. We subtract:
+        //   - 1 for self (own_name)
+        //   - 1 for the caller (msg.source, the client that sent the request)
+        // The result is the number of peer servers that will send responses.
+        // When expected_peers == 0 (single-server group) the sender is dropped immediately
+        // so peer.next() returns None right away.
+        let peer_rx = if call_shared {
+            let client_src = msg.source.clone();
+            let expected_peers = session_tx
+                .controller()
+                .participants_list()
+                .await
+                .map(|list| {
+                    list.iter()
+                        .filter(|(name, _)| {
+                            // Exclude self and the client (source of this request).
+                            !name.match_prefix(&own_name) && !name.match_prefix(&client_src)
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            let (peer_tx, peer_rx) = mpsc::unbounded_channel::<PeerMessage>();
+            if expected_peers > 0 {
+                pending_peer_streams.insert(rpc_id.clone(), PeerChannelEntry { tx: peer_tx, expected_peers });
+            }
+            Some(peer_rx)
+        } else {
+            None
+        };
+
         spawn_handler_task(
             handler_info,
             msg,
@@ -499,11 +811,14 @@ async fn run_session_demux(
             session_tx.clone(),
             &mut pending_streams,
             session_drain_watch.clone(),
+            peer_rx,
         );
     }
 
     // Drop mpsc senders so stream-input handlers see channel close at their next recv.
     drop(pending_streams);
+    drop(pending_peer_streams);
+    drop(peer_eos_counts);
     // Drop watch otherwise next call to drain would also wait for this
     drop(session_drain_watch);
     // Fire the session drain and wait: resolves once every handler task drops its Watch,
@@ -929,6 +1244,72 @@ impl Server {
             .register_stream_stream(service_name, method_name, handler);
     }
 
+    pub(crate) fn register_unary_unary_shared_internal<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.registry
+            .write()
+            .register_unary_unary_shared(service_name, method_name, handler);
+    }
+
+    pub(crate) fn register_unary_stream_shared_internal<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.registry
+            .write()
+            .register_unary_stream_shared(service_name, method_name, handler);
+    }
+
+    pub(crate) fn register_stream_unary_shared_internal<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.registry
+            .write()
+            .register_stream_unary_shared(service_name, method_name, handler);
+    }
+
+    pub(crate) fn register_stream_stream_shared_internal<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.registry
+            .write()
+            .register_stream_stream_shared(service_name, method_name, handler);
+    }
+
     /// Get all registered method paths
     ///
     /// Returns a list of all registered service/method paths in the format "Service/Method".
@@ -1013,7 +1394,6 @@ impl Server {
             .read()
             .clone()
             .ok_or_else(|| RpcError::internal("drain_watch not available"))?;
-
         let ret = self.runtime.spawn(Server::serve_internal(
             notification,
             registry,
@@ -1086,6 +1466,7 @@ impl Server {
                         registry.clone(),
                         app.clone(),
                         drain_watch.clone(),
+                        base_name.clone(),
                     )));
                 }
             }
@@ -1263,6 +1644,78 @@ impl Server {
         Res: Encoder + Send + 'static,
     {
         self.register_stream_stream_internal(service_name, method_name, handler)
+    }
+
+}
+
+// ── Shared-responses handler registration — native (non-uniffi) API ──
+
+#[cfg(not(feature = "uniffi"))]
+impl Server {
+    /// Register a unary-to-unary shared-responses RPC handler.
+    ///
+    /// The handler receives a [`PeerResponseReceiver`] delivering response messages from
+    /// peer servers in the multicast group. Shared-responses mode is opted in per-call
+    /// by the client passing `SHARED_RESPONSES_KEY = "true"` in the call metadata.
+    pub fn register_unary_unary_shared<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_unary_unary_shared_internal(service_name, method_name, handler);
+    }
+
+    /// Register a unary-to-stream shared-responses RPC handler.
+    pub fn register_unary_stream_shared<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(Req, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_unary_stream_shared_internal(service_name, method_name, handler);
+    }
+
+    /// Register a stream-to-unary shared-responses RPC handler.
+    pub fn register_stream_unary_shared<F, Req, Res, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_stream_unary_shared_internal(service_name, method_name, handler);
+    }
+
+    /// Register a stream-to-stream shared-responses RPC handler.
+    pub fn register_stream_stream_shared<F, Req, Res, S, Fut>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        handler: F,
+    ) where
+        F: Fn(DecodedStream<Req>, Context, PeerResponseReceiver) -> Fut + Send + Sync + 'static,
+        Fut: futures::Future<Output = Result<S, RpcError>> + Send + 'static,
+        S: Stream<Item = Result<Res, RpcError>> + Send + 'static,
+        Req: Decoder + Send + 'static,
+        Res: Encoder + Send + 'static,
+    {
+        self.register_stream_stream_shared_internal(service_name, method_name, handler);
     }
 }
 

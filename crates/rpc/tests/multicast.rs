@@ -39,7 +39,8 @@ use slim_service::service::Service;
 const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
 
 use slim_rpc::{
-    Channel, Context, DecodedStream, Decoder, Encoder, MulticastItem, RpcError, Server,
+    Channel, Context, DecodedStream, Decoder, Encoder, Metadata, MulticastItem, PeerMessage,
+    PeerResponseReceiver, RpcError, Server, SHARED_RESPONSES_ENABLED, SHARED_RESPONSES_KEY,
 };
 
 // ============================================================================
@@ -1089,6 +1090,561 @@ async fn test_channel_close_after_rpc() {
         collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "second call").await;
     assert_eq!(responses.len(), NUM_MEMBERS);
     assert!(responses.iter().all(|r| r.message.result == "second"));
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Shared-responses helpers
+// ============================================================================
+
+/// Metadata map that opts a single RPC call into shared-responses mode.
+fn shared_metadata() -> Metadata {
+    Metadata::from([(
+        SHARED_RESPONSES_KEY.to_string(),
+        SHARED_RESPONSES_ENABLED.to_string(),
+    )])
+}
+
+/// Build a fresh `MulticastTestEnv` for shared-responses tests.
+/// Uses plain `Server::new` and `Channel::new_with_members`; shared mode is
+/// triggered per-call by passing `shared_metadata()` to the RPC method.
+async fn new_shared_env(test_name: &str, num_members: usize) -> MulticastTestEnv {
+    let id = ID::new_with_name(Kind::new("slim").unwrap(), test_name).unwrap();
+    let service = Arc::new(Service::new(id));
+
+    let mut member_servers = Vec::new();
+    let mut member_app_names = Vec::new();
+    for i in 0..num_members {
+        let member_app_name = Name::from_strings(["org", "ns", &format!("shared-member-{i}")]);
+        let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
+        let (app, notifications) = service
+            .create_app(
+                &member_app_name,
+                AuthProvider::shared_secret(secret.clone()),
+                AuthVerifier::shared_secret(secret),
+            )
+            .unwrap();
+        let app = Arc::new(app);
+        let server = Arc::new(Server::new(app.clone(), member_app_name.clone(), notifications));
+        member_app_names.push(member_app_name);
+        member_servers.push(server);
+    }
+
+    let client_name = Name::from_strings(["org", "ns", "shared-client"]);
+    let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
+    let (client_app, _) = service
+        .create_app(
+            &client_name,
+            AuthProvider::shared_secret(secret.clone()),
+            AuthVerifier::shared_secret(secret),
+        )
+        .unwrap();
+    let channel = Channel::new_with_members(Arc::new(client_app), member_app_names, true, None)
+        .expect("failed to create channel");
+
+    MulticastTestEnv {
+        service,
+        member_servers,
+        channel,
+    }
+}
+
+/// Collect at most `n` `PeerMessage`s from `peer_stream` within `timeout`.
+async fn collect_peer_messages(
+    peer_stream: &mut PeerResponseReceiver,
+    n: usize,
+    timeout: Duration,
+) -> Vec<PeerMessage> {
+    let mut out = Vec::new();
+    let _ = tokio::time::timeout(timeout, async {
+        for _ in 0..n {
+            match peer_stream.next().await {
+                Some(msg) => out.push(msg),
+                None => break,
+            }
+        }
+    })
+    .await;
+    out
+}
+
+// ============================================================================
+// Test: shared-responses unary
+// ============================================================================
+
+/// Two servers opt in; client uses `new_with_members_shared`.
+/// Each server handler collects the *other* server's response via `PeerResponseReceiver`,
+/// while the client also collects both responses via the multicast stream.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_unary() {
+    use std::sync::Mutex;
+
+    const NUM_MEMBERS: usize = 2;
+    let mut env = new_shared_env("test-shared-unary", NUM_MEMBERS).await;
+
+    // Each server records the peer messages it received.
+    let peer_payloads: Vec<Arc<Mutex<Vec<Vec<u8>>>>> = (0..NUM_MEMBERS)
+        .map(|_| Arc::new(Mutex::new(Vec::new())))
+        .collect();
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let collected = peer_payloads[i].clone();
+        server.register_unary_unary_shared(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
+                let collected = collected.clone();
+                async move {
+                    // Collect peer responses in the background so this handler can
+                    // return its own response without deadlocking on the other server.
+                    tokio::spawn(async move {
+                        let peers = collect_peer_messages(
+                            &mut peer,
+                            NUM_MEMBERS - 1,
+                            Duration::from_secs(5),
+                        )
+                        .await;
+                        let mut guard = collected.lock().unwrap();
+                        for p in peers {
+                            guard.push(p.payload.clone());
+                        }
+                    });
+                    Ok(TestResponse {
+                        member_id: i,
+                        result: format!("M{i}: {}", req.message),
+                        count: req.value + i as i32,
+                    })
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "hello".to_string(),
+            value: 10,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "shared-unary").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+
+    // Give handlers time to finish collecting peer messages.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Each server should have seen exactly one peer message.
+    for (i, collected) in peer_payloads.iter().enumerate() {
+        let guard = collected.lock().unwrap();
+        assert_eq!(
+            guard.len(),
+            NUM_MEMBERS - 1,
+            "server {i} saw {} peer messages, expected {}",
+            guard.len(),
+            NUM_MEMBERS - 1
+        );
+    }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: shared-responses stream
+// ============================================================================
+
+/// Two servers opt in with stream handlers.
+/// Each server collects the other's response frames via `PeerResponseReceiver`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_stream() {
+    use std::sync::Mutex;
+
+    const NUM_MEMBERS: usize = 2;
+    let mut env = new_shared_env("test-shared-stream", NUM_MEMBERS).await;
+
+    let peer_counts: Vec<Arc<Mutex<usize>>> = (0..NUM_MEMBERS)
+        .map(|_| Arc::new(Mutex::new(0usize)))
+        .collect();
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let counter = peer_counts[i].clone();
+        server.register_unary_stream_shared(
+            "TestService",
+            "StreamEcho",
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
+                let counter = counter.clone();
+                async move {
+                    let c = req.value as usize;
+                    // Concurrently drain the peer stream.
+                    tokio::spawn(async move {
+                        let mut seen = 0usize;
+                        while let Some(_msg) = peer.next().await {
+                            seen += 1;
+                        }
+                        *counter.lock().unwrap() = seen;
+                    });
+                    // Return `c` response frames.
+                    let responses: Vec<Result<TestResponse, RpcError>> = (0..c)
+                        .map(|j| {
+                            Ok(TestResponse {
+                                member_id: i,
+                                result: format!("M{i}:{j}"),
+                                count: j as i32,
+                            })
+                        })
+                        .collect();
+                    Ok(stream::iter(responses))
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let frames_each = 2usize;
+    let stream = env.channel.multicast_unary_stream::<TestRequest, TestResponse>(
+        "TestService",
+        "StreamEcho",
+        TestRequest {
+            message: "stream".to_string(),
+            value: frames_each as i32,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let responses = collect_n_multicast(
+        stream,
+        NUM_MEMBERS * frames_each,
+        Duration::from_secs(10),
+        "shared-stream",
+    )
+    .await;
+    assert_eq!(responses.len(), NUM_MEMBERS * frames_each);
+
+    // Give peer-drain tasks time to finish.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Each server should have seen exactly frames_each peer data frames (no EOS leak).
+    for (i, counter) in peer_counts.iter().enumerate() {
+        let seen = *counter.lock().unwrap();
+        assert_eq!(
+            seen, frames_each,
+            "server {i} saw {seen} peer frames, expected {frames_each}"
+        );
+    }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: peer EOS does not close the request stream
+// ============================================================================
+
+/// Verify that the handler's `DecodedStream<Req>` remains open after the peer
+/// sends its EOS — the two streams are completely independent.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_peer_eos_not_terminal() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = new_shared_env("test-shared-peer-eos", NUM_MEMBERS).await;
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_stream_unary_shared(
+            "TestService",
+            "Sum",
+            move |mut req_stream: DecodedStream<TestRequest>,
+                  _ctx: Context,
+                  mut peer: PeerResponseReceiver| async move {
+                let mut total = 0i32;
+                while let Some(r) = req_stream.next().await {
+                    let req = r?;
+                    total += req.value;
+                }
+                // Drain peer stream in background so we can send our response
+                // without deadlocking on the other server's peer EOS.
+                tokio::spawn(async move {
+                    while let Some(_) = peer.next().await {}
+                });
+                Ok(TestResponse {
+                    member_id: i,
+                    result: "sum".to_string(),
+                    count: total,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let requests: Vec<TestRequest> = (1..=3)
+        .map(|v| TestRequest {
+            message: "n".to_string(),
+            value: v,
+        })
+        .collect();
+    let request_stream = stream::iter(requests);
+    let result_stream = env
+        .channel
+        .multicast_stream_unary::<TestRequest, TestResponse>(
+            "TestService",
+            "Sum",
+            request_stream,
+            Some(Duration::from_secs(10)),
+            Some(shared_metadata()),
+        );
+    let responses =
+        collect_n_multicast(result_stream, NUM_MEMBERS, Duration::from_secs(10), "peer-eos").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+    for r in &responses {
+        assert_eq!(r.message.count, 6, "server {} returned wrong sum", r.message.member_id);
+    }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: mixed calls — plain multicast then shared-responses on the same channel
+// ============================================================================
+
+/// Verify that the same GROUP channel can be used for a plain multicast call
+/// (no peer messages) followed by a shared-responses call (peer messages arrive),
+/// proving per-call opt-in works without separate channel types.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_mixed_plain_then_shared() {
+    use std::sync::Mutex;
+
+    const NUM_MEMBERS: usize = 2;
+    let mut env = new_shared_env("test-mixed-plain-shared", NUM_MEMBERS).await;
+
+    // Register normal unary handler on all servers.
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_unary_unary(
+            "TestService",
+            "Plain",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
+
+    // Register shared handler on all servers for a different method.
+    let peer_counts: Vec<Arc<Mutex<usize>>> = (0..NUM_MEMBERS)
+        .map(|_| Arc::new(Mutex::new(0usize)))
+        .collect();
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let counter = peer_counts[i].clone();
+        server.register_unary_unary_shared(
+            "TestService",
+            "Shared",
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
+                let counter = counter.clone();
+                async move {
+                    tokio::spawn(async move {
+                        let mut seen = 0;
+                        while let Some(_) = peer.next().await {
+                            seen += 1;
+                        }
+                        *counter.lock().unwrap() = seen;
+                    });
+                    Ok(TestResponse {
+                        member_id: i,
+                        result: req.message,
+                        count: req.value + i as i32,
+                    })
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    // ── First call: plain multicast, no shared metadata ──────────────────────
+    let plain_stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Plain",
+        TestRequest {
+            message: "plain".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let plain_responses =
+        collect_n_multicast(plain_stream, NUM_MEMBERS, Duration::from_secs(10), "plain").await;
+    assert_eq!(plain_responses.len(), NUM_MEMBERS);
+    assert!(plain_responses.iter().all(|r| r.message.result == "plain"));
+
+    // ── Second call: shared-responses, same channel ──────────────────────────
+    let shared_stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Shared",
+        TestRequest {
+            message: "shared".to_string(),
+            value: 10,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let shared_responses =
+        collect_n_multicast(shared_stream, NUM_MEMBERS, Duration::from_secs(10), "shared").await;
+    assert_eq!(shared_responses.len(), NUM_MEMBERS);
+
+    // Give background peer-drain tasks time to finish.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Each server should have seen exactly NUM_MEMBERS-1 peer messages.
+    for (i, counter) in peer_counts.iter().enumerate() {
+        let seen = *counter.lock().unwrap();
+        assert_eq!(
+            seen,
+            NUM_MEMBERS - 1,
+            "server {i} saw {seen} peer messages on shared call, expected {}",
+            NUM_MEMBERS - 1
+        );
+    }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: shared-responses default off (regression)
+// ============================================================================
+
+/// Standard GROUP channel + standard servers (no opt-in).
+/// No peer messages should arrive; existing behavior unchanged.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_default_off() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = MulticastTestEnv::new("test-shared-default-off", NUM_MEMBERS).await;
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_unary_unary(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "normal".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let responses = collect_n_multicast(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "default-off",
+    )
+    .await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+    for r in &responses {
+        assert_eq!(r.message.result, "normal");
+    }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: shared-responses with 3 servers (N>2 regression)
+// ============================================================================
+
+/// Three servers each register a unary-unary-shared handler.
+/// Each server should receive exactly 2 peer messages (one from each other server).
+/// This is a regression test for the single-EOS-closes bug that affected N>2 groups.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_three_servers() {
+    use std::sync::Mutex;
+
+    const NUM_MEMBERS: usize = 3;
+    let mut env = new_shared_env("test-shared-three", NUM_MEMBERS).await;
+
+    let peer_payloads: Vec<Arc<Mutex<Vec<Vec<u8>>>>> = (0..NUM_MEMBERS)
+        .map(|_| Arc::new(Mutex::new(Vec::new())))
+        .collect();
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let collected = peer_payloads[i].clone();
+        server.register_unary_unary_shared(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| {
+                let collected = collected.clone();
+                async move {
+                    // Collect peer responses in background so no deadlock.
+                    tokio::spawn(async move {
+                        let peers = collect_peer_messages(
+                            &mut peer,
+                            NUM_MEMBERS - 1,
+                            Duration::from_secs(5),
+                        )
+                        .await;
+                        let mut guard = collected.lock().unwrap();
+                        for p in peers {
+                            guard.push(p.payload.clone());
+                        }
+                    });
+                    Ok(TestResponse {
+                        member_id: i,
+                        result: format!("M{i}: {}", req.message),
+                        count: req.value + i as i32,
+                    })
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "three".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "three-servers").await;
+    assert_eq!(responses.len(), NUM_MEMBERS, "client should receive all 3 responses");
+
+    // Give background peer-collection tasks time to finish.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Each server should have received exactly 2 peer messages (one from each other server).
+    for (i, collected) in peer_payloads.iter().enumerate() {
+        let guard = collected.lock().unwrap();
+        assert_eq!(
+            guard.len(),
+            NUM_MEMBERS - 1,
+            "server {i} saw {} peer messages, expected {}",
+            guard.len(),
+            NUM_MEMBERS - 1
+        );
+    }
 
     env.shutdown().await;
 }
