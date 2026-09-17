@@ -647,9 +647,7 @@
   {
     "version": "slim-control-plane-v2.3.3",
     "title": "slim-control-plane-v2.3.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-control-plane-v2.3.0",
@@ -920,6 +918,13 @@
     "version": "slim-channel-manager-v2.0.0-alpha.2",
     "title": "slim-channel-manager-v2.0.0-alpha.2",
     "aliases": []
+  },
+  {
+    "version": "slim-bindings-v2.3.3",
+    "title": "slim-bindings-v2.3.3",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-bindings-v2.3.0",
