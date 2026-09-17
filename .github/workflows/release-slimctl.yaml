@@ -16,17 +16,92 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # This workflow fires on any pushed `slimctl-v*` tag, from any commit, by
+  # anyone with write access -- and it signs what it builds with the project's
+  # Sigstore identity and attaches GitHub build provenance. Signing an
+  # unreviewed commit is worse than not signing it, so refuse before anything
+  # is built: the tagged commit must already be on main.
+  #
+  # This is a backstop, not the authorization control. Restricting who may
+  # create `slimctl-v*` tags belongs in a tag ruleset.
+  verify-tag:
+    name: Verify tag is on main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Refuse tags that are not on main
+        env:
+          SHA: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$SHA" refs/remotes/origin/main; then
+            echo "::error::$TAG points at $SHA, which is not on main. Refusing to build and sign artifacts for a tag created outside the release flow."
+            exit 1
+          fi
+          echo "$TAG points at $SHA, which is on main."
+
   ensure-release:
+    name: Ensure draft release
+    needs: [verify-tag]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Create GitHub Release
+      # The release is created as a draft and published only once every
+      # platform has uploaded its signed archive (see publish-release). Two
+      # things follow:
+      #
+      #  - a failed run can be retried on the same tag, because reusing a
+      #    draft is safe; and
+      #  - a published release is never touched. Both this workflow and
+      #    upload-rust-binary-action upload with `--clobber`, so without this
+      #    guard a re-pushed tag would silently replace bytes that have
+      #    already been signed and published.
+      - name: Ensure draft GitHub Release exists
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
-        run: gh release create "$TAG" --title "$TAG" --notes "" --repo "$REPO"
+        run: |
+          set -euo pipefail
+          state() {
+            gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>/dev/null || echo absent
+          }
+          case "$(state)" in
+            true)
+              echo "Draft release $TAG already exists; reusing it."
+              exit 0
+              ;;
+            false)
+              echo "::error::Release $TAG is already published. Refusing to overwrite published, signed artifacts; delete the release first if this is really intended."
+              exit 1
+              ;;
+          esac
+          if ! gh release create "$TAG" --title "$TAG" --notes "" --draft --repo "$REPO"; then
+            # It may have appeared between the check and the create, from
+            # release-plz or a concurrent run.
+            case "$(state)" in
+              true)
+                echo "Draft release $TAG was created concurrently; reusing it."
+                ;;
+              false)
+                echo "::error::Release $TAG was published concurrently; refusing to overwrite it."
+                exit 1
+                ;;
+              *)
+                exit 1
+                ;;
+            esac
+          fi
 
   build-binaries:
     name: "${{ matrix.platform.target }}"
@@ -159,9 +234,29 @@ jobs:
             --repo "$REPO" \
             --clobber
 
+  # Every platform has uploaded a signed archive and its provenance by now,
+  # so the release is complete: make it visible.
+  publish-release:
+    name: Publish release
+    needs: [build-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false --repo "$REPO"
+
   homebrew:
     runs-on: ubuntu-latest
-    needs: [build-binaries]
+    # After publish-release, so the cask's download URLs are live and
+    # `gh release download` reads a published release rather than a draft.
+    needs: [publish-release]
     permissions:
       contents: write
       pull-requests: write
