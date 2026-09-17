@@ -1,4 +1,4 @@
-use super::command::{combined_output, run_combined_output_with_retry};
+use super::command::{combined_output, run_combined_output_until, run_combined_output_with_retry};
 use regex::Regex;
 use std::path::Path;
 use std::process::Command;
@@ -107,6 +107,53 @@ pub fn run_slimctl_controller_retry(
         cmd
     });
     combined_output(&output)
+}
+
+/// Poll `slimctl controller …` until its output satisfies `is_ready`, or
+/// `timeout` elapses.
+///
+/// Prefer this over [`run_slimctl_controller_retry`] whenever the test asserts
+/// on the *content* of the output: route and link tables are populated
+/// asynchronously by the control plane, and `slimctl` exits 0 while they are
+/// still empty.
+pub fn wait_for_slimctl_controller<P>(
+    slimctl: &Path,
+    controller_endpoint: &str,
+    args: &[&str],
+    timeout: Duration,
+    is_ready: P,
+) -> Result<Vec<u8>, String>
+where
+    P: FnMut(&str) -> bool,
+{
+    let endpoint = controller_endpoint.to_string();
+    run_combined_output_until(
+        timeout,
+        || {
+            let mut cmd = Command::new(slimctl);
+            cmd.arg("controller");
+            for arg in args {
+                cmd.arg(arg);
+            }
+            cmd.arg("--server").arg(&endpoint);
+            cmd
+        },
+        is_ready,
+    )
+}
+
+/// Poll `slimctl controller …` until its output contains every string in
+/// `needles`, or `timeout` elapses.
+pub fn wait_for_slimctl_controller_contains(
+    slimctl: &Path,
+    controller_endpoint: &str,
+    args: &[&str],
+    needles: &[&str],
+    timeout: Duration,
+) -> Result<Vec<u8>, String> {
+    wait_for_slimctl_controller(slimctl, controller_endpoint, args, timeout, |out| {
+        needles.iter().all(|needle| out.contains(needle))
+    })
 }
 
 fn run_slimctl_node(
