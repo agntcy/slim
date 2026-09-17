@@ -221,7 +221,7 @@ impl CachedJwtSvid {
         // Initial fetch — must succeed so callers can use get_token() immediately after
         // initialize() returns Ok. The background task will keep the cache fresh afterwards.
         match source
-            .get_jwt_svid_with_id(&audiences, parsed_target.as_ref())
+            .fetch_jwt_svid_with_id(&audiences, parsed_target.as_ref())
             .await
         {
             Ok(svid) => {
@@ -277,7 +277,7 @@ impl CachedJwtSvid {
         // don't have to wait for the background loop.
         match self
             .source
-            .get_jwt_svid_with_id(&new_audiences, self.target_spiffe_id.as_ref())
+            .fetch_jwt_svid_with_id(&new_audiences, self.target_spiffe_id.as_ref())
             .await
         {
             Ok(svid) => {
@@ -334,7 +334,7 @@ impl CachedJwtSvid {
             let current_audiences = audiences.read().clone();
 
             match source
-                .get_jwt_svid_with_id(&current_audiences, target_spiffe_id.as_ref())
+                .fetch_jwt_svid_with_id(&current_audiences, target_spiffe_id.as_ref())
                 .await
             {
                 Ok(svid) => {

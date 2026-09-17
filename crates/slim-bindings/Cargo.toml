@@ -47,7 +47,7 @@ agntcy-slim-service = { workspace = true, features = ["session"] }
 agntcy-slim-session = { workspace = true }
 agntcy-slim-version = { workspace = true }
 getrandom = { version = "0.4", features = ["wasm_js"] }
-tokio = { package = "tokio_with_wasm", version = "0.9", features = ["sync", "time"] }
+tokio = { package = "tokio_with_wasm", version = "0.10", features = ["sync", "time"] }
 wasm-bindgen-futures = { workspace = true }
 
 [build-dependencies]
