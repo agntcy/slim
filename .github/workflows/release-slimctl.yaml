@@ -33,6 +33,8 @@ jobs:
     runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     defaults:
       run:
         shell: bash
@@ -91,6 +93,61 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           manifest-path: ./crates/slimctl/Cargo.toml
           build-tool: ${{ matrix.platform.build-tool }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the release archive
+        id: sign
+        shell: bash
+        run: |
+          # Note: upload-rust-binary-action uploads the archive directly.
+          # To sign it, we need to download it or use a different approach.
+          # For now, we'll assume the binary is available in the workspace 
+          # or we'll fetch it from the release.
+          TAG=${{ github.ref_name }}
+          ARCHIVE="slimctl-${{ matrix.platform.archive }}.${{ matrix.platform.target == 'x86_64-pc-windows-msvc' && 'zip' || (matrix.platform.target == 'aarch64-pc-windows-msvc' && 'zip' || 'tar.gz') }}"
+          
+          gh release download "$TAG" \
+            --pattern "$ARCHIVE" \
+            --dir ./dist \
+            --repo "${{ github.repository }}"
+          
+          ARCHIVE_PATH="./dist/$ARCHIVE"
+          BUNDLE="$ARCHIVE_PATH.sigstore.json"
+          
+          cosign sign-blob --yes --bundle "$BUNDLE" "$ARCHIVE_PATH"
+          echo "bundle_path=$BUNDLE" >> "$GITHUB_OUTPUT"
+          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.sign.outputs.archive_path }}
+
+      - name: Name the provenance bundle for the release
+        id: provenance_asset
+        shell: bash
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          ARCHIVE: ${{ steps.sign.outputs.archive_path }}
+        run: |
+          cp "$BUNDLE" "${ARCHIVE}.intoto.jsonl"
+          echo "path=${ARCHIVE}.intoto.jsonl" >> "$GITHUB_OUTPUT"
+
+      - name: Upload signed and attested assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG=${{ github.ref_name }}
+          gh release upload "$TAG" \
+            "${{ steps.sign.outputs.archive_path }}" \
+            "${{ steps.sign.outputs.bundle_path }}" \
+            "${{ steps.provenance_asset.outputs.path }}" \
+            --repo "${{ github.repository }}" \
+            --clobber
 
   homebrew:
     runs-on: ubuntu-latest

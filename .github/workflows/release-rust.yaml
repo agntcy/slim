@@ -49,6 +49,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      id-token: write
+      attestations: write
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
