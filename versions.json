@@ -275,6 +275,13 @@
     "aliases": []
   },
   {
+    "version": "slim-signal-v0.1.26",
+    "title": "slim-signal-v0.1.26",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-signal-v0.1.25",
     "title": "slim-signal-v0.1.25",
     "aliases": []
@@ -477,9 +484,7 @@
   {
     "version": "slim-persistence-v0.1.1",
     "title": "slim-persistence-v0.1.1",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-persistence-v0.1.0",
