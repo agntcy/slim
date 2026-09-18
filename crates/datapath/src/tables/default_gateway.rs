@@ -62,7 +62,7 @@ impl DefaultGateway {
     }
 
     pub fn explicit(&self) -> Option<u64> {
-        self.explicit.lock().clone()
+        *self.explicit.lock()
     }
 
     /// Mark cache Dirty. Do not clear explicit.
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn resolve_dirty_zero_one_two_edges() {
         let gw = DefaultGateway::new();
-        assert_eq!(gw.resolve(|| vec![]), Gateway::Empty);
+        assert_eq!(gw.resolve(Vec::new), Gateway::Empty);
 
         let gw = DefaultGateway::new();
         assert_eq!(gw.resolve(|| vec![7]), auto(7));
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn resolve_empty_is_cached() {
         let gw = DefaultGateway::new();
-        assert_eq!(gw.resolve(|| vec![]), Gateway::Empty);
+        assert_eq!(gw.resolve(Vec::new), Gateway::Empty);
         assert_eq!(
             gw.resolve(|| panic!("cache should not scan")),
             Gateway::Empty
