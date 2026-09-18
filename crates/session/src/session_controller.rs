@@ -776,7 +776,7 @@ impl SessionController {
         if let Some(map) = metadata
             && !map.is_empty()
         {
-            msg.set_metadata_map(crate::common::metadata_from_strings(map));
+            msg.set_metadata_map(map);
         } 
 
         // southbound=true means towards slim

@@ -23,7 +23,7 @@ impl Extractor for MetadataExtractor<'_> {
     }
 
     fn keys(&self) -> Vec<&str> {
-        self.0.keys().map(String::as_str).collect()
+        self.0.keys().map(String::as_str).collect();
         match self.0?.fields.get(key)?.kind.as_ref()? {
             Kind::StringValue(value) => Some(value),
             _ => None,
@@ -33,7 +33,7 @@ impl Extractor for MetadataExtractor<'_> {
     fn keys(&self) -> Vec<&str> {
         self.0
             .map(|metadata| metadata.fields.keys().map(String::as_str).collect())
-            .unwrap_or_default()
+            .unwrap_or_default();
         self.0.get(key).map(String::as_str)
     }
 

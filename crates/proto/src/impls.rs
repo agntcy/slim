@@ -923,12 +923,6 @@ impl ProtoMessage {
         self.metadata_v3.as_ref()
     }
 
-    pub fn set_metadata_map(&mut self, metadata: HashMap<String, String>) {
-        for (key, value) in metadata {
-            self.insert_metadata(key, value);
-        }
-    }
-
     pub fn get_slim_header(&self) -> &SlimHeader {
         match &self.message_type {
             Some(ProtoPublishType(publish)) => {
@@ -1693,24 +1687,6 @@ impl ProtoMessageBuilder {
 
     pub fn metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());
-        self
-    }
-
-    pub fn metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
-        self.metadata.extend(metadata);
-        self
-    }
-
-    /// Add a typed metadata value to the v3 metadata field.
-    pub fn metadata_v3(
-        mut self,
-        key: impl Into<String>,
-        value: impl Into<prost_types::Value>,
-    ) -> Self {
-        self.metadata_v3
-            .get_or_insert_default()
-            .fields
-            .insert(key.into(), value.into());
         self
     }
 
