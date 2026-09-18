@@ -1,0 +1,113 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+---
+name: ci-fuzz
+
+on:
+  pull_request:
+    paths:
+      - 'crates/proto/**'
+      - '.github/workflows/fuzz.yaml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/proto/**'
+      - '.github/workflows/fuzz.yaml'
+  # The pull-request run is a smoke test. Finding anything deeper needs time,
+  # so the scheduled run gets five minutes per target instead of one.
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Nothing here writes.
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both targets are platform-agnostic, so one triple is enough. Add a
+        # runner/triple column here if a target ever becomes cfg-gated.
+        target:
+          - message-decode
+          - parse-name
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Reuse the repo's own setup for the C/C++ toolchain: .cargo/config.toml
+      # pins CC_x86_64_unknown_linux_gnu = clang-19, which aws-lc-sys needs in
+      # order to build, and this action is what installs it. Without it the
+      # fuzz build dies in aws-lc-sys's cmake script on
+      # `failed to find tool "clang-19"`.
+      #
+      # A fuzz-specific cache suffix keeps this job off the shared host cache,
+      # since it builds different artifacts (release + sanitizers).
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          workspace: crates/proto/fuzz
+          cache-key-suffix: -fuzz
+
+      # setup-rust declares a `toolchain` input but never passes it through, so
+      # it always installs the stable channel from rust-toolchain.toml.
+      # libFuzzer needs -Z, so add nightly alongside it.
+      - name: Install Rust nightly
+        run: rustup toolchain install nightly --profile minimal --no-self-update
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@84f5ac3124727fb3d284d4d22ee9ab3654fd09a6 # v2.87.7
+        with:
+          tool: cargo-fuzz
+
+      - name: Fuzz ${{ matrix.target }}
+        working-directory: crates/proto/fuzz
+        env:
+          FUZZ_TARGET: ${{ matrix.target }}
+          # rust-toolchain.toml pins a stable channel and wins over the
+          # toolchain the setup step installed. cargo-fuzz needs -Z, so
+          # without this the build fails on "only accepted on the nightly
+          # compiler". Set for the whole step so the child cargo that
+          # cargo-fuzz spawns inherits it too.
+          RUSTUP_TOOLCHAIN: nightly
+          # A run needing more than this is leaking, and an OOM-killed job
+          # reports as an infrastructure failure rather than a finding.
+          RSS_LIMIT_MB: 2048
+          MAX_TOTAL_TIME: ${{ github.event_name == 'schedule' && '300' || '60' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "corpus/$FUZZ_TARGET"
+          # --target is explicit because install-action ships the musl
+          # prebuilt of cargo-fuzz, which otherwise defaults --target to
+          # musl, and ASan cannot link against a statically linked libc.
+          cargo fuzz run \
+            --target x86_64-unknown-linux-gnu \
+            "$FUZZ_TARGET" \
+            "corpus/$FUZZ_TARGET" \
+            "seeds/$FUZZ_TARGET" \
+            -- \
+            -max_total_time="$MAX_TOTAL_TIME" \
+            -rss_limit_mb="$RSS_LIMIT_MB" \
+            -print_final_stats=1
+
+      # The crashing input is the finding; without it the log says only that
+      # something failed.
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: crates/proto/fuzz/artifacts/
+          if-no-files-found: ignore
