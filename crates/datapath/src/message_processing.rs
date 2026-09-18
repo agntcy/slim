@@ -58,6 +58,7 @@ use crate::messages::utils::SlimHeaderFlags;
 use crate::sync::peer as sync_peer;
 use crate::sync::remote::{RemoteSync, SubscriptionInfo};
 use crate::tables::connection_table::ConnectionTable;
+use crate::tables::default_gateway::Gateway;
 use crate::tables::subscription_table::SubscriptionTableImpl;
 use crate::tables::{ConnType, MatchFilter};
 use crate::websocket;
@@ -317,6 +318,18 @@ impl MessageProcessor {
 
     pub fn forwarder(&self) -> &Forwarder<Connection> {
         &self.internal.forwarder
+    }
+
+    pub fn set_default_gateway(&self, conn_id: u64) -> Result<(), DataPathError> {
+        self.forwarder().set_default_gateway(conn_id)
+    }
+
+    pub fn clear_default_gateway(&self) {
+        self.forwarder().clear_default_gateway();
+    }
+
+    pub fn set_default_gateway_enabled(&self, enabled: bool) {
+        self.forwarder().set_default_gateway_enabled(enabled);
     }
 
     pub(crate) fn remote_sync(&self) -> &RemoteSync {
@@ -763,6 +776,7 @@ impl MessageProcessor {
         in_connection: u64,
         fanout: u32,
         filter: MatchFilter,
+        category: ConnType,
     ) -> Result<(), DataPathError> {
         let header = msg.get_slim_header();
         debug!(name = %header.get_dst(), %fanout, "match and forward message");
@@ -804,6 +818,32 @@ impl MessageProcessor {
                 Ok(())
             }
             Err(e) => {
+                if category.is_local() && matches!(e, DataPathError::NoMatchEncoded(..)) {
+                    match self.forwarder().resolve_default_gateway() {
+                        Gateway::Some { conn_id, source } => {
+                            debug!(
+                                dst = %header.get_dst(),
+                                conn_id,
+                                ?source,
+                                "no table match; forwarding to default gateway"
+                            );
+                            return self.send_msg(msg, conn_id).await;
+                        }
+                        Gateway::Ambiguous { count } => {
+                            warn!(
+                                dst = %header.get_dst(),
+                                count,
+                                "no table match; cannot infer default gateway (multiple Edge connections); set_route or set_default_gateway required"
+                            );
+                        }
+                        Gateway::Empty | Gateway::Dirty => {
+                            debug!(
+                                dst = %header.get_dst(),
+                                "no table match and no default gateway"
+                            );
+                        }
+                    }
+                }
                 debug!(name = %header.get_dst(), %fanout, error = %e, "no match for publish destination");
                 Err(DataPathError::MessageProcessingError {
                     source: Box::new(e),
@@ -908,6 +948,7 @@ impl MessageProcessor {
         self.connection_table().update(in_connection, |conn| {
             conn.set_connection_type(ConnType::Peer)
         });
+        self.forwarder().on_connection_type_changed();
 
         self.peer_sync()
             .on_incoming_peer(self, remote_node_id.to_string(), in_connection);
@@ -920,6 +961,7 @@ impl MessageProcessor {
         msg: Message,
         in_connection: u64,
         filter: MatchFilter,
+        category: ConnType,
     ) -> Result<(), DataPathError> {
         debug!(
             %in_connection,
@@ -939,7 +981,7 @@ impl MessageProcessor {
         // a publish message
         let fanout = msg.get_fanout();
 
-        self.match_and_forward_msg(msg, in_connection, fanout, filter)
+        self.match_and_forward_msg(msg, in_connection, fanout, filter, category)
             .await
     }
 
@@ -1222,7 +1264,8 @@ impl MessageProcessor {
                     }
                     _ => MatchFilter::ALL,
                 };
-                self.process_publish(msg, in_connection, filter).await
+                self.process_publish(msg, in_connection, filter, category)
+                    .await
             }
             Some(LinkType(link)) => {
                 self.handle_link_message(link, in_connection, category)
@@ -1615,6 +1658,7 @@ impl MessageProcessor {
                 self.connection_table().update(idx, |conn| {
                     conn.set_connection_type(ConnType::Edge);
                 });
+                self.forwarder().on_connection_type_changed();
                 ConnType::Edge
             }
             other => other,
@@ -2159,6 +2203,102 @@ mod tests {
             .on_connection_established(conn, None)
             .unwrap();
         (conn_id, rx)
+    }
+
+    fn make_edge_server_conn(
+        processor: &MessageProcessor,
+    ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
+        let (tx, rx) = mpsc::channel(16);
+        let conn = Connection::new(ConnType::Edge, Channel::Server(tx));
+        let conn_id = processor
+            .forwarder()
+            .on_connection_established(conn, None)
+            .unwrap();
+        (conn_id, rx)
+    }
+
+    fn make_publish(destination: ProtoName) -> Message {
+        Message::builder()
+            .source(ProtoName::from_strings(["org", "ns", "source"]))
+            .destination(destination)
+            .application_payload("text/plain", b"hello".to_vec())
+            .build_publish()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn local_publish_without_route_uses_single_edge_gateway() {
+        let processor = MessageProcessor::new();
+        let (local, _local_tx, _local_rx) = processor.register_local_connection(false).unwrap();
+        let (_edge, mut edge_rx) = make_edge_server_conn(&processor);
+
+        let result = processor
+            .process_message(
+                make_publish(ProtoName::from_strings(["org", "ns", "unknown"])),
+                local,
+                ConnType::Local,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert!(edge_rx.recv().await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn explicit_route_wins_over_default_gateway() {
+        let processor = MessageProcessor::new();
+        let (local, _local_tx, _local_rx) = processor.register_local_connection(false).unwrap();
+        let (gateway, mut gateway_rx) = make_edge_server_conn(&processor);
+        let (routed, mut routed_rx) = make_edge_server_conn(&processor);
+        let destination = ProtoName::from_strings(["org", "ns", "routed"]);
+
+        processor
+            .forwarder()
+            .on_subscription_msg(destination.clone(), routed, ConnType::Edge, true, 1)
+            .unwrap();
+
+        processor
+            .process_message(make_publish(destination), local, ConnType::Local)
+            .await
+            .unwrap();
+
+        assert!(routed_rx.recv().await.unwrap().is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), gateway_rx.recv())
+                .await
+                .is_err()
+        );
+        assert_ne!(gateway, routed);
+    }
+
+    #[tokio::test]
+    async fn non_local_publish_never_uses_default_gateway() {
+        let processor = MessageProcessor::new();
+        let (remote, mut remote_rx) = make_negotiated_server_conn(&processor, "1.2.0");
+        let (_edge, mut edge_rx) = make_edge_server_conn(&processor);
+
+        let result = processor
+            .process_message(
+                make_publish(ProtoName::from_strings(["org", "ns", "unknown"])),
+                remote,
+                ConnType::Remote,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DataPathError::MessageProcessingError { .. })
+        ));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), edge_rx.recv())
+                .await
+                .is_err()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), remote_rx.recv())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
