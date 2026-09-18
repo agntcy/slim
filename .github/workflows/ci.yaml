@@ -10,6 +10,9 @@ name: ci-build-and-test
 # required check. Filtering therefore happens in the `changes` job below, which
 # applies exactly the path set that used to live here.
 on:
+  # Required checks must report on queue entries too, or every entry waits for
+  # a conclusion that never arrives. Harmless until a merge queue exists.
+  merge_group:
   push:
     branches:
       - main
