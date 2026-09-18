@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.3](https://github.com/agntcy/slim/compare/slimctl-v2.3.0...slimctl-v2.3.3) - 2026-09-17
+
+### Other
+
+- *(deps)* update rust crate reqwest to 0.13 ([#2044](https://github.com/agntcy/slim/pull/2044))
+- *(deps)* remove oauth2 dep with deprecated transients ([#2048](https://github.com/agntcy/slim/pull/2048))
+
 ## [2.3.2](https://github.com/agntcy/slim/compare/slimctl-v2.3.1...slimctl-v2.3.2) - 2026-09-01
 
 ### Other

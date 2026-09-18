@@ -221,42 +221,41 @@ fn delivers_messages_and_cleans_up_routes_via_control_plane() {
             panic!("client A did not receive message from b1:\n{output}");
         });
 
-    let route_list_a = run_slimctl_controller_retry(
+    // Routes and links are published asynchronously by the control plane and
+    // `slimctl` exits 0 while the tables are still filling, so poll for the
+    // expected state instead of reading each table once.
+    wait_for_slimctl_controller_contains(
         &slimctl,
         &cp_north_endpoint,
         &["route", "list", "-n", "slim/a"],
+        &["org/default/b1", "org/default/b2"],
         Duration::from_secs(10),
-    );
-    assert_output_contains(&route_list_a, "org/default/b1", "routes on slim/a");
-    assert_output_contains(&route_list_a, "org/default/b2", "routes on slim/a");
+    )
+    .unwrap_or_else(|err| panic!("routes on slim/a: {err}"));
 
-    let route_list_b = run_slimctl_controller_retry(
+    wait_for_slimctl_controller_contains(
         &slimctl,
         &cp_north_endpoint,
         &["route", "list", "-n", "slim/b"],
+        &["org/default/a"],
         Duration::from_secs(10),
-    );
-    assert_output_contains(&route_list_b, "org/default/a", "routes on slim/b");
+    )
+    .unwrap_or_else(|err| panic!("routes on slim/b: {err}"));
 
-    let links_out = run_slimctl_controller_retry(
-        &slimctl,
-        &cp_north_endpoint,
-        &["link", "outline"],
-        Duration::from_secs(10),
-    );
-    let links = String::from_utf8_lossy(&links_out);
-    assert!(
-        links.contains("Number of links: 1"),
-        "expected one control-plane link, got:\n{links}"
-    );
+    // Wait for the link to reach APPLIED rather than requiring it to already
+    // be there on the first read.
     let link_re = Regex::new(
         r"(?m)^\s*[0-9a-f-]{36}\s+slim/a\s+slim/b\s+http://127\.0\.0\.1:\d+\s+APPLIED\s+-\s+No\s+\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s*$",
     )
     .expect("valid link outline regex");
-    assert!(
-        link_re.is_match(&links),
-        "link outline did not match expected format:\n{links}"
-    );
+    wait_for_slimctl_controller(
+        &slimctl,
+        &cp_north_endpoint,
+        &["link", "outline"],
+        Duration::from_secs(10),
+        |out| out.contains("Number of links: 1") && link_re.is_match(out),
+    )
+    .unwrap_or_else(|err| panic!("link outline did not reach the expected state: {err}"));
 
     terminate_session(&mut client_b1, Duration::from_secs(2));
     terminate_session(&mut client_b2, Duration::from_secs(2));
