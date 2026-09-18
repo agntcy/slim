@@ -484,7 +484,12 @@ tasks:
     cmds:
       - |
         PATH="$(dirname "$(rustup which --toolchain nightly cargo)"):$PATH"
-        cargo fuzz run {{.FUZZ_TARGET}} -- -max_total_time={{.SECS}}
+        mkdir -p "corpus/{{.FUZZ_TARGET}}"
+        cargo fuzz run \
+          {{.FUZZ_TARGET}} \
+          "corpus/{{.FUZZ_TARGET}}" \
+          "seeds/{{.FUZZ_TARGET}}" \
+          -- -max_total_time={{.SECS}}
     vars:
       FUZZ_TARGET: '{{ .FUZZ_TARGET | default "message-decode" }}'
       SECS: '{{ .SECS | default "60" }}'
@@ -498,6 +503,14 @@ tasks:
       - |
         PATH="$(dirname "$(rustup which --toolchain nightly cargo)"):$PATH"
         cargo fuzz build
+
+  fuzz:seeds:
+    desc: "Regenerate the fuzz seed corpora"
+    dir: crates/proto/fuzz
+    cmds:
+      - |
+        PATH="$(dirname "$(rustup which --toolchain nightly cargo)"):$PATH"
+        cargo run --quiet --example gen-seeds
 
   install-cargo-fuzz:
     desc: "Install cargo-fuzz and the nightly toolchain it needs"
