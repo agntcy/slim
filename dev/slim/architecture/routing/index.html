@@ -871,6 +871,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#conditional-segment-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conditional Segment Templates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#inspecting-segments" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4970,6 +4981,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#conditional-segment-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conditional Segment Templates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#inspecting-segments" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5228,6 +5250,26 @@ slimctl<span class="w"> </span>controller<span class="w"> </span>node<span class
 <span class="w">          </span><span class="nt">neighbors</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">$domain</span><span class="p p-Indicator">]</span>
 </code></pre></div>
 <p>When a node from <code>customer-a</code> registers, the Controller instantiates a segment named <code>segment-customer-a</code> with links <code>cloud &lt;-&gt; customer-a</code>. When a node from <code>customer-b</code> registers, another segment <code>segment-customer-b</code> is instantiated with <code>cloud &lt;-&gt; customer-b</code>. Because each customer domain exists in its own segment, <code>customer-a</code> and <code>customer-b</code> cannot route to each other even though they both connect to <code>cloud</code>.</p>
+<h3 id="conditional-segment-templates">Conditional Segment Templates</h3>
+<p>For topologies that need loops or conditional membership, use
+<code>segments-template</code>. It is a MiniJinja template rendered against <code>groups</code>, a
+sorted list of registered domain names:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">topology</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">segments-template</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">    </span><span class="no">- name: customer-a</span>
+<span class="w">      </span><span class="no">links:</span>
+<span class="w">    </span><span class="no">{% for group in groups %}</span>
+<span class="w">    </span><span class="no">{% if group is startingwith(&quot;customer-a-&quot;) %}</span>
+<span class="w">        </span><span class="no">- domain: {{ group | tojson }}</span>
+<span class="w">          </span><span class="no">neighbors: [customer-a]</span>
+<span class="w">    </span><span class="no">{% endif %}</span>
+<span class="w">    </span><span class="no">{% endfor %}</span>
+</code></pre></div>
+<p>This creates one segment containing every domain whose name begins with
+<code>customer-a-</code>. Use <code>tojson</code> for interpolated domain names so they remain safely
+quoted YAML scalars. The template is re-rendered whenever a domain registers or
+deregisters. A render error preserves the last valid segment graph and is
+reported in the Controller logs.</p>
 <h3 id="inspecting-segments">Inspecting Segments</h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># List all segments and their domain membership</span>
 slimctl<span class="w"> </span>controller<span class="w"> </span>segment<span class="w"> </span>list
@@ -5276,6 +5318,10 @@ slimctl<span class="w"> </span>controller<span class="w"> </span>segment<span cl
 <tr>
 <td><code>$domain</code> template</td>
 <td>Dynamic per-tenant segments; domains register without pre-configuration</td>
+</tr>
+<tr>
+<td><code>segments-template</code></td>
+<td>Conditional or many-to-one segment membership based on domain names</td>
 </tr>
 </tbody>
 </table>

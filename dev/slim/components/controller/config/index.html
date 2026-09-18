@@ -5217,6 +5217,25 @@ so that split depends on <code>ClusterIP</code>.</p>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">domain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">platform</span>
 <span class="w">          </span><span class="nt">neighbors</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">$domain</span><span class="p p-Indicator">]</span>
 </code></pre></div>
+<p>For conditional membership or segments that combine multiple matching domains,
+use <code>segments-template</code>. The template uses MiniJinja syntax and receives
+<code>groups</code>, a sorted list of all currently registered domain names. It is
+re-rendered whenever that set changes.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">topology</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">segments-template</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">    </span><span class="no">- name: customer-a</span>
+<span class="w">      </span><span class="no">links:</span>
+<span class="w">    </span><span class="no">{% for group in groups %}</span>
+<span class="w">    </span><span class="no">{% if group is startingwith(&quot;customer-a-&quot;) %}</span>
+<span class="w">        </span><span class="no">- domain: {{ group | tojson }}</span>
+<span class="w">          </span><span class="no">neighbors: [customer-a]</span>
+<span class="w">    </span><span class="no">{% endif %}</span>
+<span class="w">    </span><span class="no">{% endfor %}</span>
+</code></pre></div>
+<p>Use the built-in <code>tojson</code> filter when inserting a group into YAML. JSON strings
+are valid YAML scalars and safely quote special characters. <code>links</code>, <code>segments</code>,
+and <code>segments-template</code> are mutually exclusive. The legacy <code>$domain</code> form
+remains supported for simple per-domain isolation.</p>
 <h2 id="registration-authentication">Registration Authentication</h2>
 <p>The <code>topology.registration_auth</code> field configures how data-plane nodes authenticate when registering with the controller:</p>
 <h3 id="shared-secret">Shared Secret</h3>
