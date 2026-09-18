@@ -75,12 +75,19 @@ jobs:
   build-and-test:
     name: Build & test
     needs: [changes]
-    if: needs.changes.outputs.workspace == 'true'
+    # No `if:` here on purpose. Skipping a `uses:` job means the called
+    # workflow's jobs never exist, so `Build & test / *` reports nothing at all
+    # and a required check waits for ever — a job-level skip only reports
+    # `skipped` for a normal job. Gate the work through the inputs instead:
+    # each child job still exists and reports `skipped` when its flag is false.
     uses: ./.github/workflows/reusable-rust-build-and-test.yaml
     with:
+      rust-lint: ${{ needs.changes.outputs.workspace == 'true' }}
+      rust-test: ${{ needs.changes.outputs.workspace == 'true' }}
+      rust-cross-build: ${{ needs.changes.outputs.workspace == 'true' }}
       # wasm unit-test suite runs on PRs so wasm32 compile regressions are
       # caught early; the browser suite (headless Chrome) stays nightly-only.
-      rust-test-wasm: true
+      rust-test-wasm: ${{ needs.changes.outputs.workspace == 'true' }}
       rust-test-wasm-browser: false
 
   windows-build:
