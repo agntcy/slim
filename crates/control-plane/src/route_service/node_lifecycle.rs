@@ -142,6 +142,13 @@ impl super::RouteService {
         }
         node_links.extend(new_links);
 
+        // ensure_links_for_node may have created the inter-domain link the
+        // expansion needs; a missing link is skipped silently and never retried.
+        let all_links = self.0.db.list_all_links().await.unwrap_or_else(|e| {
+            tracing::error!("failed to re-list links before route expansion: {e}");
+            all_links
+        });
+
         // Re-expand wildcard routes via SPT. This is idempotent — duplicates
         // are rejected by add_single_route.
         self.expand_all_wildcard_routes(&all_nodes, &all_links)
