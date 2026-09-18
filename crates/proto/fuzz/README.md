@@ -28,6 +28,7 @@ From the repo root:
 task fuzz:list                                  # show targets
 task fuzz                                       # message-decode, 60s
 task fuzz FUZZ_TARGET=parse-name SECS=300       # a specific target, longer
+task fuzz:seeds                                 # regenerate seeds/
 ```
 
 `task fuzz` installs `cargo-fuzz` and the nightly toolchain on first use.
@@ -60,6 +61,30 @@ directory. The repo toolchain stays pinned to stable in
 Reaching a `pub(crate)` decoder needs either widened visibility or a target
 inside the crate; prefer a `fuzzing` feature gate over a blanket `pub` so the
 widened surface does not become de facto public API.
+
+## Seeds
+
+`seeds/<target>/` holds read-only starting inputs, passed alongside the
+writable `corpus/<target>/` on every run. Coverage-guided fuzzing from an
+empty corpus spends most of a short budget rediscovering basic structure —
+valid protobuf tags and wire types, or the `a/b/c` shape of a name — which
+matters most for a time-boxed CI run.
+
+They are generated rather than hand-written, so they stay valid as the schema
+moves: `examples/gen-seeds.rs`, run via `task fuzz:seeds`. It is an example
+and not a `[[bin]]` because `cargo fuzz` builds `--bins`, and a binary without
+`fuzz_target!` is not a valid fuzz target.
+
+## CI
+
+`.github/workflows/fuzz.yaml` runs each target in its own matrix job: 60s on
+pull requests as a smoke test, 300s on the nightly cron. Crash inputs upload
+as artifacts on failure — without them the log says only that something
+failed.
+
+It is deliberately **not** a required status check. It is path-filtered, and a
+required check that does not report on every pull request leaves those PRs
+permanently pending.
 
 ## Not yet covered
 
