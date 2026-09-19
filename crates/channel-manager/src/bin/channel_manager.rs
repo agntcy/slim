@@ -344,7 +344,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create gRPC server
-    let server = ChannelManagerServer::new(arc_app.clone(), sessions.clone(), config_mode);
+    let server = ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
     let svc = ChannelManagerServiceServer::new(server);
 
     info!(

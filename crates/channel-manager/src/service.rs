@@ -36,11 +36,17 @@ impl ChannelManagerServer {
     /// Set `config_mode` to `true` when the config file defines channels; this
     /// makes all write operations return `FAILED_PRECONDITION` so the config
     /// file remains the single source of truth.
+    ///
+    /// `conn_id` is retained for API compatibility. Routing is now resolved by
+    /// the default-gateway mechanism instead of being configured explicitly.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
+        conn_id: u64,
         sessions: Arc<SessionsList>,
         config_mode: bool,
     ) -> Self {
+        let _ = conn_id;
+
         Self {
             app,
             sessions,

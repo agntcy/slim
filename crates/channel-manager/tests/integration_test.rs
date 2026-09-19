@@ -24,7 +24,7 @@ use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::ProtoName;
 use slim_service::app::App;
 use slim_service::{Service, ServiceBuilder};
-use slim_session::Direction;
+use slim_session::{Direction, Notification};
 use slim_testing::common::reserve_local_port;
 
 const SHARED_SECRET: &str = "integration-test-shared-secret-0123456789-abcdef";
@@ -93,11 +93,11 @@ services:
 
 /// Create a SLIM service and connect it to the running node.
 /// Returns the service and the connection ID.
-async fn create_service_and_connect(slim_port: u16) -> (Arc<Service>, u64) {
+async fn create_service_and_connect(slim_port: u16, service_name: &str) -> (Arc<Service>, u64) {
     slim_config::tls::provider::initialize_crypto_provider();
 
     let service = ServiceBuilder::new()
-        .build("test-service".to_string())
+        .build(service_name.to_string())
         .expect("failed to build service");
     let service = Arc::new(service);
 
@@ -151,7 +151,7 @@ async fn start_channel_manager(
 
     // Create sessions list and gRPC server
     let sessions = Arc::new(SessionsList::new());
-    let server = ChannelManagerServer::new(app.clone(), sessions.clone(), false);
+    let server = ChannelManagerServer::new(app.clone(), conn_id, sessions.clone(), false);
     let svc = ChannelManagerServiceServer::new(server);
 
     // Start gRPC server using ServerConfig
@@ -175,7 +175,20 @@ async fn start_receiver(
     local_name: &str,
     conn_id: u64,
 ) -> App<AuthProvider, AuthVerifier> {
-    let (app, _rx) = create_app_with_shared_secret(service, local_name).await;
+    let (app, _rx) = start_receiver_with_notifications(service, local_name, conn_id).await;
+    app
+}
+
+/// Start a receiver app and keep its notification channel for assertions.
+async fn start_receiver_with_notifications(
+    service: &Arc<Service>,
+    local_name: &str,
+    conn_id: u64,
+) -> (
+    App<AuthProvider, AuthVerifier>,
+    tokio::sync::mpsc::Receiver<Result<Notification, slim_session::SessionError>>,
+) {
+    let (app, rx) = create_app_with_shared_secret(service, local_name).await;
     let app_name = app.app_name().clone();
 
     // Subscribe to local name
@@ -183,7 +196,7 @@ async fn start_receiver(
         .await
         .expect("failed to subscribe receiver");
 
-    app
+    (app, rx)
 }
 
 /// Create a gRPC client for the channel-manager API.
@@ -204,7 +217,7 @@ async fn test_channel_manager_via_cmctl() {
     wait_for_port("127.0.0.1", slim_port, Duration::from_secs(60), "SLIM node").await;
 
     // Create a service and connect to the SLIM node.
-    let (service, conn_id) = create_service_and_connect(slim_port).await;
+    let (service, conn_id) = create_service_and_connect(slim_port, "test-service").await;
 
     // Start channel-manager in-process.
     let (_cm_app, _cm_sessions) = start_channel_manager(&service, conn_id, cm_port).await;
@@ -492,4 +505,84 @@ async fn test_channel_manager_via_cmctl() {
         .expect("delete-channel failed")
         .into_inner();
     assert!(resp.success, "delete-channel failed: {:?}", resp.error_msg);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_add_participant_uses_default_gateway_with_separate_services() {
+    let slim_port = reserve_local_port();
+    let cm_port = reserve_local_port();
+
+    let _slim_handle = start_slim_node(slim_port);
+    wait_for_port("127.0.0.1", slim_port, Duration::from_secs(60), "SLIM node").await;
+
+    // Keep the channel-manager and participant on separate services. This
+    // makes the manager's invite depend on its default Edge gateway instead
+    // of being satisfied by a local subscription on the same service.
+    let (manager_service, manager_conn_id) =
+        create_service_and_connect(slim_port, "channel-manager-service").await;
+    let (participant_service, participant_conn_id) =
+        create_service_and_connect(slim_port, "participant-service").await;
+
+    let (_cm_app, _cm_sessions) =
+        start_channel_manager(&manager_service, manager_conn_id, cm_port).await;
+    wait_for_port(
+        "127.0.0.1",
+        cm_port,
+        Duration::from_secs(60),
+        "channel-manager",
+    )
+    .await;
+
+    let (participant_app, mut participant_rx) = start_receiver_with_notifications(
+        &participant_service,
+        "org/ns/default-gateway-participant",
+        participant_conn_id,
+    )
+    .await;
+
+    let mut client = create_cm_client(cm_port).await;
+
+    let response = client
+        .create_channel(CreateChannelRequest {
+            channel_name: "org/ns/default-gateway-channel".to_string(),
+            mls_enabled: true,
+        })
+        .await
+        .expect("create-channel failed")
+        .into_inner();
+    assert!(
+        response.success,
+        "create-channel failed: {:?}",
+        response.error_msg
+    );
+
+    let response = client
+        .add_participant(AddParticipantRequest {
+            channel_name: "org/ns/default-gateway-channel".to_string(),
+            participant_name: "org/ns/default-gateway-participant".to_string(),
+        })
+        .await
+        .expect("add-participant request failed")
+        .into_inner();
+    assert!(
+        response.success,
+        "add-participant failed: {:?}",
+        response.error_msg
+    );
+
+    let notification = tokio::time::timeout(Duration::from_secs(15), participant_rx.recv())
+        .await
+        .expect("participant notification timed out")
+        .expect("participant notification channel closed")
+        .expect("participant received an error");
+
+    match notification {
+        Notification::NewSession(session_context) => {
+            session_context
+                .spawn_receiver(|mut rx, _weak| async move { while rx.recv().await.is_some() {} });
+        }
+        _ => panic!("expected NewSession notification"),
+    }
+
+    drop(participant_app);
 }
