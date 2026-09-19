@@ -205,15 +205,6 @@ async fn main() -> Result<()> {
             "moderator needs at least one --invite participant"
         );
 
-        // Route invites/messages toward each participant via the upstream node.
-        for p in &invitees {
-            app.set_route(p, conn_id)
-                .await
-                .context("set_route failed")?;
-        }
-        // Give the routes a moment to propagate.
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         let session_config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
             max_retries: Some(10),

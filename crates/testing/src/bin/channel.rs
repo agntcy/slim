@@ -287,11 +287,6 @@ async fn main() {
             // add to the participants list
             let p = parse_string_type(n);
             participants.push(p.clone());
-
-            // add route
-            app.set_route(&p, conn_id)
-                .await
-                .expect("an error accoured while adding a route");
         }
     }
 
