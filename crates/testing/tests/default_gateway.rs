@@ -115,14 +115,16 @@ async fn invite_participant_without_set_route_uses_default_gateway() {
         .await
         .expect("failed to invite participant");
 
-    let _ = tokio::time::timeout(Duration::from_secs(15), invite_completion)
+    tokio::time::timeout(Duration::from_secs(15), invite_completion)
         .await
-        .expect("invite completion failed");
+        .expect("invite did not complete in time")
+        .expect("invite failed");
 
     // Assert that the participant receives Notification::NewSession.
-    let _ = tokio::time::timeout(Duration::from_secs(15), participant_listener)
+    tokio::time::timeout(Duration::from_secs(15), participant_listener)
         .await
-        .expect("participant listener timed out");
+        .expect("participant listener timed out")
+        .expect("participant listener panicked");
 
     terminate_session(&mut slim_process, Duration::from_secs(5));
 
