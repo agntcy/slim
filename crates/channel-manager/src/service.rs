@@ -12,7 +12,7 @@ use slim_service::app::App;
 use slim_session::completion_handle::CompletionHandle;
 use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
@@ -37,15 +37,17 @@ impl ChannelManagerServer {
     /// makes all write operations return `FAILED_PRECONDITION` so the config
     /// file remains the single source of truth.
     ///
-    /// `conn_id` is retained for API compatibility. Routing is now resolved by
-    /// the default-gateway mechanism instead of being configured explicitly.
+    /// `conn_id` pins the default gateway, so invites keep working on a
+    /// multi-uplink service where auto-detection would be ambiguous.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
         sessions: Arc<SessionsList>,
         config_mode: bool,
     ) -> Self {
-        let _ = conn_id;
+        if let Err(e) = app.set_default_gateway(conn_id) {
+            warn!("failed to pin default gateway to conn {conn_id}: {e}");
+        }
 
         Self {
             app,
