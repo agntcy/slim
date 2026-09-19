@@ -7,9 +7,9 @@
 use std::collections::{HashMap, HashSet};
 
 pub mod connection_table;
-pub mod subscription_table;
-
+pub mod default_gateway;
 pub mod pool;
+pub mod subscription_table;
 
 use crate::api::{EncodedName, ProtoName};
 
