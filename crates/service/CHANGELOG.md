@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/agntcy/slim/compare/slim-service-v0.12.11...slim-service-v0.13.0) - 2026-09-19
+
+### Added
+
+- *(datapath)* implement default gateway as a fallback when route is… ([#2080](https://github.com/agntcy/slim/pull/2080))
+
 ## [0.12.11](https://github.com/agntcy/slim/compare/slim-service-v0.12.10...slim-service-v0.12.11) - 2026-09-01
 
 ### Other
