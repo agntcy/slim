@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [2.3.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v2.2.0...helm-slim-control-plane-v2.3.0) (2026-09-19)
+
+
+### Features
+
+* **control-plane:** Improve segment configuration with template engine support ([#1996](https://github.com/agntcy/slim/issues/1996)) ([aca652a](https://github.com/agntcy/slim/commit/aca652a965a8ded8d24e4caa4671be3acdb4a19f))
+
 ## [2.2.0](https://github.com/agntcy/slim/compare/helm-slim-control-plane-v2.1.0...helm-slim-control-plane-v2.2.0) (2026-08-13)
 
 
