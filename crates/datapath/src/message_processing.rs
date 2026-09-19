@@ -2114,6 +2114,30 @@ mod tests {
         );
     }
 
+    fn make_server_conn_of_type(
+        processor: &MessageProcessor,
+        connection_type: ConnType,
+    ) -> (u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>) {
+        let (tx, rx) = mpsc::channel(16);
+
+        let connection = Connection::new(connection_type, Channel::Server(tx));
+
+        let connection_id = processor
+            .forwarder()
+            .on_connection_established(connection, None)
+            .unwrap();
+
+        (connection_id, rx)
+    }
+
+    fn assert_no_match(result: Result<(), DataPathError>) {
+        assert!(matches!(
+            result,
+            Err(DataPathError::MessageProcessingError { source, .. })
+                if matches!(source.as_ref(), DataPathError::NoMatchEncoded(..))
+        ));
+    }
+
     #[tokio::test]
     async fn test_process_subscription_sends_failed_ack_on_subscribe_error() {
         assert_failed_subscription_ack_is_sent(true).await;
@@ -2299,6 +2323,99 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn mutual_edge_default_gateways_do_not_loop() {
+        let node_a = MessageProcessor::new();
+        let node_b = MessageProcessor::new();
+
+        let (local_a, _local_tx_a, _local_rx_a) = node_a.register_local_connection(false).unwrap();
+
+        let (_gateway_a, mut a_to_b_rx) = make_server_conn_of_type(&node_a, ConnType::Edge);
+
+        let (gateway_b, mut b_to_a_rx) = make_server_conn_of_type(&node_b, ConnType::Edge);
+
+        let (_local_b, _local_tx_b, _local_rx_b) = node_b.register_local_connection(false).unwrap();
+
+        assert!(matches!(
+            node_a.forwarder().resolve_default_gateway(),
+            Gateway::Some { .. }
+        ));
+
+        assert!(matches!(
+            node_b.forwarder().resolve_default_gateway(),
+            Gateway::Some {
+                conn_id,
+                ..
+            } if conn_id == gateway_b
+        ));
+
+        let first_result = node_a
+            .process_message(
+                make_publish(ProtoName::from_strings(["org", "ns", "unknown"])),
+                local_a,
+                ConnType::Local,
+            )
+            .await;
+
+        assert!(first_result.is_ok());
+
+        let forwarded_message = a_to_b_rx
+            .recv()
+            .await
+            .expect("node A did not send to node B")
+            .expect("node A sent an error");
+
+        // The message arrives at node B through an Edge connection.
+        // Node B must not use its own default gateway to send it back.
+        let second_result = node_b
+            .process_message(forwarded_message, gateway_b, ConnType::Edge)
+            .await;
+
+        assert_no_match(second_result);
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), b_to_a_rx.recv())
+                .await
+                .is_err(),
+            "message was forwarded back and would create a mutual gateway loop"
+        );
+    }
+
+    #[tokio::test]
+    async fn local_publish_with_only_remote_or_peer_connection_returns_no_match() {
+        for connection_type in [ConnType::Remote, ConnType::Peer] {
+            let processor = MessageProcessor::new();
+
+            let (local, _local_tx, _local_rx) = processor.register_local_connection(false).unwrap();
+
+            let (_non_edge, mut non_edge_rx) =
+                make_server_conn_of_type(&processor, connection_type);
+
+            assert_eq!(
+                processor.forwarder().resolve_default_gateway(),
+                Gateway::Empty,
+                "a {connection_type:?} connection must not be selected as an automatic gateway"
+            );
+
+            let result = processor
+                .process_message(
+                    make_publish(ProtoName::from_strings(["org", "ns", "unknown"])),
+                    local,
+                    ConnType::Local,
+                )
+                .await;
+
+            assert_no_match(result);
+
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), non_edge_rx.recv())
+                    .await
+                    .is_err(),
+                "a {connection_type:?} connection was incorrectly used as the default gateway"
+            );
+        }
     }
 
     #[tokio::test]
