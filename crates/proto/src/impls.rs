@@ -2727,7 +2727,6 @@ mod message_tests {
         let msg = ProtoMessage::new(
             HashMap::new(),
             None,
-             None,
             ProtoSubscribeType(ProtoSubscribe {
                 header: Some(hdr),
                 ..Default::default()
