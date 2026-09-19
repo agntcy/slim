@@ -7,6 +7,7 @@ FROM --platform=${BUILDPLATFORM} rust:1.95-slim-bookworm@sha256:d7482085ff5b415f
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 ARG TARGETARCH
+ARG TASK_VERSION=3.53.1
 
 RUN <<EOF
 case ${TARGETARCH} in
@@ -42,8 +43,26 @@ curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
 chmod +x /tmp/llvm.sh
 /tmp/llvm.sh 19
 
-curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
-apt-get install -y task
+case ${TARGETARCH} in
+    "amd64")
+        TASK_SHA256=9cf4f181d1741d0f918eecc0326df0fc2dc8ac11f21f56ce68629dfbb1fdde6c
+        ;;
+    "arm64")
+        TASK_SHA256=7c2822c453b2c8c08cd62624d5657cdc7e613e73060d9a6f661c50c3850e6cfa
+        ;;
+    *)
+        echo "Unsupported platform: ${TARGETPLATFORM}"
+        exit 1
+        ;;
+esac
+
+TASK_DEB=/tmp/task.deb
+curl --fail --location --silent --show-error \
+    --output "${TASK_DEB}" \
+    "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_${TASK_VERSION}_linux_${TARGETARCH}.deb"
+echo "${TASK_SHA256}  ${TASK_DEB}" | sha256sum --check --status
+dpkg --install "${TASK_DEB}"
+rm "${TASK_DEB}"
 EOF
 
 # Copy source code
