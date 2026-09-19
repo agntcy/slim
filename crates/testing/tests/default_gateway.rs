@@ -110,9 +110,6 @@ async fn invite_participant_without_set_route_uses_default_gateway() {
         .session_arc()
         .expect("moderator session was dropped");
 
-    // Important: do not call set_route().
-    // Call invite_participant(participant_name).
-
     let invite_completion = session
         .invite_participant(&participant_name)
         .await
