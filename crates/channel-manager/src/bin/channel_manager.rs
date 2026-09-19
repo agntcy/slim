@@ -338,6 +338,12 @@ async fn main() -> anyhow::Result<()> {
     // API mode:    channels section is empty → DB (restored above) is the source of truth.
     let config_mode = !config.manager.channels.is_empty();
 
+    // Pin before reconciling: config-mode invites run here, before
+    // `ChannelManagerServer::new` below performs the same pin for API mode.
+    if let Err(e) = arc_app.set_default_gateway(conn_id) {
+        warn!("failed to pin default gateway to conn {conn_id}: {e}");
+    }
+
     if config_mode && let Err(e) = create_channels_from_config(&arc_app, &sessions, &config).await {
         error!("Failed to reconcile channels from config: {e}");
         return Err(e);
