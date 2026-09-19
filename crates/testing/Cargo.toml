@@ -117,3 +117,8 @@ required-features = ["integration"]
 name = "subscription_ack"
 path = "tests/subscription_ack.rs"
 required-features = ["integration"]
+
+[[test]]
+name = "default_gateway"
+path = "tests/default_gateway.rs"
+required-features = ["integration"]
