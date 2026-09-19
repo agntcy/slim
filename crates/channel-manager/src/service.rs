@@ -25,7 +25,6 @@ use crate::sessions::SessionsList;
 /// gRPC server for the Channel Manager service
 pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
-    conn_id: u64,
     sessions: Arc<SessionsList>,
     /// When true, channels are owned by the config file and mutating APIs are disabled.
     config_mode: bool,
@@ -37,15 +36,19 @@ impl ChannelManagerServer {
     /// Set `config_mode` to `true` when the config file defines channels; this
     /// makes all write operations return `FAILED_PRECONDITION` so the config
     /// file remains the single source of truth.
+    ///
+    /// `conn_id` is retained for API compatibility. Routing is now resolved by
+    /// the default-gateway mechanism instead of being configured explicitly.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
         sessions: Arc<SessionsList>,
         config_mode: bool,
     ) -> Self {
+        let _ = conn_id;
+
         Self {
             app,
-            conn_id,
             sessions,
             config_mode,
         }
@@ -199,13 +202,6 @@ impl ChannelManagerServer {
                 return self.error_response(format!("invalid participant name: {e}"));
             }
         };
-
-        // Set route for the participant
-        if let Err(e) = self.app.set_route(&participant_name, self.conn_id).await {
-            return self.error_response(format!(
-                "failed to set route for participant {participant_name_str}: {e}"
-            ));
-        }
 
         // Invite the participant
         let op = session.invite_participant(&participant_name).await;

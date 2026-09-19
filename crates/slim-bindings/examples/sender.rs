@@ -163,13 +163,6 @@ cfg_if::cfg_if! {
 
             println!("[{full_name}] Creating {session_type:?} session with destination {destination}...");
 
-            // Set routes for all participants to ensure they can receive the session invite
-            for participant in &participant_names {
-                println!("[{full_name}] Setting route for {participant}");
-                app.set_route_async(Arc::new(participant.clone()), conn_id)
-                    .await?;
-            }
-
             let session_with_completion = app
                 .create_session_async(session_config, destination)
                 .await?;

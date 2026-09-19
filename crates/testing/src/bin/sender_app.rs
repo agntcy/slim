@@ -260,14 +260,6 @@ async fn run_sender(args: Args) -> Result<()> {
         destination
     );
 
-    // Set routes for all participants
-    for participant in &participant_names {
-        tprintln!("[{}] Setting route for {}", full_name, participant);
-        app.set_route(participant, conn_id)
-            .await
-            .context("set route failed")?;
-    }
-
     // Create session with MLS always enabled
     let session_config = SessionConfig {
         session_type,
