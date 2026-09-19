@@ -50,6 +50,8 @@ pub enum DataPathError {
     ConnectionNotFound(u64),
     #[error("connection id not found: {0}")]
     ConnectionIdNotFound(u64),
+    #[error("invalid default gateway {conn_id}: {reason}")]
+    InvalidDefaultGateway { conn_id: u64, reason: String },
 
     // Processing
     #[error("malformed message")]

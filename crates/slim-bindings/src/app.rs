@@ -511,6 +511,18 @@ impl App {
         Ok(())
     }
 
+    /// Pin an Edge connection as the default gateway for unrouted publishes.
+    pub async fn set_default_gateway_async(&self, connection_id: u64) -> Result<(), SlimError> {
+        self.app.set_default_gateway(connection_id)?;
+        Ok(())
+    }
+
+    /// Remove the explicit default gateway pin.
+    pub async fn clear_default_gateway_async(&self) -> Result<(), SlimError> {
+        self.app.clear_default_gateway();
+        Ok(())
+    }
+
     /// Remove a route (async version)
     pub async fn remove_route_async(
         &self,
@@ -649,6 +661,17 @@ impl App {
     pub fn set_route(&self, name: Arc<Name>, connection_id: u64) -> Result<(), SlimError> {
         crate::config::get_runtime()
             .block_on(async { self.set_route_async(name, connection_id).await })
+    }
+
+    /// Pin an Edge connection as the default gateway for unrouted publishes.
+    pub fn set_default_gateway(&self, connection_id: u64) -> Result<(), SlimError> {
+        crate::config::get_runtime()
+            .block_on(async { self.set_default_gateway_async(connection_id).await })
+    }
+
+    /// Remove the explicit default gateway pin.
+    pub fn clear_default_gateway(&self) -> Result<(), SlimError> {
+        crate::config::get_runtime().block_on(async { self.clear_default_gateway_async().await })
     }
 
     /// Remove a route (blocking version for FFI)
