@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0](https://github.com/agntcy/slim/compare/slim-control-plane-v2.3.3...slim-control-plane-v3.0.0) - 2026-09-19
+
+### Added
+
+- *(control-plane)* Improve segment configuration with template engine support ([#1996](https://github.com/agntcy/slim/pull/1996))
+
+### Fixed
+
+- *(control-plane)* re-read links before expanding wildcard routes ([#2087](https://github.com/agntcy/slim/pull/2087))
+
 ## [2.3.3](https://github.com/agntcy/slim/compare/slim-control-plane-v2.3.0...slim-control-plane-v2.3.3) - 2026-09-17
 
 ### Fixed
