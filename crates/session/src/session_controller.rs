@@ -777,7 +777,7 @@ impl SessionController {
             && !map.is_empty()
         {
             msg.set_metadata_map(map);
-        } 
+        }
 
         // southbound=true means towards slim
         self.publish_message(msg).await
