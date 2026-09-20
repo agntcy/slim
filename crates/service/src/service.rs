@@ -22,7 +22,7 @@ use slim_datapath::peer_discovery::KubernetesPeerDiscovery;
 
 #[cfg(not(target_arch = "wasm32"))]
 use {
-    serde::Deserialize,
+    serde::{Deserialize, Serialize},
     slim_config::component::configuration::Configuration,
     slim_config::component::id::Kind,
     slim_config::component::{Component, ComponentBuilder},
@@ -72,9 +72,18 @@ pub struct ConnectionInfo {
     /// The connection type (Local, Remote, Peer)
     pub conn_type: ConnType,
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(Serialize, Deserialize))]
+#[cfg_attr(not(target_arch = "wasm32"), serde(rename_all = "snake_case"))]
+pub enum DefaultGatewayMode {
+    #[default]
+    /// The service will use the default gateway.
+    Auto,
+    /// The service will not use the default gateway.
+    Off,
+}
 
 // ── ServiceConfiguration ─────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 #[cfg_attr(not(target_arch = "wasm32"), derive(Deserialize))]
 #[cfg_attr(not(target_arch = "wasm32"), serde(default, deny_unknown_fields))]
@@ -111,6 +120,9 @@ pub struct ServiceConfiguration {
     /// When present, enables peer-to-peer subscription synchronization.
     #[cfg(not(target_arch = "wasm32"))]
     pub peers: Option<PeerConfig>,
+
+    #[cfg_attr(not(target_arch = "wasm32"), serde(default))]
+    pub default_gateway: DefaultGatewayMode,
 }
 
 impl Default for ServiceConfiguration {
@@ -128,6 +140,7 @@ impl Default for ServiceConfiguration {
             controller: ControllerConfig::default(),
             #[cfg(not(target_arch = "wasm32"))]
             peers: None,
+            default_gateway: DefaultGatewayMode::Auto,
         }
     }
 }
@@ -617,6 +630,10 @@ impl Service {
         } else {
             MessageProcessor::new_with_service_id(service_id, enforce_pqc)
         };
+        message_processor.set_default_gateway_enabled(matches!(
+            config.default_gateway,
+            DefaultGatewayMode::Auto
+        ));
 
         Service {
             id,
@@ -837,6 +854,10 @@ impl Service {
     pub fn new_with_config(id: ID, config: ServiceConfiguration) -> Self {
         let service_id = config.node_id.clone();
         let message_processor = MessageProcessor::new_with_service_id(service_id, false);
+        message_processor.set_default_gateway_enabled(matches!(
+            config.default_gateway,
+            DefaultGatewayMode::Auto
+        ));
         Service {
             id,
             message_processor,
