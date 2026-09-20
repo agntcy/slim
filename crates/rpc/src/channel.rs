@@ -368,13 +368,6 @@ impl Channel {
         // Invite all members whenever the GROUP session is (re)created.
         if self.is_group {
             for member in &self.initial_members {
-                if let Some(conn_id) = self.connection_id {
-                    self.app.set_route(member, conn_id).await.map_err(|e| {
-                        RpcError::internal(format!(
-                            "Failed to set route for group member {member}: {e}"
-                        ))
-                    })?;
-                }
                 send_invite(&session_tx, member).await?;
             }
         }
@@ -389,27 +382,10 @@ impl Channel {
     ) -> Result<(SessionTx, SessionRx), RpcError> {
         let app = self.app.clone();
         let remote = self.remote.clone();
-        let connection_id = self.connection_id;
         let runtime = &self.runtime;
 
         // Runs in a tokio task because create_session needs tokio runtime
         let handle = runtime.spawn(async move {
-            if let Some(conn_id) = connection_id {
-                tracing::debug!(
-                    remote = %remote,
-                    connection_id = conn_id,
-                    "Setting route before creating session"
-                );
-                if let Err(e) = app.set_route(&remote, conn_id).await {
-                    tracing::warn!(
-                        remote = %remote,
-                        connection_id = conn_id,
-                        error = %e,
-                        "Failed to set route"
-                    );
-                }
-            }
-
             tracing::debug!(remote = %remote, ?session_type, "Creating persistent session");
 
             let slim_config = slim_session::session_config::SessionConfig {

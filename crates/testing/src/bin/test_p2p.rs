@@ -219,7 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let svc = build_client_service(dataplane_port, &moderator_name);
 
-    let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &moderator_name.clone()).await?;
+    let (app, _rx, _conn_id, _svc) = create_and_subscribe_app(svc, &moderator_name.clone()).await?;
 
     let conf = SessionConfig {
         session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
@@ -233,13 +233,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         initiator: true,
         metadata: HashMap::new(),
     };
-
-    for c in &clients {
-        // add routes
-        app.set_route(c, conn_id)
-            .await
-            .expect("an error occurred while adding a route");
-    }
 
     // wait for the creation of all the clients
     tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;

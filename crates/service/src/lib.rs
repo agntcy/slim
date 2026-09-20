@@ -48,4 +48,4 @@ pub use errors::ServiceError;
 pub use errors::SubscriptionAckError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use service::ServiceBuilder;
-pub use service::{KIND, Service, ServiceConfiguration};
+pub use service::{DefaultGatewayMode, KIND, Service, ServiceConfiguration};

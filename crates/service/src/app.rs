@@ -50,6 +50,9 @@ where
 
     /// Subscription manager for ACK-aware subscribe/unsubscribe operations
     subscription_manager: SubscriptionManager,
+
+    /// Datapath handle used for explicit default-gateway selection.
+    message_processor: MessageProcessor,
 }
 
 impl<P, V> std::fmt::Debug for App<P, V>
@@ -112,6 +115,7 @@ where
         service_id.into(),
         persistence,
         enforce_pqc,
+        message_processor.clone(),
     );
     app.process_messages(rx_slim);
     Ok((app, rx_app))
@@ -143,6 +147,7 @@ where
             Direction::Bidirectional,
             service_id,
             false,
+            MessageProcessor::new(),
         )
     }
 
@@ -158,6 +163,7 @@ where
         direction: Direction,
         service_id: String,
         enforce_pqc: bool,
+        message_processor: MessageProcessor,
     ) -> Self {
         Self::new_with_direction_and_persistence(
             app_name,
@@ -170,6 +176,7 @@ where
             service_id,
             None,
             enforce_pqc,
+            message_processor,
         )
     }
 
@@ -190,6 +197,7 @@ where
         service_id: String,
         persistence: Option<slim_persistence::PersistenceConfig>,
         enforce_pqc: bool,
+        message_processor: MessageProcessor,
     ) -> Self {
         // Open the persistent store (if configured) and restore the app identity
         // through it BEFORE deriving the app id. The id is a hash of the identity
@@ -253,7 +261,20 @@ where
             session_layer,
             cancel_token,
             subscription_manager,
+            message_processor,
         }
+    }
+
+    /// Pin an Edge connection as the default gateway for publishes with no route.
+    pub fn set_default_gateway(&self, conn_id: u64) -> Result<(), ServiceError> {
+        self.message_processor
+            .set_default_gateway(conn_id)
+            .map_err(ServiceError::from)
+    }
+
+    /// Remove the explicit default gateway pin.
+    pub fn clear_default_gateway(&self) {
+        self.message_processor.clear_default_gateway();
     }
 
     /// Create a new session with the given configuration
