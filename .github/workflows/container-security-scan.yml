@@ -31,9 +31,12 @@ jobs:
           - image: slim-controller
             repo: ghcr.io/${{ github.repository_owner }}/slim/control-plane
             version: latest
+          - image: slim-channel-manager
+            repo: ghcr.io/${{ github.repository_owner }}/slim/channel-manager
+            version: latest
           # SPIRE is not shipped from this repo. The slim-spire chart moved to
-          # agntcy/slim-staging, whose scan derives its image list from the
-          # charts, so spire is covered there instead.
+          # agntcy/slim-staging, whose scan covers it instead. This repo scans
+          # the images it builds; that one scans the ones it does not.
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
