@@ -23,9 +23,6 @@ extra:
     repo_url: https://github.com/agntcy/slim
     repo_slug: agntcy/slim
     org: AGNTCY
-    # SDK pages under slim/components/sdk/ are included from agntcy/slim-bindings.
-    # Override SLIM_BINDINGS_DOCS_REF to pin a branch or tag (default: main).
-    slim_bindings_docs_ref: !ENV [SLIM_BINDINGS_DOCS_REF, 'main']
 
   copyright: >
     © 2026, Agntcy, a Series of LF Projects, LLC. All rights reserved.
@@ -69,12 +66,7 @@ hooks:
 
 plugins:
   # Process includes before search indexing and versioned builds (mike).
-  include-markdown:
-    include_from_url: true
-    # Relative links in remote SDK docs are authored for the same path layout under
-    # docs/content/; rewrite_relative_urls breaks when the include source is a URL.
-    rewrite_relative_urls: false
-    cache: 3600
+  include-markdown: {}
   search:
   mike:
     alias_type: copy
