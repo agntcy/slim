@@ -46,7 +46,6 @@ struct Args {
 /// - If freshly created: invite all configured participants; any error is fatal.
 async fn create_channels_from_config(
     app: &Arc<App<AuthProvider, AuthVerifier>>,
-    conn_id: u64,
     sessions: &Arc<SessionsList>,
     config: &Config,
 ) -> anyhow::Result<()> {
@@ -163,16 +162,6 @@ async fn create_channels_from_config(
                 tracing::debug!(channel = %channel_cfg.name, participant = %participant, "Participant already in session, skipping invite");
                 continue;
             }
-
-            app.set_route(&participant_name, conn_id)
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to set route for {} in channel {}: {e}",
-                        participant,
-                        channel_cfg.name
-                    )
-                })?;
 
             let completion = controller
                 .invite_participant(&participant_name)
@@ -349,9 +338,13 @@ async fn main() -> anyhow::Result<()> {
     // API mode:    channels section is empty → DB (restored above) is the source of truth.
     let config_mode = !config.manager.channels.is_empty();
 
-    if config_mode
-        && let Err(e) = create_channels_from_config(&arc_app, conn_id, &sessions, &config).await
-    {
+    // Pin before reconciling: config-mode invites run here, before
+    // `ChannelManagerServer::new` below performs the same pin for API mode.
+    if let Err(e) = arc_app.set_default_gateway(conn_id) {
+        warn!("failed to pin default gateway to conn {conn_id}: {e}");
+    }
+
+    if config_mode && let Err(e) = create_channels_from_config(&arc_app, &sessions, &config).await {
         error!("Failed to reconcile channels from config: {e}");
         return Err(e);
     }
