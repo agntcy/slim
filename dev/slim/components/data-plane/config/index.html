@@ -1200,6 +1200,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#default-gateway-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Gateway Fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#post-quantum-cryptography-enforce_pqc" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5573,6 +5584,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#default-gateway-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Gateway Fallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#post-quantum-cryptography-enforce_pqc" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6564,6 +6586,13 @@
 <span class="w">      </span><span class="nt">servers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">...</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="c1"># Server endpoints this instance will listen on</span>
 <span class="w">      </span><span class="nt">clients</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">...</span><span class="p p-Indicator">]</span><span class="w"> </span><span class="c1"># Client connections this instance will make</span>
 
+<span class="w">    </span><span class="c1"># Fallback for local publishes that have no matching route.</span>
+<span class="w">    </span><span class="c1"># `auto` (default) selects the only Edge connection; with zero or multiple</span>
+<span class="w">    </span><span class="c1"># Edge connections, configure an explicit route or gateway pin instead.</span>
+<span class="w">    </span><span class="c1"># `off` disables automatic fallback; explicit set_route and</span>
+<span class="w">    </span><span class="c1"># set_default_gateway calls remain available.</span>
+<span class="w">    </span><span class="nt">default_gateway</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span>
+
 <span class="w">    </span><span class="c1"># Controller connectivity configuration (optional)</span>
 <span class="w">    </span><span class="nt">controller</span><span class="p">:</span>
 <span class="w">      </span><span class="c1"># gRPC server this node exposes for the Controller to push route updates</span>
@@ -6580,6 +6609,30 @@
 <span class="w">        </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">static</span>
 <span class="w">        </span><span class="nt">peers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">...</span><span class="p p-Indicator">]</span>
 </code></pre></div>
+<h3 id="default-gateway-fallback">Default Gateway Fallback</h3>
+<p><code>default_gateway</code> controls how a local publish is forwarded when no route
+matches its destination:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auto</code></td>
+<td>Automatically forwards through the only Edge connection. With no Edge connection, or with more than one, the publish is not forwarded automatically. This is the default.</td>
+</tr>
+<tr>
+<td><code>off</code></td>
+<td>Disables automatic fallback. Explicit <code>set_route</code> routes and <code>set_default_gateway</code> pins are still honored.</td>
+</tr>
+</tbody>
+</table>
+<p>The fallback only applies to local-origin publishes. Messages arriving from
+an Edge, Remote, or Peer connection are never sent back through the default
+gateway automatically, which prevents gateway loops.</p>
 <h3 id="post-quantum-cryptography-enforce_pqc">Post-Quantum Cryptography (<code>enforce_pqc</code>)</h3>
 <p>The <code>enforce_pqc</code> field is a boolean that enables a deployment-wide post-quantum cryptography policy. When set to <code>true</code>, all three security layers on the node must use post-quantum algorithms:</p>
 <ul>

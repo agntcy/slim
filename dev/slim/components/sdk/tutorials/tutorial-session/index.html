@@ -5476,14 +5476,17 @@
 </div>
 </div>
 <h3 id="invite-a-participant">Invite a Participant</h3>
-<p>The session creator acts as a moderator and can invite other applications to join:</p>
+<p>The session creator acts as a moderator and can invite other applications to join.</p>
+<p>When the service has one Edge connection and <code>default_gateway</code> is <code>auto</code> (the
+default), SLIM automatically uses that connection for the discovery publish.
+No route needs to be configured before the invite. If the service has multiple
+Edge connections, automatic selection is ambiguous; use <code>set_route</code> (or pin a
+default gateway) when the invite must use a specific uplink. The same explicit
+routing is required when <code>default_gateway</code> is set to <code>off</code>.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="3:8"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><input id="__tabbed_3_4" name="__tabbed_3" type="radio" /><input id="__tabbed_3_5" name="__tabbed_3" type="radio" /><input id="__tabbed_3_6" name="__tabbed_3" type="radio" /><input id="__tabbed_3_7" name="__tabbed_3" type="radio" /><input id="__tabbed_3_8" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Rust</label><label for="__tabbed_3_2">Python</label><label for="__tabbed_3_3">Go</label><label for="__tabbed_3_4">Java</label><label for="__tabbed_3_5">Kotlin</label><label for="__tabbed_3_6">Node.js</label><label for="__tabbed_3_7">.NET</label><label for="__tabbed_3_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="n">participant_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;participant&quot;</span><span class="p">]);</span>
-
-<span class="c1">// Set the route to the participant first</span>
-<span class="n">app</span><span class="p">.</span><span class="n">set_route</span><span class="p">(</span><span class="o">&amp;</span><span class="n">participant_name</span><span class="p">,</span><span class="w"> </span><span class="n">conn_id</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 
 <span class="c1">// Invite — performs discovery + MLS key exchange</span>
 <span class="n">session</span><span class="p">.</span><span class="n">invite_participant</span><span class="p">(</span><span class="o">&amp;</span><span class="n">participant_name</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
@@ -5491,10 +5494,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">invite_participant</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">participant_name</span><span class="p">,</span> <span class="n">conn_id</span><span class="p">):</span>
-    <span class="c1"># Set the route to the participant first</span>
-    <span class="k">await</span> <span class="n">app</span><span class="o">.</span><span class="n">set_route_async</span><span class="p">(</span><span class="n">participant_name</span><span class="p">,</span> <span class="n">conn_id</span><span class="p">)</span>
-
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">invite_participant</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">participant_name</span><span class="p">):</span>
     <span class="c1"># Invite the participant — this performs discovery + MLS key exchange</span>
     <span class="n">handle</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">invite_async</span><span class="p">(</span><span class="n">participant_name</span><span class="p">)</span>
     <span class="k">await</span> <span class="n">handle</span><span class="o">.</span><span class="n">wait_async</span><span class="p">()</span>
@@ -5503,12 +5503,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">inviteParticipant</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">session</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">,</span><span class="w"> </span><span class="nx">connID</span><span class="w"> </span><span class="kt">uint64</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="c1">// Set the route to the participant first</span>
-<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">SetRouteAsync</span><span class="p">(</span><span class="nx">name</span><span class="p">,</span><span class="w"> </span><span class="nx">connID</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
-<span class="w">    </span><span class="p">}</span>
-
+<div class="highlight"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">inviteParticipant</span><span class="p">(</span><span class="nx">session</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// Invite the participant — this performs discovery + MLS key exchange</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">InviteAndWaitAsync</span><span class="p">(</span><span class="nx">name</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
@@ -5518,10 +5513,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kt">void</span><span class="w"> </span><span class="nf">inviteParticipant</span><span class="p">(</span><span class="n">App</span><span class="w"> </span><span class="n">app</span><span class="p">,</span><span class="w"> </span><span class="n">Session</span><span class="w"> </span><span class="n">session</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">participantName</span><span class="p">,</span><span class="w"> </span><span class="n">Long</span><span class="w"> </span><span class="n">connId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="c1">// Set the route to the participant first</span>
-<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="na">setRoute</span><span class="p">(</span><span class="n">participantName</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">);</span>
-
+<div class="highlight"><pre><span></span><code><span class="kt">void</span><span class="w"> </span><span class="nf">inviteParticipant</span><span class="p">(</span><span class="n">Session</span><span class="w"> </span><span class="n">session</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">participantName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// Invite the participant — this performs discovery + MLS key exchange</span>
 <span class="w">    </span><span class="n">session</span><span class="p">.</span><span class="na">inviteAndWait</span><span class="p">(</span><span class="n">participantName</span><span class="p">);</span>
 
@@ -5530,10 +5522,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">inviteParticipant</span><span class="p">(</span><span class="n">app</span><span class="p">:</span><span class="w"> </span><span class="n">App</span><span class="p">,</span><span class="w"> </span><span class="n">session</span><span class="p">:</span><span class="w"> </span><span class="n">Session</span><span class="p">,</span><span class="w"> </span><span class="n">participantName</span><span class="p">:</span><span class="w"> </span><span class="n">Name</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">:</span><span class="w"> </span><span class="n">ULong</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="c1">// Set the route to the participant first</span>
-<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="na">setRouteAsync</span><span class="p">(</span><span class="n">participantName</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">)</span>
-
+<div class="highlight"><pre><span></span><code><span class="kd">suspend</span><span class="w"> </span><span class="kd">fun</span><span class="w"> </span><span class="nf">inviteParticipant</span><span class="p">(</span><span class="n">session</span><span class="p">:</span><span class="w"> </span><span class="n">Session</span><span class="p">,</span><span class="w"> </span><span class="n">participantName</span><span class="p">:</span><span class="w"> </span><span class="n">Name</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// Invite the participant — this performs discovery + MLS key exchange</span>
 <span class="w">    </span><span class="kd">val</span><span class="w"> </span><span class="nv">handle</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="na">inviteAsync</span><span class="p">(</span><span class="n">participantName</span><span class="p">)</span>
 <span class="w">    </span><span class="n">handle</span><span class="p">.</span><span class="na">waitAsync</span><span class="p">()</span>
@@ -5543,19 +5532,14 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Set the route to the participant first</span>
-<span class="nx">app</span><span class="p">.</span><span class="nx">setRoute</span><span class="p">(</span><span class="nx">inviteName</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
-
-<span class="c1">// Invite the participant</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Invite the participant</span>
 <span class="k">await</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">inviteAndWaitAsync</span><span class="p">(</span><span class="nx">inviteName</span><span class="p">);</span>
 
 <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`Invited </span><span class="si">${</span><span class="nx">inviteName</span><span class="si">}</span><span class="sb"> to the group`</span><span class="p">);</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Set the route to the participant first</span>
-<span class="k">using</span><span class="w"> </span><span class="nn">var</span><span class="w"> </span><span class="n">inviteName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SlimName</span><span class="p">.</span><span class="n">Parse</span><span class="p">(</span><span class="s">&quot;myorg/default/participant&quot;</span><span class="p">);</span>
-<span class="n">app</span><span class="p">.</span><span class="n">SetRoute</span><span class="p">(</span><span class="n">inviteName</span><span class="p">,</span><span class="w"> </span><span class="n">connId</span><span class="p">);</span>
+<div class="highlight"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">var</span><span class="w"> </span><span class="n">inviteName</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SlimName</span><span class="p">.</span><span class="n">Parse</span><span class="p">(</span><span class="s">&quot;myorg/default/participant&quot;</span><span class="p">);</span>
 
 <span class="c1">// Invite the participant (synchronous)</span>
 <span class="n">session</span><span class="p">.</span><span class="n">Invite</span><span class="p">(</span><span class="n">inviteName</span><span class="p">);</span>
@@ -5564,10 +5548,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Set the route to the participant first</span>
-<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">setRoute</span><span class="p">(</span><span class="nx">inviteName</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
-
-<span class="c1">// Invite the participant</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Invite the participant</span>
 <span class="k">await</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">inviteAndWaitAsync</span><span class="p">(</span><span class="nx">inviteName</span><span class="p">);</span>
 
 <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`Invited </span><span class="si">${</span><span class="nx">inviteName</span><span class="si">}</span><span class="sb"> to the group`</span><span class="p">);</span>

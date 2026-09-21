@@ -5082,7 +5082,15 @@
 </div>
 </div>
 <h2 id="step-3-set-a-route-optional">Step 3: Set a Route (Optional)</h2>
-<p>Before establishing a session to a remote application, your local SLIM node must know how to route messages to it. In most deployments this is managed automatically. For development or when running without a Controller, add the route manually:</p>
+<p>With the default <code>default_gateway: auto</code> setting, a service with exactly one
+Edge connection can discover and reach a remote application without a manual
+route. The fallback does not guess when multiple Edge connections are
+available, and it is disabled when <code>default_gateway: off</code> is configured. In
+those cases, add an explicit route before creating the session. An explicit
+<code>set_default_gateway</code> pin is another option when all unrouted publishes should
+use the same Edge connection.</p>
+<p>Use <code>set_route</code> when this application needs a specific uplink for this remote
+name, or when running with multiple Edge connections:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="3:8"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><input id="__tabbed_3_4" name="__tabbed_3" type="radio" /><input id="__tabbed_3_5" name="__tabbed_3" type="radio" /><input id="__tabbed_3_6" name="__tabbed_3" type="radio" /><input id="__tabbed_3_7" name="__tabbed_3" type="radio" /><input id="__tabbed_3_8" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Rust</label><label for="__tabbed_3_2">Python</label><label for="__tabbed_3_3">Go</label><label for="__tabbed_3_4">Java</label><label for="__tabbed_3_5">Kotlin</label><label for="__tabbed_3_6">Node.js</label><label for="__tabbed_3_7">.NET</label><label for="__tabbed_3_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
