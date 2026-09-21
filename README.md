@@ -323,10 +323,8 @@ task lint
       [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin),
       [Java](https://github.com/agntcy/slim-bindings/tree/main/java)
 
-- **[charts](./charts)**: Kubernetes deployment
-    - [slim](./charts/slim): Helm chart for data-plane nodes
-    - [slim-control-plane](./charts/slim-control-plane): Helm chart for
-      control-plane services
+- **[slim-staging](https://github.com/agntcy/slim-staging)**: Kubernetes
+  deployment — the Helm charts and the ArgoCD configuration that deploys them
 
 ## Community & Resources
 
