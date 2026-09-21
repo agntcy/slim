@@ -69,7 +69,7 @@ helm pull oci://ghcr.io/agntcy/slim/helm/slim --version v2.0.0
 ```
 
 !!! note "Configuration"
-    For detailed Helm configuration options, see the [values.yaml](https://github.com/agntcy/slim/blob/slim-v2.0.0/charts/slim/values.yaml) in the repository.
+    For detailed Helm configuration options, see the [values.yaml](https://github.com/agntcy/slim-staging/blob/main/charts/slim/values.yaml) in the slim-staging repository, where the charts live.
 
 ## CLI Binary (`slimctl`)
 
