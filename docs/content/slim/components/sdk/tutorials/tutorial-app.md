@@ -216,7 +216,16 @@ Subscribing tells the SLIM node to route inbound messages for this name to your 
 
 ## Step 3: Set a Route (Optional)
 
-Before establishing a session to a remote application, your local SLIM node must know how to route messages to it. In most deployments this is managed automatically. For development or when running without a Controller, add the route manually:
+With the default `default_gateway: auto` setting, a service with exactly one
+Edge connection can discover and reach a remote application without a manual
+route. The fallback does not guess when multiple Edge connections are
+available, and it is disabled when `default_gateway: off` is configured. In
+those cases, add an explicit route before creating the session. An explicit
+`set_default_gateway` pin is another option when all unrouted publishes should
+use the same Edge connection.
+
+Use `set_route` when this application needs a specific uplink for this remote
+name, or when running with multiple Edge connections:
 
 === "Rust"
 
