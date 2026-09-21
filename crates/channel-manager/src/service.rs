@@ -12,7 +12,7 @@ use slim_service::app::App;
 use slim_session::completion_handle::CompletionHandle;
 use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
@@ -25,7 +25,6 @@ use crate::sessions::SessionsList;
 /// gRPC server for the Channel Manager service
 pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
-    conn_id: u64,
     sessions: Arc<SessionsList>,
     /// When true, channels are owned by the config file and mutating APIs are disabled.
     config_mode: bool,
@@ -37,15 +36,21 @@ impl ChannelManagerServer {
     /// Set `config_mode` to `true` when the config file defines channels; this
     /// makes all write operations return `FAILED_PRECONDITION` so the config
     /// file remains the single source of truth.
+    ///
+    /// `conn_id` pins the default gateway, so invites keep working on a
+    /// multi-uplink service where auto-detection would be ambiguous.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
         sessions: Arc<SessionsList>,
         config_mode: bool,
     ) -> Self {
+        if let Err(e) = app.set_default_gateway(conn_id) {
+            warn!("failed to pin default gateway to conn {conn_id}: {e}");
+        }
+
         Self {
             app,
-            conn_id,
             sessions,
             config_mode,
         }
@@ -199,13 +204,6 @@ impl ChannelManagerServer {
                 return self.error_response(format!("invalid participant name: {e}"));
             }
         };
-
-        // Set route for the participant
-        if let Err(e) = self.app.set_route(&participant_name, self.conn_id).await {
-            return self.error_response(format!(
-                "failed to set route for participant {participant_name_str}: {e}"
-            ));
-        }
 
         // Invite the participant
         let op = session.invite_participant(&participant_name).await;

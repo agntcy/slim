@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.3](https://github.com/agntcy/slim/compare/slim-bindings-v2.3.0...slim-bindings-v2.3.3) - 2026-09-17
+
+### Other
+
+- *(deps)* update rust crate tokio to 0.10 ([#2053](https://github.com/agntcy/slim/pull/2053))
+
 ## [2.2.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.1.1...slim-bindings-v2.2.0) - 2026-08-13
 
 ### Added

@@ -268,32 +268,33 @@ fn lists_routes_and_connections() {
     ));
     let _client_a_logs = ProcessLogWatcher::attach(client_a.as_mut().expect("client a"));
 
-    let route_list = run_slimctl_controller_retry(
+    // B's subscription reaches node A asynchronously through the control
+    // plane, and `route list` exits 0 while the table is still empty -- so poll
+    // for the route rather than reading the table once.
+    if let Err(err) = wait_for_slimctl_controller_contains(
         &slimctl,
         &setup.cp_north_endpoint,
         &["route", "list", "-n", "domain-a/node-a"],
+        &["org/default/b"],
         Duration::from_secs(15),
-    );
-    let route_list = String::from_utf8_lossy(&route_list);
-    if !route_list.contains("org/default/b") {
+    ) {
         terminate_session(&mut client_a, Duration::from_secs(2));
         terminate_session(&mut client_b, Duration::from_secs(2));
         setup.shutdown();
-        panic!("route list on node A should include org/default/b:\n{route_list}");
+        panic!("route list on node A should include org/default/b:\n{err}");
     }
 
-    let link_list = run_slimctl_controller_retry(
+    if let Err(err) = wait_for_slimctl_controller_contains(
         &slimctl,
         &setup.cp_north_endpoint,
         &["link", "list"],
+        &["domain-a", "domain-b"],
         Duration::from_secs(15),
-    );
-    let link_list = String::from_utf8_lossy(&link_list);
-    if !(link_list.contains("domain-a") && link_list.contains("domain-b")) {
+    ) {
         terminate_session(&mut client_a, Duration::from_secs(2));
         terminate_session(&mut client_b, Duration::from_secs(2));
         setup.shutdown();
-        panic!("link list should include the domain-a<->domain-b link:\n{link_list}");
+        panic!("link list should include the domain-a<->domain-b link:\n{err}");
     }
 
     terminate_session(&mut client_a, Duration::from_secs(2));

@@ -454,6 +454,76 @@ tasks:
     cmds:
       - rustup target add {{.TARGET}}
 
+  # ─── Fuzzing ──────────────────────────────────────────────────────────
+  #
+  # libFuzzer needs nightly, so the fuzz crate is its own workspace under
+  # crates/proto/fuzz and never appears in a normal `--workspace` build. See
+  # crates/proto/fuzz/README.md.
+  #
+  # Nightly is selected by putting its bin directory first on PATH rather than
+  # with `cargo +nightly` or RUSTUP_TOOLCHAIN. Both of those are rustup
+  # mechanisms and are silently ignored when `cargo` on PATH is not a rustup
+  # proxy -- a Homebrew `rust` install, for example. cargo-fuzz also spawns a
+  # plain `cargo` of its own, which has to resolve to nightly too.
+
+  fuzz:list:
+    desc: "List the available fuzz targets"
+    dir: crates/proto/fuzz
+    deps:
+      - task: install-cargo-fuzz
+    cmds:
+      - |
+        PATH="$(dirname "$(rustup which --toolchain nightly cargo)"):$PATH"
+        cargo fuzz list
+
+  fuzz:
+    desc: "Run a fuzz target (FUZZ_TARGET=<name>, SECS=<seconds>)"
+    dir: crates/proto/fuzz
+    deps:
+      - task: install-cargo-fuzz
+    cmds:
+      - |
+        PATH="$(dirname "$(rustup which --toolchain nightly cargo)"):$PATH"
+        mkdir -p "corpus/{{.FUZZ_TARGET}}"
+        cargo fuzz run \
+          {{.FUZZ_TARGET}} \
+          "corpus/{{.FUZZ_TARGET}}" \
+          "seeds/{{.FUZZ_TARGET}}" \
+          -- -max_total_time={{.SECS}}
+    vars:
+      FUZZ_TARGET: '{{ .FUZZ_TARGET | default "message-decode" }}'
+      SECS: '{{ .SECS | default "60" }}'
+
+  fuzz:build:
+    desc: "Build the fuzz targets without running them"
+    dir: crates/proto/fuzz
+    deps:
+      - task: install-cargo-fuzz
+    cmds:
+      - |
+        PATH="$(dirname "$(rustup which --toolchain nightly cargo)"):$PATH"
+        cargo fuzz build
+
+  fuzz:seeds:
+    desc: "Regenerate the fuzz seed corpora"
+    dir: crates/proto/fuzz
+    cmds:
+      - |
+        PATH="$(dirname "$(rustup which --toolchain nightly cargo)"):$PATH"
+        cargo run --quiet --example gen-seeds
+
+  install-cargo-fuzz:
+    desc: "Install cargo-fuzz and the nightly toolchain it needs"
+    internal: true
+    deps:
+      - task: install-cargo-components
+        vars:
+          COMPONENTS: "cargo-fuzz"
+    cmds:
+      - rustup toolchain install nightly --profile minimal --no-self-update
+    status:
+      - rustup which --toolchain nightly cargo
+
   install-cargo-components:
     desc: "Install cargo components"
     internal: true

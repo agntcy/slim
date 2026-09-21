@@ -2,6 +2,7 @@
 [![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
 [![Coverage](https://img.shields.io/badge/Coverage-passing-brightgreen)](https://codecov.io/gh/agntcy/slim)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/agntcy/slim/badge)](https://scorecard.dev/viewer/?uri=github.com/agntcy/slim)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14428/badge)](https://www.bestpractices.dev/projects/14428)
 
 # SLIM
 

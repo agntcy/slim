@@ -23,6 +23,9 @@ jobs:
       contents: write
       pull-requests: read
       id-token: write
+    outputs:
+      releases_created: ${{ steps.release-plz.outputs.releases_created }}
+      releases: ${{ steps.release-plz.outputs.releases }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -33,6 +36,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
       - name: Run release-plz
+        id: release-plz
         uses: release-plz/action@aec534bbd8631793b9b3b8f1ee6cd886c322e17f # v0.5.133
         with:
           command: release
@@ -40,6 +44,264 @@ jobs:
           config: ./.release-plz.toml
         env:
           GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+
+  # slimctl binaries are attached to the release that release-plz just created,
+  # rather than built by a separate tag-triggered workflow that creates its own
+  # release. Two reasons:
+  #
+  #  - No race. The old workflow raced release-plz to `gh release create` and
+  #    lost on slimctl-v2.3.3 (HTTP 422, "Release.tag_name already exists"),
+  #    which skipped the build and left the release with no binaries,
+  #    signatures or provenance.
+  #  - Nothing is tag-triggered any more, so a tag pushed by hand cannot get
+  #    artifacts signed with the project's Sigstore identity.
+  #
+  # This mirrors how agntcy/shadi releases its CLIs.
+  resolve-slimctl-release:
+    name: Resolve slimctl release
+    needs: release-crates
+    if: ${{ needs.release-crates.outputs.releases_created == 'true' && contains(needs.release-crates.outputs.releases, '"package_name":"agntcy-slimctl"') }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - name: Resolve slimctl release tag
+        id: release
+        shell: bash
+        env:
+          RELEASES: ${{ needs.release-crates.outputs.releases }}
+        run: |
+          set -euo pipefail
+          release_tag=$(python3 - <<'EOF'
+          import json
+          import os
+
+          releases = json.loads(os.environ["RELEASES"])
+          for release in releases:
+              if release["package_name"] == "agntcy-slimctl":
+                  print(release["tag"])
+                  break
+          else:
+              raise SystemExit("agntcy-slimctl release not found in release-plz outputs")
+          EOF
+          )
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+  release-slimctl-binaries:
+    name: "slimctl ${{ matrix.platform.target }}"
+    needs: [release-crates, resolve-slimctl-release]
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu.2.28
+            archive: linux-amd64-gnu
+            build-tool: cargo-zigbuild
+          - runner: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu.2.28
+            archive: linux-arm64-gnu
+            build-tool: cargo-zigbuild
+          - runner: ubuntu-24.04
+            target: aarch64-unknown-linux-musl
+            archive: linux-arm64-musl
+            build-tool: cargo-zigbuild
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            archive: linux-amd64-musl
+            build-tool: cargo-zigbuild
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: windows-amd64
+            build-tool: cargo
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            archive: windows-arm64
+            build-tool: cargo
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            archive: darwin-amd64
+            build-tool: cargo
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            archive: darwin-arm64
+            build-tool: cargo
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      # `ref` pins the upload to the tag release-plz created; without it the
+      # action would derive the tag from GITHUB_REF, which is refs/heads/main
+      # here.
+      - uses: taiki-e/upload-rust-binary-action@f0d45ae91ee7b8ee928de7a9d04d893a08bcbec6 # v1.30.2
+        id: build
+        with:
+          bin: slimctl
+          ref: refs/tags/${{ needs.resolve-slimctl-release.outputs.release_tag }}
+          target: ${{ matrix.platform.target }}
+          archive: slimctl-${{ matrix.platform.archive }}
+          tar: unix
+          zip: windows
+          token: ${{ secrets.GITHUB_TOKEN }}
+          manifest-path: ./crates/slimctl/Cargo.toml
+          build-tool: ${{ matrix.platform.build-tool }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # The build step leaves the archive in the workspace and reports its file
+      # name (`zip` on Windows, `tar` elsewhere), so sign it in place: the bytes
+      # signed are the bytes just built.
+      #
+      # Everything reaches the script through `env:` rather than being expanded
+      # into it, so no expression becomes shell (zizmor template-injection).
+      - name: Sign the release archive
+        id: sign
+        shell: bash
+        env:
+          ARCHIVE: ${{ steps.build.outputs.zip || steps.build.outputs.tar }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ARCHIVE" ]; then
+            echo "::error::build step reported no archive name"
+            exit 1
+          fi
+          cosign sign-blob --yes --bundle "${ARCHIVE}.sigstore.json" "$ARCHIVE"
+          {
+            echo "archive_path=${ARCHIVE}"
+            echo "bundle_path=${ARCHIVE}.sigstore.json"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.sign.outputs.archive_path }}
+
+      - name: Name the provenance bundle for the release
+        id: provenance_asset
+        shell: bash
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          ARCHIVE: ${{ steps.sign.outputs.archive_path }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE" "${ARCHIVE}.intoto.jsonl"
+          echo "path=${ARCHIVE}.intoto.jsonl" >> "$GITHUB_OUTPUT"
+
+      # Only the signature and provenance need uploading; the archive itself was
+      # already attached by the build step above.
+      - name: Upload signature and provenance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve-slimctl-release.outputs.release_tag }}
+          REPO: ${{ github.repository }}
+          BUNDLE_PATH: ${{ steps.sign.outputs.bundle_path }}
+          PROVENANCE_PATH: ${{ steps.provenance_asset.outputs.path }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            "$BUNDLE_PATH" \
+            "$PROVENANCE_PATH" \
+            --repo "$REPO" \
+            --clobber
+
+  release-slimctl-homebrew:
+    name: Publish slimctl Homebrew cask
+    needs: [release-crates, resolve-slimctl-release, release-slimctl-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Extract version from tag
+        id: version
+        env:
+          TAG: ${{ needs.resolve-slimctl-release.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#slimctl-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA256 for darwin archives
+        id: sha256
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" \
+            --pattern "slimctl-darwin-*.tar.gz" \
+            --dir /tmp/slimctl-release
+          AMD64_SHA=$(shasum -a 256 /tmp/slimctl-release/slimctl-darwin-amd64.tar.gz | cut -d' ' -f1)
+          ARM64_SHA=$(shasum -a 256 /tmp/slimctl-release/slimctl-darwin-arm64.tar.gz | cut -d' ' -f1)
+          echo "amd64=$AMD64_SHA" >> "$GITHUB_OUTPUT"
+          echo "arm64=$ARM64_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Create Homebrew cask
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          AMD64_SHA: ${{ steps.sha256.outputs.amd64 }}
+          ARM64_SHA: ${{ steps.sha256.outputs.arm64 }}
+        run: |
+          mkdir -p ./Casks
+          cat > ./Casks/slimctl.rb << EOF
+          cask "slimctl" do
+            version "${VERSION}"
+
+            if Hardware::CPU.intel?
+              sha256 "${AMD64_SHA}"
+              url "https://github.com/agntcy/slim/releases/download/${TAG}/slimctl-darwin-amd64.tar.gz"
+            else
+              sha256 "${ARM64_SHA}"
+              url "https://github.com/agntcy/slim/releases/download/${TAG}/slimctl-darwin-arm64.tar.gz"
+            end
+
+            name "slimctl"
+            desc "A CLI tool for managing SLIM Devices"
+            homepage "https://github.com/agntcy/slim"
+
+            binary "slimctl"
+
+            postflight do
+              system "chmod", "+x", "#{staged_path}/slimctl"
+              system "/usr/bin/xattr", "-dr", "com.apple.quarantine", "#{staged_path}/slimctl" if MacOS.version >= :catalina
+            end
+          end
+          EOF
+
+      - name: Create Pull Request for Homebrew cask
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          commit-message: Update Homebrew cask for slimctl
+          title: Update slimctl cask to latest version
+          body: |
+            Update Homebrew cask to reflect release changes
+
+            Release: ${{ needs.resolve-slimctl-release.outputs.release_tag }}
+          branch: update-slimctl-cask
+          base: main
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-crates-pr:

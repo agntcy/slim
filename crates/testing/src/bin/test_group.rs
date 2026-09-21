@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let svc = build_client_service(dataplane_port, &name);
 
-    let (app, _rx, conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
+    let (app, _rx, _conn_id, _svc) = create_and_subscribe_app(svc, &name).await?;
 
     let conf = SessionConfig {
         session_type: slim_datapath::api::ProtoSessionType::Multicast,
@@ -183,13 +183,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Await the completion of the session establishment
     completion_handle.await.expect("error establishing session");
-
-    for c in &participants {
-        // add routes
-        app.set_route(c, conn_id)
-            .await
-            .expect("an error occurred while adding a route");
-    }
 
     // invite N-1 participants
     for c in participants.iter().take(tot_participants - 1) {

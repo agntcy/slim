@@ -44,6 +44,15 @@ runs:
         cache: ${{ inputs.cache-enabled }}
         cache-workspaces: ${{ inputs.workspace }}
         cache-on-failure: false
+        # Only main writes the cache; pull requests restore from it.
+        #
+        # A cache entry is scoped to the ref that created it, so a cache saved
+        # by a pull request can never be read by any other pull request -- it
+        # only consumes the repository quota and evicts the main-branch entries
+        # that every pull request DOES restore from. The repo sits at the 10 GiB
+        # cap with roughly a third of it held by such entries, so saving from
+        # pull requests was making cold builds more likely, not less.
+        cache-save-if: ${{ github.ref == 'refs/heads/main' }}
         # Keep the shared key STABLE (no Cargo.lock hash). rust-cache already
         # appends a lockfile/toolchain hash to the full cache key and derives
         # restore-keys from this prefix, so a stable prefix lets a Cargo.lock
