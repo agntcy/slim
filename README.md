@@ -2,6 +2,7 @@
 [![codecov](https://codecov.io/gh/agntcy/slim/branch/main/graph/badge.svg)](https://codecov.io/gh/agntcy/slim)
 [![Coverage](https://img.shields.io/badge/Coverage-passing-brightgreen)](https://codecov.io/gh/agntcy/slim)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/agntcy/slim/badge)](https://scorecard.dev/viewer/?uri=github.com/agntcy/slim)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14428/badge)](https://www.bestpractices.dev/projects/14428)
 
 # SLIM
 
@@ -322,10 +323,8 @@ task lint
       [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin),
       [Java](https://github.com/agntcy/slim-bindings/tree/main/java)
 
-- **[charts](./charts)**: Kubernetes deployment
-    - [slim](./charts/slim): Helm chart for data-plane nodes
-    - [slim-control-plane](./charts/slim-control-plane): Helm chart for
-      control-plane services
+- **[slim-staging](https://github.com/agntcy/slim-staging)**: Kubernetes
+  deployment — the Helm charts and the ArgoCD configuration that deploys them
 
 ## Community & Resources
 
