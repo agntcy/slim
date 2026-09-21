@@ -101,5 +101,10 @@ jobs:
           HELM_PACKAGE: ${{ steps.build.outputs.package }}
           REGISTRY: ${{ inputs.registry }}
         run: |
-          echo "🚧 Pushing $HELM_PACKAGE to GHCR OCI registry"
-          helm push "$HELM_PACKAGE" "oci://$REGISTRY/helm"
+          # helm-charts is the new path, matching dir. The legacy helm path
+          # keeps publishing until slim-staging moves over, so anyone already
+          # pulling from it is not broken mid-flight.
+          for path in helm-charts helm; do
+            echo "🚧 Pushing $HELM_PACKAGE to oci://$REGISTRY/$path"
+            helm push "$HELM_PACKAGE" "oci://$REGISTRY/$path"
+          done
