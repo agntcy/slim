@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0](https://github.com/agntcy/slim/compare/slim-rpc-v2.3.3...slim-rpc-v3.0.0) - 2026-09-21
+
+### Other
+
+- remove redundant caller routes for default gateway ([#2097](https://github.com/agntcy/slim/pull/2097))
+
 ## [2.3.3](https://github.com/agntcy/slim/compare/slim-rpc-v2.3.2...slim-rpc-v2.3.3) - 2026-09-17
 
 ### Other
