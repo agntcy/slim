@@ -9,12 +9,15 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/actions/**"
+      - "zizmor.yml"
     branches:
       - main
   pull_request:
     paths:
       - ".github/workflows/**"
       - ".github/actions/**"
+      - "zizmor.yml"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
