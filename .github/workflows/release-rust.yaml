@@ -37,7 +37,7 @@ jobs:
         uses: ./.github/actions/setup-rust
       - name: Run release-plz
         id: release-plz
-        uses: release-plz/action@aec534bbd8631793b9b3b8f1ee6cd886c322e17f # v0.5.133
+        uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
         with:
           command: release
           manifest_path: ./Cargo.toml
@@ -330,7 +330,7 @@ jobs:
         # shipped, so this is safe to run on every push.
         run: cargo publish --dry-run -p agntcy-slim-version
       - name: Run release-plz
-        uses: release-plz/action@aec534bbd8631793b9b3b8f1ee6cd886c322e17f # v0.5.133
+        uses: release-plz/action@8e61445f0b34e7c6d985255f2f1f05a36eb350dc # v0.5.137
         with:
           command: release-pr
           manifest_path: ./Cargo.toml
