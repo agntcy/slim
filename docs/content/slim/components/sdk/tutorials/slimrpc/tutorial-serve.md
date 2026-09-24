@@ -51,7 +51,7 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
     # Cargo.toml
     [dependencies]
     prost = "0.13"
-    agntcy-slim = "2.0.0"
+    agntcy-slim = "2.2.0"
     tokio = { version = "1", features = ["full"] }
 
     [build-dependencies]
@@ -267,7 +267,7 @@ Implement each RPC method defined in your proto. Extend the generated base class
         "io"
 
         pb "example/types"
-        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
+        slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
     )
 
     type TestServiceImpl struct {
@@ -683,7 +683,7 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === "Go"
 
     ```go
-    import slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
+    import slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
 
     // app and connId come from the prerequisite tutorials
     server := slim_rpc.ServerNewWithConnection(app, localName, &connId)

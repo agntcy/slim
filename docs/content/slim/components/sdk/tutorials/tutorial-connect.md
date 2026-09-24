@@ -63,7 +63,7 @@ The SLIM service is the global runtime that manages connections and application 
 === "Go"
 
     ```go
-    import slim "github.com/agntcy/slim-bindings-go/v2"
+    import slim "github.com/agntcy/slim-bindings-go"
 
     func main() {
         // Initialise the global SLIM service with defaults
@@ -241,7 +241,7 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     ```
 
 !!! note "Not for production"
-    The insecure client config skips TLS verification and should not be used in production. Full client configuration options, including TLS settings, are available in the [ClientConfig API reference](https://docs.rs/agntcy-slim-bindings/2.0.0/slim_bindings/struct.ClientConfig.html).
+    The insecure client config skips TLS verification and should not be used in production. Full client configuration options, including TLS settings, are available in the [ClientConfig API reference](https://docs.rs/agntcy-slim-bindings/latest/slim_bindings/struct.ClientConfig.html).
 
 ## Putting It Together
 
@@ -295,7 +295,7 @@ With the service initialised, connect to a SLIM node. The connection returns a `
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go/v2"
+        slim "github.com/agntcy/slim-bindings-go"
     )
 
     func main() {

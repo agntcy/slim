@@ -2,105 +2,22 @@
 
 All bindings are maintained in [agntcy/slim-bindings](https://github.com/agntcy/slim-bindings) and generated from the same Rust core via [UniFFI](https://github.com/mozilla/uniffi-rs). The Go binding is distributed through a separate [agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go) module because Go's module system requires source hosting rather than a package registry.
 
-## Python
+## Packages at a Glance
 
-| | |
-|---|---|
-| **Package** | `slim-bindings` on PyPI |
-| **Requirements** | Python 3.9+ |
-| **Examples** | [python/examples](https://github.com/agntcy/slim-bindings/tree/main/python/examples) |
+| Language | Package | Requirements | Install |
+|---|---|---|---|
+| [Python](./python.md) | [`slim-bindings`](https://pypi.org/project/slim-bindings/) on PyPI | Python 3.10+ | `pip install slim-bindings` |
+| [Go](./go.md) | [`github.com/agntcy/slim-bindings-go`](https://github.com/agntcy/slim-bindings-go) | Go 1.23+, C compiler (CGO) | `go get github.com/agntcy/slim-bindings-go` |
+| [.NET](./dotnet.md) | [`Agntcy.Slim`](https://www.nuget.org/packages/Agntcy.Slim) on NuGet | .NET 8.0+ | `dotnet add package Agntcy.Slim` |
+| [Java](./java.md) | [`slim-bindings-java`](https://central.sonatype.com/artifact/io.agntcy.slim/slim-bindings-java) on Maven Central | Java 21+, Maven 3.8+, JNA | Maven dependency |
+| [Kotlin](./kotlin.md) | [`slim-bindings-kotlin`](https://central.sonatype.com/artifact/io.agntcy.slim/slim-bindings-kotlin) on Maven Central | JDK 17+, JNA | Gradle dependency |
+| [Node.js](./node.md) | [`@agntcy/slim-bindings`](https://www.npmjs.com/package/@agntcy/slim-bindings) on npm | Node.js 18+ | `npm install @agntcy/slim-bindings` |
+| [React Native](./react-native.md) | [`@agntcy/slim-bindings-react-native`](https://www.npmjs.com/package/@agntcy/slim-bindings-react-native) on npm | iOS or Android | `npm install @agntcy/slim-bindings-react-native` |
 
-```bash
-pip install slim-bindings
-```
+Each language guide has the full installation steps for that binding — exact version pins, build-tool snippets, and any post-install work — alongside its API overview, transport authentication, and platform support.
 
-Or add to your `pyproject.toml`:
-
-```toml
-[project]
-dependencies = ["slim-bindings==2.0.0a5"]
-```
-
-## Go
-
-| | |
-|---|---|
-| **Package** | `github.com/agntcy/slim-bindings-go` |
-| **Requirements** | Go 1.20+, C compiler (CGO) |
-| **Examples** | [examples](https://github.com/agntcy/slim-bindings/tree/main/go/examples) |
-
-```bash
-go get github.com/agntcy/slim-bindings-go
-```
-
-Then run the setup tool to install the native libraries:
-
-```bash
-go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
-```
-
-!!! warning "CGO Requirement"
-    The Go bindings use native libraries via [CGO](https://pkg.go.dev/cmd/cgo). A C compiler (GCC or Clang) must be installed.
-
-## .NET
-
-| | |
-|---|---|
-| **Package** | `Agntcy.Slim` on NuGet |
-| **Requirements** | .NET 8.0+ |
-| **Examples** | [dotnet/](https://github.com/agntcy/slim-bindings/tree/main/dotnet) |
-
-```bash
-dotnet add package Agntcy.Slim
-```
-
-## Java
-
-| | |
-|---|---|
-| **Package** | Maven Central |
-| **Requirements** | Java 21+, Maven 3.8+, JNA |
-| **Examples** | [java/examples](https://github.com/agntcy/slim-bindings/tree/main/java/examples) |
-
-The Java bindings provide synchronous methods with `CompletableFuture`-based async variants.
-
-## Kotlin
-
-| | |
-|---|---|
-| **Package** | Maven Central |
-| **Requirements** | JDK 17+, JNA |
-| **Examples** | [kotlin/examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples) |
-
-Add to your `build.gradle.kts`:
-
-```kotlin
-dependencies {
-    implementation("io.agntcy.slim:slim-bindings-kotlin:2.0.0")
-}
-```
-
-## Node.js
-
-| | |
-|---|---|
-| **Package** | `@agntcy/slim-bindings` on npm |
-| **Requirements** | Node.js 18+ |
-
-```bash
-npm install @agntcy/slim-bindings
-```
-
-## React Native
-
-| | |
-|---|---|
-| **Package** | `@agntcy/slim-bindings-react-native` on npm |
-| **Requirements** | iOS or Android |
-
-```bash
-npm install @agntcy/slim-bindings-react-native
-```
+!!! warning "Post-install steps"
+    Two bindings need one more step after the package is installed. Go requires a one-time `go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup` to fetch native libraries, and React Native requires `cd ios && pod install`. See the [Go](./go.md#installation) and [React Native](./react-native.md#installation) guides.
 
 ## Building from Source
 
@@ -111,13 +28,13 @@ git clone https://github.com/agntcy/slim-bindings
 cd slim-bindings
 
 # Build the Rust FFI library
-cd rust && task bindings:build
+cd rust && task build
 
 # Build a specific binding (example: Python)
-cd python && task bindings:build
+cd python && task build
 ```
 
-See the README in each binding directory for language-specific build instructions.
+Each language guide has the build steps for its own binding, and the README in each binding directory covers the full list of development tasks.
 
 ## Next Steps
 

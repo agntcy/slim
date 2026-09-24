@@ -6,7 +6,7 @@ Tutorials include code examples for Python, Go, Java, Kotlin, Node.js, .NET, and
 
 ## Prerequisites
 
-All tutorials assume you have the SLIM SDK installed. See [Installation](../install.md) for setup instructions for your language.
+All tutorials assume you have the SLIM SDK installed. See [Installation](../install.md) for setup instructions for your language. For .NET-specific API details and examples, see the [.NET SDK guide](../dotnet.md).
 
 ## SDK Tutorials
 

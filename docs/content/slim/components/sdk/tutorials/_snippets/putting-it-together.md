@@ -60,7 +60,7 @@
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go/v2"
+        slim "github.com/agntcy/slim-bindings-go"
     )
 
     func main() {
