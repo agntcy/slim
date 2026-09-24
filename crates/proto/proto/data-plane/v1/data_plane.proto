@@ -4,6 +4,8 @@
 syntax = "proto3";
 package dataplane.proto.v1;
 
+import "google/protobuf/struct.proto";
+
 service DataPlaneService {
   rpc OpenChannel(stream Message) returns (stream Message) {}
 }
@@ -38,6 +40,9 @@ message Message {
     SubscriptionAck subscription_ack = 6;
   }
   map<string, string> metadata = 4;
+  // Field 5 is already used by the link message. Keep that tag stable so
+  // adding typed metadata does not change the wire format of existing links.
+  google.protobuf.Struct metadata_v3 = 7;
 }
 
 // Link is a link-local message exchanged only between directly connected SLIM nodes.
