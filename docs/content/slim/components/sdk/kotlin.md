@@ -69,6 +69,22 @@ Rust `Result<T, E>` types are converted to Kotlin exceptions. Catch `SlimExcepti
 
 Rust async functions are exposed as Kotlin `suspend` functions. Run them inside a coroutine scope (`runBlocking`, `coroutineScope`, or a framework like Ktor).
 
+### Session Configuration
+
+```kotlin
+val sessionConfig = SessionConfig(
+    sessionType = SessionType.POINT_TO_POINT,
+    maxRetries = 5u,
+    interval = Duration.ofSeconds(5),
+    metadata = emptyMap(),
+    mlsSettings = MlsSettings(100u, null),
+)
+
+val session = app.createSessionAndWaitAsync(sessionConfig, remoteName)
+```
+
+`SessionConfig` declares no default arguments, so every field must be passed. `maxRetries` is a `UInt`, `interval` a `java.time.Duration`, and `mlsSettings = null` disables MLS.
+
 ## Transport Authentication
 
 Separate from the app identity passed to `createAppWithSecret`, the gRPC connection to a SLIM node can carry its own credentials via `ClientConfig.auth`.

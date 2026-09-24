@@ -59,6 +59,21 @@ Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 Async variants (`*Async`) returning `CompletableFuture` are available for all operations. With Java 21 virtual threads, blocking on `.get()` or `.join()` is inexpensive.
 
+### Session Configuration
+
+```java
+SessionConfig sessionConfig = new SessionConfig(
+        SessionType.POINT_TO_POINT,
+        null,        // maxRetries — null uses the SLIM default
+        null,        // interval — null uses the SLIM default
+        Map.of(),    // metadata
+        new MlsSettings(100, null));
+
+Session session = app.createSessionAndWait(sessionConfig, remoteName);
+```
+
+The constructor is positional and takes all five fields. `MlsSettings` takes the header-integrity validation percentage and an optional replay-protection cache size; passing `null` in its place disables MLS.
+
 ## Transport Authentication
 
 Separate from the app identity passed to `createAppWithSecret`, the gRPC connection to a SLIM node can carry its own credentials via `ClientConfig.setAuth`.

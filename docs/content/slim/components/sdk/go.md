@@ -54,6 +54,22 @@ Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 Call `app.Destroy()` when finished to release native resources.
 
+### Session Configuration
+
+```go
+config := slim.SessionConfig{
+    SessionType: slim.SessionTypePointToPoint,
+    MlsSettings: &slim.MlsSettings{HeaderIntegrityValidationPercent: 100},
+}
+
+session, err := app.CreateSessionAndWaitAsync(config, remoteName)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+`MaxRetries` and `Interval` are `*uint32` and `*time.Duration`; leaving them nil uses the SLIM defaults. A nil `MlsSettings` disables MLS.
+
 ## Transport Authentication
 
 Separate from the app identity passed to `CreateAppWithSecret`, the gRPC connection to a SLIM node can carry its own credentials via `ClientConfig.Auth`.

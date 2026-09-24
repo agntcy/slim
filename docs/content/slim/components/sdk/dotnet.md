@@ -62,6 +62,20 @@ Most handle types implement `IDisposable`. Use `using` declarations to ensure na
 
 When your process exits, call `Slim.Shutdown()` to release native resources cleanly.
 
+### Session Configuration
+
+```csharp
+var sessionConfig = new SlimSessionConfig
+{
+    SessionType = SlimSessionType.PointToPoint,
+    MlsSettings = new SlimMlsSettings(),
+};
+
+using var session = await app.CreateSessionAsync(remoteName, sessionConfig);
+```
+
+Every property has a default (`MaxRetries` 5, `RetryInterval` one second, `HeaderIntegrityValidationPercent` 100), so set only what you change. A null `MlsSettings` disables MLS. Note that the destination comes before the config on `CreateSessionAsync`.
+
 ## Transport Authentication
 
 Separate from the app identity passed to `CreateApp`, the gRPC connection to a SLIM node can carry its own credentials.

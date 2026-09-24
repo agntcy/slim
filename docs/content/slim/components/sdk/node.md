@@ -59,6 +59,20 @@ Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 64-bit values (like the connection ID from `connectAsync`) are real `bigint` end to end — pass them through as-is rather than converting to `Number`. Enum-typed fields (like `SessionConfig.sessionType`) are real TypeScript enums (`SessionType.PointToPoint`), not string literals.
 
+### Session Configuration
+
+```typescript
+const sessionConfig: slimBindings.SessionConfig = {
+  sessionType: slimBindings.SessionType.PointToPoint,
+  metadata: new Map(),
+  mlsSettings: { headerIntegrityValidationPercent: 100 },
+};
+
+const session = await app.createSessionAndWaitAsync(sessionConfig, remoteName);
+```
+
+Annotate the object as `SessionConfig` rather than leaving it inferred — that is what catches an unknown field, which is otherwise accepted and silently ignored. `metadata` is required, `maxRetries` and `interval` fall back to the SLIM defaults, and omitting `mlsSettings` disables MLS.
+
 ## Transport Authentication
 
 Separate from the app identity passed to `createAppWithSecret`, the gRPC connection to a SLIM node can carry its own credentials via `config.auth`.

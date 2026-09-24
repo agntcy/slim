@@ -59,6 +59,25 @@ Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 UniFFI async methods require registering the running event loop with `uniffi_set_event_loop` before calling any async API.
 
+### Session Configuration
+
+```python
+session_config = slim_bindings.SessionConfig(
+    session_type=slim_bindings.SessionType.POINT_TO_POINT,
+    max_retries=5,
+    interval=datetime.timedelta(seconds=5),
+    metadata={},
+    mls_settings=slim_bindings.MlsSettings(
+        header_integrity_validation_percent=100,
+        max_seen_control_message_ids_size=None,
+    ),
+)
+
+session = await app.create_session_and_wait_async(session_config, remote_name)
+```
+
+`SessionConfig` and `MlsSettings` take keyword arguments only and define no defaults, so every field must be passed. `max_retries=None` and `interval=None` fall back to the SLIM defaults, and `mls_settings=None` disables MLS.
+
 ## Transport Authentication
 
 Separate from the app identity passed to `create_app_with_secret`, the gRPC connection to a SLIM node can carry its own credentials.

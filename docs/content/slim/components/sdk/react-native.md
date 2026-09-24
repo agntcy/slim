@@ -103,6 +103,20 @@ On the **native (iOS/Android)** target, the gRPC client and server configuration
 
 Call `app.destroy()` when finished to release native resources.
 
+### Session Configuration (Native)
+
+```typescript
+const sessionConfig: slimBindings.SessionConfig = {
+  sessionType: slimBindings.SessionType.PointToPoint,
+  metadata: new Map(),
+  mlsSettings: { headerIntegrityValidationPercent: 100 },
+};
+
+const session = await app.createSessionAndWaitAsync(sessionConfig, remoteName);
+```
+
+Annotate the object as `SessionConfig` rather than typing it `any` — that is what catches an unknown field, which is otherwise accepted and silently ignored. `metadata` is required, `maxRetries` and `interval` fall back to the SLIM defaults, and omitting `mlsSettings` disables MLS.
+
 ## Transport Authentication
 
 On the **native (iOS/Android)** target, transport authentication via OIDC and other gRPC auth modes matches the Node.js SDK. See the [Node.js transport authentication section](./node.md#transport-authentication) for code snippets and the JSON config form.
