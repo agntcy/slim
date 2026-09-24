@@ -30,53 +30,11 @@ go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
 
 Setup is one-time per machine. The tool downloads or copies the native library for your OS and architecture.
 
-## Quick Start
+## Getting Started
 
-With a SLIM node running locally (see [Getting Started](../../slim-howto.md)), initialise the SDK, connect, and register an application identity:
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with Go snippets shown alongside every other binding.
 
-```go
-package main
-
-import (
-    "fmt"
-    "log"
-
-    slim "github.com/agntcy/slim-bindings-go"
-)
-
-func main() {
-    slim.InitializeWithDefaults()
-    service := slim.GetGlobalService()
-
-    config := slim.NewInsecureClientConfig("http://127.0.0.1:46357")
-    connID, err := service.ConnectAsync(config)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    localName, err := slim.NameFromString("myorg/default/my-service")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    app, err := service.CreateAppWithSecret(
-        localName, "change-me-before-going-to-production",
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer app.Destroy()
-
-    if err := app.SubscribeAsync(localName, &connID); err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Printf("App ready: %s, id=%s\n", localName, app.Id())
-}
-```
-
-!!! note "Insecure mode"
-    `NewInsecureClientConfig` skips TLS and is for local development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
+Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 ## API Overview
 
@@ -95,36 +53,6 @@ func main() {
 | `OidcPolicyConfig` | Claim-based access policy (`OidcPolicyConfigCel`, `Rego`, `RegoFile`) |
 
 Call `app.Destroy()` when finished to release native resources.
-
-### Initialisation and Connection
-
-```go
-slim.InitializeWithDefaults()
-service := slim.GetGlobalService()
-
-config := slim.NewInsecureClientConfig("http://127.0.0.1:46357")
-connID, err := service.ConnectAsync(config)
-```
-
-### Sessions
-
-Point-to-point sessions use `CreateSessionAndWait`:
-
-```go
-sessionConfig := slim.SessionConfig{
-    SessionType: slim.SessionTypePointToPoint,
-    EnableMls:   true,
-    MaxRetries:  5,
-    Interval:    5 * time.Second,
-}
-
-session, err := app.CreateSessionAndWait(sessionConfig, remoteName)
-if err != nil {
-    log.Fatal(err)
-}
-
-session.PublishAndWait([]byte("Hello, SLIM!"), nil, nil)
-```
 
 ## Transport Authentication
 

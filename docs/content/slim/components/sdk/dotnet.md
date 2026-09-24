@@ -36,30 +36,11 @@ The NuGet package ships native libraries for Linux (glibc and musl), macOS, and 
     Install-Package Agntcy.Slim
     ```
 
-## Quick Start
+## Getting Started
 
-With a SLIM node running locally (see [Getting Started](../../slim-howto.md)), initialise the SDK, connect, and register an application identity:
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with .NET snippets shown alongside every other binding.
 
-```csharp
-using Agntcy.Slim;
-
-Slim.Initialize();
-
-using var service = Slim.GetGlobalService();
-var config = Slim.NewInsecureClientConfig("http://127.0.0.1:46357");
-var connId = service.Connect(config);
-
-using var localName = SlimName.Parse("myorg/default/my-service");
-var app = service.CreateApp(localName, "change-me-before-going-to-production");
-app.Subscribe(app.Name, connId);
-
-Console.WriteLine($"App ready: {app.Name}, id={app.Id}");
-```
-
-!!! note "Insecure mode"
-    `NewInsecureClientConfig` skips TLS and is for local development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
-
-When your process exits, call `Slim.Shutdown()` to release native resources cleanly.
+Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 ## API Overview
 
@@ -79,39 +60,7 @@ When your process exits, call `Slim.Shutdown()` to release native resources clea
 
 Most handle types implement `IDisposable`. Use `using` declarations to ensure native resources are released promptly.
 
-### Initialisation and Connection
-
-```csharp
-Slim.Initialize();
-using var service = Slim.GetGlobalService();
-
-var config = Slim.NewInsecureClientConfig("http://127.0.0.1:46357");
-var connId = service.Connect(config);
-```
-
-For async connection with cancellation support:
-
-```csharp
-using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-var connId = await service.ConnectAsync(config, cts.Token);
-```
-
-### Sessions
-
-Point-to-point sessions use `CreateSessionAsync`, which blocks until the session is fully established:
-
-```csharp
-var sessionConfig = new SlimSessionConfig
-{
-    SessionType = SlimSessionType.PointToPoint,
-    MlsSettings = new SlimMlsSettings(),
-    MaxRetries = 5,
-    RetryInterval = TimeSpan.FromSeconds(5),
-};
-
-using var session = await app.CreateSessionAsync(remoteName, sessionConfig);
-await session.PublishAsync("Hello, SLIM!");
-```
+When your process exits, call `Slim.Shutdown()` to release native resources cleanly.
 
 ## Transport Authentication
 

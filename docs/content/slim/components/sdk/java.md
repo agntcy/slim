@@ -35,34 +35,11 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
     }
     ```
 
-## Quick Start
+## Getting Started
 
-With a SLIM node running locally (see [Getting Started](../../slim-howto.md)), initialise the SDK, connect, and register an application identity:
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with Java snippets shown alongside every other binding.
 
-```java
-import io.agntcy.slim.bindings.*;
-
-public class Main {
-    public static void main(String[] args) throws Exception {
-        SlimBindings.initializeWithDefaults();
-        Service service = SlimBindings.getGlobalService();
-
-        ClientConfig config = SlimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
-        Long connId = service.connect(config);
-
-        Name localName = Name.fromString("myorg/default/my-service");
-        App app = service.createAppWithSecret(
-            localName, "change-me-before-going-to-production"
-        );
-        app.subscribe(localName, connId);
-
-        System.out.printf("App ready: %s, id=%s%n", localName, app.id());
-    }
-}
-```
-
-!!! note "Insecure mode"
-    `newInsecureClientConfig` skips TLS and is for local development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
+Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 ## API Overview
 
@@ -81,39 +58,6 @@ public class Main {
 | `OidcPolicyConfig` | Claim-based access policy (`Cel`, `Rego`, `RegoFile`) |
 
 Async variants (`*Async`) returning `CompletableFuture` are available for all operations. With Java 21 virtual threads, blocking on `.get()` or `.join()` is inexpensive.
-
-### Initialisation and Connection
-
-```java
-SlimBindings.initializeWithDefaults();
-Service service = SlimBindings.getGlobalService();
-
-ClientConfig config = SlimBindings.newInsecureClientConfig("http://127.0.0.1:46357");
-Long connId = service.connect(config);
-```
-
-For async connection:
-
-```java
-Long connId = service.connectAsync(config).get();
-```
-
-### Sessions
-
-Point-to-point sessions use `createSessionAndWait`:
-
-```java
-SessionConfig sessionConfig = new SessionConfig(
-    SessionType.POINT_TO_POINT,
-    null,  // maxRetries
-    null,  // interval
-    Map.of(),
-    new MlsSettings(100)
-);
-
-Session session = app.createSessionAndWait(sessionConfig, remoteName);
-session.publishAndWait("Hello, SLIM!".getBytes(), null, null);
-```
 
 ## Transport Authentication
 

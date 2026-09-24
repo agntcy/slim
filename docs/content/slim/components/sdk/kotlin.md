@@ -43,35 +43,11 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
     </dependency>
     ```
 
-## Quick Start
+## Getting Started
 
-With a SLIM node running locally (see [Getting Started](../../slim-howto.md)), initialise the SDK, connect, and register an application identity:
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with Kotlin snippets shown alongside every other binding.
 
-```kotlin
-import io.agntcy.slim.bindings.*
-import kotlinx.coroutines.*
-
-suspend fun main() = coroutineScope {
-    initializeWithDefaults()
-    val service = getGlobalService()
-
-    val config = newInsecureClientConfig("http://127.0.0.1:46357")
-    val connId = service.connectAsync(config)
-
-    val localName = Name.fromString("myorg/default/my-service")
-    val app = service.createAppWithSecret(
-        localName, "change-me-before-going-to-production"
-    )
-    app.subscribeAsync(localName, connId)
-
-    println("App ready: $localName, id=${app.id()}")
-}
-```
-
-!!! note "Insecure mode"
-    `newInsecureClientConfig` skips TLS and is for local development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
-
-Rust async functions are exposed as Kotlin `suspend` functions. Run them inside a coroutine scope (`runBlocking`, `coroutineScope`, or a framework like Ktor).
+Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 ## API Overview
 
@@ -91,35 +67,7 @@ Rust async functions are exposed as Kotlin `suspend` functions. Run them inside 
 
 Rust `Result<T, E>` types are converted to Kotlin exceptions. Catch `SlimException` subtypes for structured error handling.
 
-### Initialisation and Connection
-
-```kotlin
-initializeWithDefaults()
-val service = getGlobalService()
-
-val config = newInsecureClientConfig("http://127.0.0.1:46357")
-val connId = service.connectAsync(config)
-```
-
-### Sessions
-
-Point-to-point sessions use `createSessionAsync`, which returns a completion handle:
-
-```kotlin
-val sessionConfig = SessionConfig(
-    sessionType = SessionType.POINT_TO_POINT,
-    enableMls = true,
-    maxRetries = 5u,
-    interval = Duration.ofSeconds(5),
-    metadata = emptyMap(),
-)
-
-val sessionContext = app.createSessionAsync(sessionConfig, remoteName)
-sessionContext.completion.waitAsync()
-val session = sessionContext.session
-
-session.publishAsync("Hello, SLIM!".toByteArray(), null, null)
-```
+Rust async functions are exposed as Kotlin `suspend` functions. Run them inside a coroutine scope (`runBlocking`, `coroutineScope`, or a framework like Ktor).
 
 ## Transport Authentication
 

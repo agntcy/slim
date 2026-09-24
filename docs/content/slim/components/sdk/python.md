@@ -35,39 +35,11 @@ The PyPI package ships native libraries for Linux, macOS, and Windows on x64 and
     uv add slim-bindings
     ```
 
-## Quick Start
+## Getting Started
 
-With a SLIM node running locally (see [Getting Started](../../slim-howto.md)), initialise the SDK, connect, and register an application identity:
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with Python snippets shown alongside every other binding.
 
-```python
-import asyncio
-import slim_bindings
-
-async def main():
-    # Required for UniFFI async bindings
-    slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
-
-    slim_bindings.initialize_with_defaults()
-    service = slim_bindings.get_global_service()
-
-    config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
-    conn_id = await service.connect_async(config)
-
-    local_name = slim_bindings.Name.from_string("myorg/default/my-service")
-    app = service.create_app_with_secret(
-        local_name, "change-me-before-going-to-production"
-    )
-    await app.subscribe_async(local_name, conn_id)
-
-    print(f"App ready: {local_name}, id={app.id()}")
-
-asyncio.run(main())
-```
-
-!!! note "Insecure mode"
-    `new_insecure_client_config` skips TLS and is for local development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
-
-UniFFI async methods require registering the running event loop with `uniffi_set_event_loop` before calling any async API.
+Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 ## API Overview
 
@@ -85,37 +57,7 @@ UniFFI async methods require registering the running event loop with `uniffi_set
 | `OidcConfig` | OIDC transport authentication settings |
 | `OidcPolicyConfig` | Claim-based access policy (`CEL`, `REGO`, `REGO_FILE`) |
 
-### Initialisation and Connection
-
-```python
-slim_bindings.initialize_with_defaults()
-service = slim_bindings.get_global_service()
-
-config = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
-conn_id = await service.connect_async(config)
-```
-
-### Sessions
-
-Point-to-point sessions use `create_session_async`, which returns a completion handle that must be awaited before using the session:
-
-```python
-import datetime
-
-session_config = slim_bindings.SessionConfig(
-    session_type=slim_bindings.SessionType.POINT_TO_POINT,
-    enable_mls=True,
-    max_retries=5,
-    interval=datetime.timedelta(seconds=5),
-    metadata={},
-)
-
-session_ctx = await app.create_session_async(session_config, remote_name)
-await session_ctx.completion.wait_async()
-session = session_ctx.session
-
-await session.publish_async(b"Hello, SLIM!", None, None)
-```
+UniFFI async methods require registering the running event loop with `uniffi_set_event_loop` before calling any async API.
 
 ## Transport Authentication
 

@@ -33,30 +33,11 @@ npm installs this package and, when published for your OS/arch, the matching opt
     pnpm add @agntcy/slim-bindings
     ```
 
-## Quick Start
+## Getting Started
 
-With a SLIM node running locally (see [Getting Started](../../slim-howto.md)), initialise the SDK, connect, and register an application identity:
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with Node.js snippets shown alongside every other binding.
 
-```typescript
-import slimBindings from '@agntcy/slim-bindings';
-
-slimBindings.initializeWithDefaults();
-const service = slimBindings.getGlobalService();
-
-const config = slimBindings.newInsecureClientConfig('http://127.0.0.1:46357');
-const connId = await service.connectAsync(config);
-
-const localName = new slimBindings.Name('myorg', 'default', 'my-service');
-const app = service.createAppWithSecret(
-  localName, 'change-me-before-going-to-production',
-);
-await app.subscribeAsync(localName, connId);
-
-console.log(`App ready: ${localName}, id=${app.id()}`);
-```
-
-!!! note "Insecure mode"
-    `newInsecureClientConfig` skips TLS and is for local development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
+Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
 ## API Overview
 
@@ -77,36 +58,6 @@ console.log(`App ready: ${localName}, id=${app.id()}`);
 ### Type notes
 
 64-bit values (like the connection ID from `connectAsync`) are real `bigint` end to end — pass them through as-is rather than converting to `Number`. Enum-typed fields (like `SessionConfig.sessionType`) are real TypeScript enums (`SessionType.PointToPoint`), not string literals.
-
-### Initialisation and Connection
-
-```typescript
-slimBindings.initializeWithDefaults();
-const service = slimBindings.getGlobalService();
-
-const config = slimBindings.newInsecureClientConfig('http://127.0.0.1:46357');
-const connId = await service.connectAsync(config);
-```
-
-### Sessions
-
-Point-to-point sessions use `createSessionAsync`:
-
-```typescript
-const sessionConfig = new slimBindings.SessionConfig({
-  sessionType: slimBindings.SessionType.PointToPoint,
-  enableMls: true,
-  maxRetries: 5,
-  interval: 5000,  // milliseconds
-  metadata: new Map(),
-});
-
-const sessionCtx = await app.createSessionAsync(sessionConfig, remoteName);
-await sessionCtx.completion.waitAsync();
-const session = sessionCtx.session;
-
-await session.publishAsync(new TextEncoder().encode('Hello, SLIM!'), null, null);
-```
 
 ## Transport Authentication
 

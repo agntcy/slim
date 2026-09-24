@@ -34,36 +34,13 @@ After installing in a React Native project, run the iOS pod install step:
 cd ios && pod install
 ```
 
-## Quick Start (React Native)
+## Getting Started
 
-With a SLIM node running locally (see [Getting Started](../../slim-howto.md)), initialise the SDK, connect, and register an application identity:
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with React Native snippets shown alongside every other binding. They target the native (iOS/Android) build; the browser quick start below covers the WebAssembly entry point.
 
-```typescript
-import slimBindings from '@agntcy/slim-bindings-react-native';
+Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
-// Wait for JSI native module, then initialise (call once per app lifecycle)
-await slimBindings.waitForJSIBindings(5000);
-slimBindings.initializeWithDefaults();
-
-const service = slimBindings.getGlobalService();
-const config = slimBindings.newInsecureClientConfig('http://127.0.0.1:46357');
-const connId = await service.connectAsync(config);
-
-const localName = new slimBindings.Name('myorg', 'default', 'my-service');
-const app = service.createAppWithSecret(
-  localName, 'change-me-before-going-to-production',
-);
-await app.subscribeAsync(localName, connId);
-
-console.log(`App ready: ${localName}, id=${app.id()}`);
-```
-
-!!! note "Insecure mode"
-    `newInsecureClientConfig` skips TLS and is for local development only. See [Authentication](../../architecture/authentication.md) for production TLS, mTLS, and SPIRE options.
-
-Call `app.destroy()` when finished to release native resources.
-
-## Quick Start (Browser / WebAssembly)
+## Browser / WebAssembly Quick Start
 
 Browser builds connect over `ws://` or `wss://` and use a separate entry point. Call `uniffiInitAsync()` once before using the bindings:
 
@@ -124,23 +101,7 @@ All operations that wait for network or session state must use their async varia
 
 On the **native (iOS/Android)** target, the gRPC client and server configurations expose transport authentication via `config.auth`, matching the [Node.js SDK](./node.md#transport-authentication). On the **web/WebAssembly** target, gRPC configuration is absent by design — browser apps connect over WebSocket and authenticate through the identity path instead.
 
-### Sessions (Native)
-
-```typescript
-const sessionConfig = {
-  sessionType: slimBindings.SessionType.PointToPoint,
-  enableMls: true,
-  maxRetries: 5,
-  interval: 5000,
-  metadata: new Map(),
-};
-
-const sessionCtx = await app.createSessionAsync(sessionConfig, remoteName);
-await sessionCtx.completion.waitAsync();
-const session = sessionCtx.session;
-
-await session.publishAsync(new TextEncoder().encode('Hello, SLIM!'), null, null);
-```
+Call `app.destroy()` when finished to release native resources.
 
 ## Transport Authentication
 
