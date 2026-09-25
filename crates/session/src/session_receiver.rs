@@ -157,6 +157,13 @@ impl SessionReceiver {
 
         let source_proto = message.get_slim_header().source.clone().unwrap();
         let in_conn = message.get_incoming_conn();
+        let key = PendingRtxKey {
+            name: source_proto.name.unwrap(),
+            id: message.get_id(),
+        };
+        if let Some(mut pending) = self.pending_rtxs.remove(&key) {
+            pending.timer.stop();
+        }
         let buffer = self.buffer.entry(source_proto.name.unwrap()).or_default();
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
@@ -321,12 +328,11 @@ impl SessionReceiver {
     ) -> Result<SessionOutput, SessionError> {
         debug!(%id, "timeout for message");
         let key = PendingRtxKey { name, id };
-        let pending = self
-            .pending_rtxs
-            .get(&key)
-            .ok_or_else(|| SessionError::MissingPayload {
-                context: "pending_rtx_timer",
-            })?;
+        // Stopping a timer cannot retract notifications already queued for this session.
+        let Some(pending) = self.pending_rtxs.get(&key) else {
+            debug!(%id, ?name, "ignore timeout without a pending receiver retry");
+            return Ok(SessionOutput::new());
+        };
 
         debug!(%id, "send rtx request again");
         let mut output = SessionOutput::new();
@@ -344,12 +350,10 @@ impl SessionReceiver {
             "timer failure for message, clear state",
         );
         let key = PendingRtxKey { name, id };
-        let mut pending =
-            self.pending_rtxs
-                .remove(&key)
-                .ok_or_else(|| SessionError::MissingPayload {
-                    context: "pending_rtx_timer",
-                })?;
+        let Some(mut pending) = self.pending_rtxs.remove(&key) else {
+            debug!(%id, ?name, "ignore failure without a pending receiver retry");
+            return Ok(SessionOutput::new());
+        };
 
         // stop the timer and remove the name if no pending rtx left
         pending.timer.stop();
@@ -641,6 +645,142 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
+    async fn test_recovered_gap_cancels_pending_retry() {
+        use slim_datapath::api::ProtoSessionMessageType;
+
+        for session_type in [ProtoSessionType::PointToPoint, ProtoSessionType::Multicast] {
+            for recovery_type in [
+                ProtoSessionMessageType::Msg,
+                ProtoSessionMessageType::RtxReply,
+            ] {
+                let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+                let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+                let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+                let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
+                let remote = remote_name.name.unwrap();
+                let mut receiver = SessionReceiver::new(
+                    Some(settings),
+                    10,
+                    local_name.clone(),
+                    session_type,
+                    Some(tx_signal),
+                );
+                let publish = |id| {
+                    let mut message = Message::builder()
+                        .source(remote_name.clone())
+                        .destination(local_name.clone())
+                        .session_type(session_type)
+                        .session_message_type(ProtoSessionMessageType::Msg)
+                        .session_id(10)
+                        .message_id(id)
+                        .application_payload("payload", vec![id as u8])
+                        .build_publish()
+                        .unwrap();
+                    message.get_slim_header_mut().set_incoming_conn(Some(1));
+                    message
+                };
+
+                let first = receiver.on_message(publish(1)).unwrap();
+                assert_eq!(app_messages(&first)[0].get_id(), 1);
+                let gap = receiver.on_message(publish(3)).unwrap();
+                assert!(app_messages(&gap).is_empty());
+                let retry = receiver.on_timer_timeout(2, remote).unwrap();
+                assert_eq!(slim_messages(&retry).len(), 1);
+                assert_eq!(slim_messages(&retry)[0].get_id(), 2);
+
+                let mut recovered = publish(2);
+                recovered.set_session_message_type(recovery_type);
+                let output = receiver.on_message(recovered).unwrap();
+                assert_eq!(
+                    app_messages(&output)
+                        .iter()
+                        .map(|message| message.get_id())
+                        .collect::<Vec<_>>(),
+                    vec![2, 3]
+                );
+                assert!(app_errors(&output).is_empty());
+
+                assert!(receiver.pending_rtxs.is_empty());
+
+                let duplicate = receiver.on_message(publish(2)).unwrap();
+                assert!(app_messages(&duplicate).is_empty());
+                let next = receiver.on_message(publish(4)).unwrap();
+                assert_eq!(app_messages(&next).len(), 1);
+                assert_eq!(app_messages(&next)[0].get_id(), 4);
+                receiver.start_drain();
+                assert!(receiver.drain_completed());
+            }
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_recovery_keeps_other_sender_retry() {
+        use slim_datapath::api::ProtoSessionMessageType;
+
+        let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote1 = ProtoName::from_strings(["org", "ns", "remote1"]);
+        let remote2 = ProtoName::from_strings(["org", "ns", "remote2"]);
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            ProtoSessionType::Multicast,
+            Some(tx_signal),
+        );
+        let publish = |source: &ProtoName, id| {
+            let mut message = Message::builder()
+                .source(source.clone())
+                .destination(local_name.clone())
+                .session_type(ProtoSessionType::Multicast)
+                .session_message_type(ProtoSessionMessageType::Msg)
+                .session_id(10)
+                .message_id(id)
+                .application_payload("payload", vec![id as u8])
+                .build_publish()
+                .unwrap();
+            message.get_slim_header_mut().set_incoming_conn(Some(1));
+            message
+        };
+
+        for source in [&remote1, &remote2] {
+            receiver.on_message(publish(source, 1)).unwrap();
+            let gap = receiver.on_message(publish(source, 3)).unwrap();
+            assert!(app_messages(&gap).is_empty());
+        }
+
+        for source in [&remote1, &remote2] {
+            let retry = receiver.on_timer_timeout(2, source.name.unwrap()).unwrap();
+            assert_eq!(slim_messages(&retry).len(), 1);
+            assert_eq!(slim_messages(&retry)[0].get_id(), 2);
+            assert_eq!(slim_messages(&retry)[0].get_dst(), *source);
+        }
+
+        let recovered = receiver.on_message(publish(&remote1, 2)).unwrap();
+        assert_eq!(
+            app_messages(&recovered)
+                .iter()
+                .map(|message| (message.get_source(), message.get_id()))
+                .collect::<Vec<_>>(),
+            vec![(remote1.clone(), 2), (remote1.clone(), 3)]
+        );
+        receiver.start_drain();
+        assert!(!receiver.drain_completed());
+        let retry = receiver.on_timer_timeout(2, remote2.name.unwrap()).unwrap();
+        assert_eq!(slim_messages(&retry).len(), 1);
+        assert_eq!(slim_messages(&retry)[0].get_dst(), remote2);
+        let failure = receiver.on_timer_failure(2, remote2.name.unwrap()).unwrap();
+        assert!(matches!(
+            app_errors(&failure).as_slice(),
+            [SessionError::MessageReceiveRetryFailed { id: 2 }]
+        ));
+        assert!(receiver.drain_completed());
+    }
+
+    #[tokio::test]
+    #[traced_test]
     async fn test_rtx_reply_success() {
         let settings = TimerSettings::constant(Duration::from_millis(500)).with_max_retries(2);
         let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
@@ -710,6 +850,155 @@ mod tests {
         assert_eq!(apps.len(), 2);
         assert_eq!(apps[0].get_id(), 2);
         assert_eq!(apps[1].get_id(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_wraparound_keeps_live_gap() {
+        use slim_datapath::api::ProtoSessionMessageType;
+        use slim_datapath::messages::utils::MAX_PUBLISH_ID;
+
+        let settings = TimerSettings::constant(Duration::from_secs(60)).with_max_retries(2);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let local = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local.clone(),
+            ProtoSessionType::PointToPoint,
+            Some(tx_signal),
+        );
+        let publish = |id, message_type| {
+            Message::builder()
+                .source(remote.clone())
+                .destination(local.clone())
+                .incoming_conn(1)
+                .session_type(ProtoSessionType::PointToPoint)
+                .session_message_type(message_type)
+                .session_id(10)
+                .message_id(id)
+                .application_payload("test", vec![])
+                .build_publish()
+                .unwrap()
+        };
+        for id in [MAX_PUBLISH_ID - 2, MAX_PUBLISH_ID, 1] {
+            receiver
+                .on_message(publish(id, ProtoSessionMessageType::Msg))
+                .unwrap();
+        }
+        let recovered = receiver
+            .on_message(publish(MAX_PUBLISH_ID - 1, ProtoSessionMessageType::Msg))
+            .unwrap();
+        assert_eq!(
+            app_messages(&recovered)
+                .iter()
+                .map(|message| message.get_id())
+                .collect::<Vec<_>>(),
+            vec![MAX_PUBLISH_ID - 1, MAX_PUBLISH_ID]
+        );
+        receiver.start_drain();
+        assert!(!receiver.drain_completed());
+        assert!(
+            receiver
+                .on_timer_timeout(MAX_PUBLISH_ID - 1, remote.name.unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            receiver
+                .on_timer_failure(MAX_PUBLISH_ID - 1, remote.name.unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        let retry = receiver.on_timer_timeout(0, remote.name.unwrap()).unwrap();
+        assert_eq!(slim_messages(&retry).len(), 1);
+        assert_eq!(slim_messages(&retry)[0].get_id(), 0);
+        let completed = receiver
+            .on_message(publish(0, ProtoSessionMessageType::RtxReply))
+            .unwrap();
+        assert_eq!(
+            app_messages(&completed)
+                .iter()
+                .map(|message| message.get_id())
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        assert!(app_errors(&completed).is_empty());
+        assert!(receiver.drain_completed());
+    }
+
+    #[tokio::test]
+    async fn test_recovery_retry_key_can_be_reused() {
+        use slim_datapath::api::ProtoSessionMessageType;
+
+        let settings = TimerSettings::constant(Duration::from_secs(60)).with_max_retries(2);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+        let local = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local.clone(),
+            ProtoSessionType::Multicast,
+            Some(tx_signal),
+        );
+        let publish = |id| {
+            Message::builder()
+                .source(remote.clone())
+                .destination(local.clone())
+                .incoming_conn(1)
+                .session_type(ProtoSessionType::Multicast)
+                .session_message_type(ProtoSessionMessageType::Msg)
+                .session_id(10)
+                .message_id(id)
+                .application_payload("test", vec![])
+                .build_publish()
+                .unwrap()
+        };
+        for id in [1, 3, 2] {
+            receiver.on_message(publish(id)).unwrap();
+        }
+        for _ in 0..2 {
+            assert!(
+                receiver
+                    .on_timer_timeout(2, remote.name.unwrap())
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                receiver
+                    .on_timer_failure(2, remote.name.unwrap())
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        receiver.remove_endpoint(&remote);
+        for id in [1, 3] {
+            receiver.on_message(publish(id)).unwrap();
+        }
+        let retry = receiver.on_timer_timeout(2, remote.name.unwrap()).unwrap();
+        assert_eq!(slim_messages(&retry).len(), 1);
+        assert_eq!(slim_messages(&retry)[0].get_id(), 2);
+        let failure = receiver.on_timer_failure(2, remote.name.unwrap()).unwrap();
+        assert!(matches!(
+            app_errors(&failure).as_slice(),
+            [SessionError::MessageReceiveRetryFailed { id: 2 }]
+        ));
+        assert!(
+            receiver
+                .on_timer_failure(2, remote.name.unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            receiver
+                .on_timer_timeout(2, remote.name.unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        receiver.start_drain();
+        assert!(receiver.drain_completed());
     }
 
     #[tokio::test]

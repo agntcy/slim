@@ -1211,6 +1211,31 @@ mod tests {
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
 
+    #[derive(Clone, Copy, Debug)]
+    enum RetrySignal {
+        Timeout,
+        Failure,
+    }
+
+    impl RetrySignal {
+        fn for_message(&self, source: &ProtoName, id: u32) -> SessionMessage {
+            match self {
+                Self::Timeout => SessionMessage::TimerTimeout {
+                    message_id: id,
+                    message_type: ProtoSessionMessageType::RtxRequest,
+                    name: source.name,
+                    timeouts: 1,
+                },
+                Self::Failure => SessionMessage::TimerFailure {
+                    message_id: id,
+                    message_type: ProtoSessionMessageType::RtxRequest,
+                    name: source.name,
+                    timeouts: 3,
+                },
+            }
+        }
+    }
+
     fn test_identity() -> String {
         SharedSecret::new("test", SHARED_SECRET)
             .unwrap()
@@ -1340,6 +1365,425 @@ mod tests {
                 .expect("failed to build controller");
 
             (controller, rx_slim, rx_app)
+        }
+
+        async fn assert_recovered_gap_outputs(&self, recovery_type: ProtoSessionMessageType) {
+            let mut settings = create_test_settings(None);
+            settings.id = self.session_id;
+            settings.source = self.source.clone();
+            settings.destination = self.destination.clone();
+            settings.config.session_type = self.session_type;
+            settings.config.interval = Some(Duration::from_secs(60));
+            settings.config.max_retries = Some(2);
+
+            let (tx, rx) = tokio::sync::mpsc::channel(16);
+            let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(16);
+            let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+            settings.slim_tx = tx_slim;
+            settings.app_tx = tx_app;
+            settings.tx_session = tx.clone();
+            let session = crate::session::Session::new(
+                settings.id,
+                settings.config.clone(),
+                &settings.source,
+                tx.clone(),
+                Direction::Bidirectional,
+            );
+            let publish = |id, message_type| SessionMessage::OnMessage {
+                message: Message::builder()
+                    .source(self.destination.clone())
+                    .destination(self.source.clone())
+                    .incoming_conn(1)
+                    .session_type(self.session_type)
+                    .session_message_type(message_type)
+                    .session_id(self.session_id)
+                    .message_id(id)
+                    .application_payload("test", vec![id as u8])
+                    .build_publish()
+                    .unwrap(),
+                direction: MessageDirection::North,
+                ack_tx: None,
+            };
+            let retry = |timeouts| SessionMessage::TimerTimeout {
+                message_id: 2,
+                message_type: ProtoSessionMessageType::RtxRequest,
+                name: self.destination.name,
+                timeouts,
+            };
+
+            // Queue the fault schedule before running the loop, without clock-based waits.
+            for message in [
+                publish(1, ProtoSessionMessageType::Msg),
+                publish(3, ProtoSessionMessageType::Msg),
+                retry(1),
+                publish(2, recovery_type),
+                retry(2),
+                SessionMessage::TimerFailure {
+                    message_id: 2,
+                    message_type: ProtoSessionMessageType::RtxRequest,
+                    name: self.destination.name,
+                    timeouts: 3,
+                },
+                publish(2, ProtoSessionMessageType::Msg),
+                publish(4, ProtoSessionMessageType::Msg),
+                SessionMessage::StartDrain {
+                    grace_period: Duration::from_secs(60),
+                },
+            ] {
+                tx.try_send(message).unwrap();
+            }
+
+            SessionController::processing_loop(session, rx, CancellationToken::new(), settings)
+                .await;
+
+            let mut delivered = Vec::new();
+            let mut errors = Vec::new();
+            while let Ok(result) = rx_app.try_recv() {
+                match result {
+                    Ok(message) => delivered.push(message.get_id()),
+                    Err(error) => errors.push(error),
+                }
+            }
+            assert_eq!(delivered, vec![1, 2, 3, 4]);
+            assert!(
+                errors.is_empty(),
+                "{:?} recovery via {:?} reported application errors: {:?}",
+                self.session_type,
+                recovery_type,
+                errors
+            );
+
+            let mut retries = Vec::new();
+            while let Ok(result) = rx_slim.try_recv() {
+                let message = result.unwrap();
+                if message.get_session_message_type() == ProtoSessionMessageType::RtxRequest {
+                    retries.push(message.get_id());
+                }
+            }
+            assert_eq!(retries, vec![2, 2]);
+        }
+
+        async fn assert_recovery_drains_remaining_gap(
+            &self,
+            recovery_type: ProtoSessionMessageType,
+            stale_signals: &[RetrySignal],
+            other_sender: bool,
+            exhaust_remaining: bool,
+        ) {
+            let mut settings = create_test_settings(Some(Duration::from_secs(5)));
+            settings.id = self.session_id;
+            settings.source = self.source.clone();
+            settings.destination = self.destination.clone();
+            settings.config.session_type = self.session_type;
+            settings.config.interval = Some(Duration::from_secs(60));
+            settings.config.max_retries = Some(2);
+            let pending_source = if other_sender {
+                self.destination.clone().with_id(3)
+            } else {
+                self.destination.clone()
+            };
+            let pending_id = if other_sender { 2 } else { 4 };
+
+            let (tx, rx) = tokio::sync::mpsc::channel(32);
+            let (tx_slim, mut rx_slim) = tokio::sync::mpsc::channel(32);
+            let (tx_app, mut rx_app) = tokio::sync::mpsc::unbounded_channel();
+            settings.slim_tx = tx_slim;
+            settings.app_tx = tx_app;
+            settings.tx_session = tx.clone();
+            let session = crate::session::Session::new(
+                settings.id,
+                settings.config.clone(),
+                &settings.source,
+                tx.clone(),
+                Direction::Bidirectional,
+            );
+            let publish = |source: &ProtoName, id: u32, message_type| SessionMessage::OnMessage {
+                message: Message::builder()
+                    .source(source.clone())
+                    .destination(self.source.clone())
+                    .incoming_conn(1)
+                    .session_type(self.session_type)
+                    .session_message_type(message_type)
+                    .session_id(self.session_id)
+                    .message_id(id)
+                    .application_payload("test", id.to_le_bytes().to_vec())
+                    .build_publish()
+                    .unwrap(),
+                direction: MessageDirection::North,
+                ack_tx: None,
+            };
+
+            tx.try_send(publish(&self.destination, 1, ProtoSessionMessageType::Msg))
+                .unwrap();
+            tx.try_send(publish(&self.destination, 3, ProtoSessionMessageType::Msg))
+                .unwrap();
+            if other_sender {
+                for id in [1, 3] {
+                    tx.try_send(publish(&pending_source, id, ProtoSessionMessageType::Msg))
+                        .unwrap();
+                }
+            } else {
+                tx.try_send(publish(&self.destination, 5, ProtoSessionMessageType::Msg))
+                    .unwrap();
+            }
+            tx.try_send(publish(&self.destination, 2, recovery_type))
+                .unwrap();
+            tx.try_send(SessionMessage::StartDrain {
+                grace_period: Duration::from_secs(5),
+            })
+            .unwrap();
+            for signal in stale_signals {
+                tx.try_send(signal.for_message(&self.destination, 2))
+                    .unwrap();
+            }
+            if exhaust_remaining {
+                tx.try_send(RetrySignal::Timeout.for_message(&pending_source, pending_id))
+                    .unwrap();
+                tx.try_send(RetrySignal::Failure.for_message(&pending_source, pending_id))
+                    .unwrap();
+            } else {
+                tx.try_send(publish(
+                    &pending_source,
+                    pending_id,
+                    ProtoSessionMessageType::RtxReply,
+                ))
+                .unwrap();
+            }
+
+            timeout(
+                Duration::from_secs(10),
+                SessionController::processing_loop(session, rx, CancellationToken::new(), settings),
+            )
+            .await
+            .expect("receiver did not finish draining the queued schedule");
+
+            let mut delivered: HashMap<ProtoName, Vec<u32>> = HashMap::new();
+            let mut errors = Vec::new();
+            while let Ok(result) = rx_app.try_recv() {
+                match result {
+                    Ok(message) => {
+                        assert_eq!(
+                            message
+                                .get_payload()
+                                .unwrap()
+                                .as_application_payload()
+                                .unwrap()
+                                .blob,
+                            message.get_id().to_le_bytes()
+                        );
+                        delivered
+                            .entry(message.get_source())
+                            .or_default()
+                            .push(message.get_id());
+                    }
+                    Err(error) => errors.push(error),
+                }
+            }
+            let only_first_gap_recovers = other_sender || exhaust_remaining;
+            let expected_local = if only_first_gap_recovers {
+                vec![1, 2, 3]
+            } else {
+                vec![1, 2, 3, 4, 5]
+            };
+            assert_eq!(
+                delivered.remove(&self.destination),
+                Some(expected_local),
+                "{recovery_type:?} retirement with {stale_signals:?} during drain"
+            );
+            if other_sender {
+                let expected_remote = if exhaust_remaining {
+                    vec![1]
+                } else {
+                    vec![1, 2, 3]
+                };
+                assert_eq!(delivered.remove(&pending_source), Some(expected_remote));
+            }
+            assert!(delivered.is_empty());
+            if exhaust_remaining {
+                assert!(matches!(
+                    errors.as_slice(),
+                    [SessionError::MessageReceiveRetryFailed { id }] if *id == pending_id
+                ));
+            } else {
+                assert!(
+                    errors.is_empty(),
+                    "unexpected application errors: {errors:?}"
+                );
+            }
+
+            let mut retries = Vec::new();
+            while let Ok(result) = rx_slim.try_recv() {
+                let message = result.unwrap();
+                if message.get_session_message_type() == ProtoSessionMessageType::RtxRequest {
+                    retries.push((message.get_dst(), message.get_id()));
+                }
+            }
+            let mut expected_retries = vec![
+                (self.destination.clone(), 2),
+                (pending_source.clone(), pending_id),
+            ];
+            if exhaust_remaining {
+                expected_retries.push((pending_source, pending_id));
+            }
+            assert_eq!(retries, expected_retries);
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_late_publish_recovery_does_not_report_receive_failure() {
+        for session_type in [ProtoSessionType::PointToPoint, ProtoSessionType::Multicast] {
+            SessionControllerTestBuilder::new()
+                .with_session_type(session_type)
+                .assert_recovered_gap_outputs(ProtoSessionMessageType::Msg)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_recovered_rtx_timer_errors_are_ignored_while_active() {
+        for session_type in [ProtoSessionType::PointToPoint, ProtoSessionType::Multicast] {
+            SessionControllerTestBuilder::new()
+                .with_session_type(session_type)
+                .assert_recovered_gap_outputs(ProtoSessionMessageType::RtxReply)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_normal_stale_timeout() {
+        SessionControllerTestBuilder::new()
+            .assert_recovery_drains_remaining_gap(
+                ProtoSessionMessageType::Msg,
+                &[RetrySignal::Timeout],
+                false,
+                false,
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_normal_stale_failure() {
+        SessionControllerTestBuilder::new()
+            .assert_recovery_drains_remaining_gap(
+                ProtoSessionMessageType::Msg,
+                &[RetrySignal::Failure],
+                false,
+                false,
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_rtx_stale_timeout() {
+        SessionControllerTestBuilder::new()
+            .assert_recovery_drains_remaining_gap(
+                ProtoSessionMessageType::RtxReply,
+                &[RetrySignal::Timeout],
+                false,
+                false,
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_rtx_stale_failure() {
+        SessionControllerTestBuilder::new()
+            .assert_recovery_drains_remaining_gap(
+                ProtoSessionMessageType::RtxReply,
+                &[RetrySignal::Failure],
+                false,
+                false,
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_duplicate_stale_signals() {
+        for recovery_type in [
+            ProtoSessionMessageType::Msg,
+            ProtoSessionMessageType::RtxReply,
+        ] {
+            SessionControllerTestBuilder::new()
+                .assert_recovery_drains_remaining_gap(
+                    recovery_type,
+                    &[
+                        RetrySignal::Timeout,
+                        RetrySignal::Timeout,
+                        RetrySignal::Failure,
+                        RetrySignal::Failure,
+                        RetrySignal::Timeout,
+                    ],
+                    false,
+                    false,
+                )
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_without_stale_signals() {
+        for recovery_type in [
+            ProtoSessionMessageType::Msg,
+            ProtoSessionMessageType::RtxReply,
+        ] {
+            SessionControllerTestBuilder::new()
+                .assert_recovery_drains_remaining_gap(recovery_type, &[], false, false)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_other_sender_keeps_pending_retry() {
+        for recovery_type in [
+            ProtoSessionMessageType::Msg,
+            ProtoSessionMessageType::RtxReply,
+        ] {
+            SessionControllerTestBuilder::new()
+                .with_session_type(ProtoSessionType::Multicast)
+                .assert_recovery_drains_remaining_gap(
+                    recovery_type,
+                    &[RetrySignal::Timeout, RetrySignal::Failure],
+                    true,
+                    false,
+                )
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_unresolved_gap_exhaustion() {
+        for other_sender in [false, true] {
+            SessionControllerTestBuilder::new()
+                .with_session_type(ProtoSessionType::Multicast)
+                .assert_recovery_drains_remaining_gap(
+                    ProtoSessionMessageType::Msg,
+                    &[],
+                    other_sender,
+                    true,
+                )
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_recovery_drain_stale_signals_preserve_real_exhaustion() {
+        for recovery_type in [
+            ProtoSessionMessageType::Msg,
+            ProtoSessionMessageType::RtxReply,
+        ] {
+            for other_sender in [false, true] {
+                SessionControllerTestBuilder::new()
+                    .with_session_type(ProtoSessionType::Multicast)
+                    .assert_recovery_drains_remaining_gap(
+                        recovery_type,
+                        &[RetrySignal::Timeout, RetrySignal::Failure],
+                        other_sender,
+                        true,
+                    )
+                    .await;
+            }
         }
     }
 
