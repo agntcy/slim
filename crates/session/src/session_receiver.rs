@@ -223,12 +223,13 @@ impl SessionReceiver {
             return self.on_publish_message(message);
         }
 
-        let buffer =
-            self.buffer
-                .get_mut(&encoded_source)
-                .ok_or_else(|| SessionError::MissingPayload {
-                    context: "receiver_buffer_rtx_reply",
-                })?;
+        // The buffer can be gone if the endpoint was removed (e.g. marked
+        // offline) while this reply was in flight; that is not a bug in
+        // itself, so do not abort processing over it -- see #2129.
+        let Some(buffer) = self.buffer.get_mut(&encoded_source) else {
+            debug!(%id, source = %source_proto, "ignore rtx error reply for a removed endpoint");
+            return Ok(SessionOutput::new());
+        };
         let recv_vec = buffer.on_lost_message(id);
         self.handle_recv_and_rtx_vectors(source_proto, in_conn, recv_vec, vec![])
     }
@@ -357,6 +358,26 @@ impl SessionReceiver {
         // notify the application that the message was not delivered correctly
         let mut output = SessionOutput::new();
         output.push_app(Err(SessionError::receive_retry_failed(id)));
+
+        // Mark the message as definitively lost in the reorder buffer too.
+        // Without this, the buffer never learns the gap is unrecoverable, so
+        // it keeps waiting on it forever and every later message already
+        // buffered behind it is silently withheld.
+        if let Some(buffer) = self.buffer.get_mut(&name) {
+            let mut released = buffer.on_lost_message(id).into_iter();
+            // The first (and, if there was still an earlier open gap, only)
+            // entry is `id` itself, already reported above as
+            // MessageReceiveRetryFailed -- skip it here so it is not also
+            // reported as MessageLost, and forward whatever else the loss
+            // unblocked.
+            released.next();
+            for recv in released {
+                match recv {
+                    Some(r) => output.push_app(Ok(r)),
+                    None => output.push_app(Err(SessionError::MessageLost(self.session_id))),
+                }
+            }
+        }
         Ok(output)
     }
 
@@ -364,7 +385,21 @@ impl SessionReceiver {
         // remove the buffer related to an endpoint so that if it is added again
         // the messages will not be dropped as duplicated
         tracing::debug!(%endpoint, "remove endpoint on the receiver");
-        self.buffer.remove(&endpoint.name.unwrap());
+        let encoded = endpoint.name.unwrap();
+        self.buffer.remove(&encoded);
+
+        // Also stop and drop any pending RTX retries for this endpoint. Left
+        // behind, a live timer can outlast the endpoint and later fire
+        // against a *new* entry inserted at the same key if this endpoint
+        // reconnects and hits the same message id again.
+        self.pending_rtxs.retain(|key, val| {
+            if key.name == encoded {
+                val.timer.stop();
+                false
+            } else {
+                true
+            }
+        });
     }
 
     pub fn start_drain(&mut self) {
@@ -634,6 +669,11 @@ mod tests {
                     errs[0],
                     SessionError::MessageReceiveRetryFailed { id: 2 }
                 ));
+                // Message 3, buffered behind the now-exhausted gap, must be
+                // released in this same output rather than withheld forever.
+                let delivered = app_messages(&output);
+                assert_eq!(delivered.len(), 1);
+                assert_eq!(delivered[0].get_id(), 3);
             }
             _ => panic!("received unexpected message"),
         }
@@ -980,5 +1020,93 @@ mod tests {
 
         // No ack in unreliable mode
         assert_eq!(slim_messages(&output).len(), 0);
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_remove_endpoint_stops_pending_retry() {
+        let settings = TimerSettings::constant(Duration::from_millis(200)).with_max_retries(2);
+        let (tx_signal, mut rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
+
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            ProtoSessionType::PointToPoint,
+            Some(tx_signal),
+        );
+
+        let publish = |id: u32| {
+            let mut message = Message::builder()
+                .source(remote_name.clone())
+                .destination(local_name.clone())
+                .application_payload("payload", vec![id as u8])
+                .build_publish()
+                .unwrap();
+            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+            message.get_session_header_mut().set_message_id(id);
+            message.get_session_header_mut().set_session_id(10);
+            message.get_slim_header_mut().set_incoming_conn(Some(1));
+            message
+        };
+
+        receiver.on_message(publish(1)).unwrap();
+        // gap at id 2 triggers an RTX request and a pending retry timer
+        receiver.on_message(publish(3)).unwrap();
+        assert!(!receiver.pending_rtxs.is_empty());
+
+        receiver.remove_endpoint(&remote_name);
+
+        // The pending retry, and its timer, must not survive endpoint removal.
+        assert!(receiver.pending_rtxs.is_empty());
+        assert!(
+            timeout(Duration::from_millis(500), rx_signal.recv())
+                .await
+                .is_err(),
+            "a stopped timer must not fire after its endpoint was removed"
+        );
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_rtx_error_reply_tolerated_after_remove_endpoint() {
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let mut receiver = SessionReceiver::new(
+            Some(TimerSettings::constant(Duration::from_secs(60)).with_max_retries(2)),
+            10,
+            local_name.clone(),
+            ProtoSessionType::PointToPoint,
+            Some(tx_signal),
+        );
+
+        // The endpoint is removed (e.g. marked offline) before its error RTX
+        // reply arrives -- the buffer entry is gone, but this must not abort
+        // processing.
+        receiver.remove_endpoint(&remote_name);
+
+        let mut rtx_reply = Message::builder()
+            .source(remote_name.clone())
+            .destination(local_name.clone())
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+        rtx_reply.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::RtxReply);
+        rtx_reply.get_session_header_mut().set_message_id(2);
+        rtx_reply.get_session_header_mut().set_session_id(10);
+        rtx_reply.get_slim_header_mut().set_incoming_conn(Some(1));
+        rtx_reply.get_slim_header_mut().set_error(Some(true));
+
+        let output = receiver
+            .on_rtx_message(rtx_reply)
+            .expect("must not error for a removed endpoint");
+        assert!(app_messages(&output).is_empty());
+        assert!(app_errors(&output).is_empty());
+        assert!(slim_messages(&output).is_empty());
     }
 }
