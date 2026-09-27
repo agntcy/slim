@@ -283,8 +283,9 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
 
-    if: ${{ inputs.rust-cross-build }}
-
+    # Gated per step, not per job: a skipped matrix job never expands its
+    # matrix, so the required check `cross-build (linux, debug, x86_64)` would
+    # never report.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -295,12 +296,14 @@ jobs:
 
     steps:
       - name: Checkout Repo
+        if: ${{ inputs.rust-cross-build }}
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: Setup Rust
+        if: ${{ inputs.rust-cross-build }}
         uses: ./.github/actions/setup-rust
         with:
           workspace: ${{ inputs.working-directory }}
@@ -311,6 +314,7 @@ jobs:
           cache-key-suffix: "-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.profile }}"
 
       - name: Build
+        if: ${{ inputs.rust-cross-build }}
         env:
           TASK_PREFIX: ${{ inputs.task-prefix }}
           ARCH: ${{ matrix.arch }}

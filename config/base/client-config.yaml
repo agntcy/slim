@@ -14,6 +14,7 @@ runtime:
 services:
   slim/0:
     node_id: slim-client
+    default_gateway: auto
     dataplane:
       clients:
         - endpoint: "http://localhost:46357"

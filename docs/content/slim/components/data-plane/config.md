@@ -156,6 +156,13 @@ services:
       servers: [...] # Server endpoints this instance will listen on
       clients: [...] # Client connections this instance will make
 
+    # Fallback for local publishes that have no matching route.
+    # `auto` (default) selects the only Edge connection; with zero or multiple
+    # Edge connections, configure an explicit route or gateway pin instead.
+    # `off` disables automatic fallback; explicit set_route and
+    # set_default_gateway calls remain available.
+    default_gateway: auto
+
     # Controller connectivity configuration (optional)
     controller:
       # gRPC server this node exposes for the Controller to push route updates
@@ -172,6 +179,20 @@ services:
         type: static
         peers: [...]
 ```
+
+### Default Gateway Fallback
+
+`default_gateway` controls how a local publish is forwarded when no route
+matches its destination:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | Automatically forwards through the only Edge connection. With no Edge connection, or with more than one, the publish is not forwarded automatically. This is the default. |
+| `off` | Disables automatic fallback. Explicit `set_route` routes and `set_default_gateway` pins are still honored. |
+
+The fallback only applies to local-origin publishes. Messages arriving from
+an Edge, Remote, or Peer connection are never sent back through the default
+gateway automatically, which prevents gateway loops.
 
 ### Post-Quantum Cryptography (`enforce_pqc`)
 

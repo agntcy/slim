@@ -395,15 +395,19 @@ A group session enables many-to-many communication on a named channel. Every mes
 
 ### Invite a Participant
 
-The session creator acts as a moderator and can invite other applications to join:
+The session creator acts as a moderator and can invite other applications to join.
+
+When the service has one Edge connection and `default_gateway` is `auto` (the
+default), SLIM automatically uses that connection for the discovery publish.
+No route needs to be configured before the invite. If the service has multiple
+Edge connections, automatic selection is ambiguous; use `set_route` (or pin a
+default gateway) when the invite must use a specific uplink. The same explicit
+routing is required when `default_gateway` is set to `off`.
 
 === "Rust"
 
     ```rust
     let participant_name = ProtoName::from_strings(["myorg", "default", "participant"]);
-
-    // Set the route to the participant first
-    app.set_route(&participant_name, conn_id).await?;
 
     // Invite — performs discovery + MLS key exchange
     session.invite_participant(&participant_name).await?;
@@ -413,10 +417,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Python"
 
     ```python
-    async def invite_participant(app, session, participant_name, conn_id):
-        # Set the route to the participant first
-        await app.set_route_async(participant_name, conn_id)
-
+    async def invite_participant(app, session, participant_name):
         # Invite the participant — this performs discovery + MLS key exchange
         handle = await session.invite_async(participant_name)
         await handle.wait_async()
@@ -427,12 +428,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Go"
 
     ```go
-    func inviteParticipant(app *slim.App, session *slim.Session, name *slim.Name, connID uint64) error {
-        // Set the route to the participant first
-        if err := app.SetRouteAsync(name, connID); err != nil {
-            return err
-        }
-
+    func inviteParticipant(session *slim.Session, name *slim.Name) error {
         // Invite the participant — this performs discovery + MLS key exchange
         if err := session.InviteAndWaitAsync(name); err != nil {
             return err
@@ -444,10 +440,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Java"
 
     ```java
-    void inviteParticipant(App app, Session session, Name participantName, Long connId) {
-        // Set the route to the participant first
-        app.setRoute(participantName, connId);
-
+    void inviteParticipant(Session session, Name participantName) {
         // Invite the participant — this performs discovery + MLS key exchange
         session.inviteAndWait(participantName);
 
@@ -458,10 +451,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Kotlin"
 
     ```kotlin
-    suspend fun inviteParticipant(app: App, session: Session, participantName: Name, connId: ULong) {
-        // Set the route to the participant first
-        app.setRouteAsync(participantName, connId)
-
+    suspend fun inviteParticipant(session: Session, participantName: Name) {
         // Invite the participant — this performs discovery + MLS key exchange
         val handle = session.inviteAsync(participantName)
         handle.waitAsync()
@@ -473,9 +463,6 @@ The session creator acts as a moderator and can invite other applications to joi
 === "Node.js"
 
     ```typescript
-    // Set the route to the participant first
-    app.setRoute(inviteName, connId);
-
     // Invite the participant
     await session.inviteAndWaitAsync(inviteName);
 
@@ -485,9 +472,7 @@ The session creator acts as a moderator and can invite other applications to joi
 === ".NET"
 
     ```csharp
-    // Set the route to the participant first
     using var inviteName = SlimName.Parse("myorg/default/participant");
-    app.SetRoute(inviteName, connId);
 
     // Invite the participant (synchronous)
     session.Invite(inviteName);
@@ -498,9 +483,6 @@ The session creator acts as a moderator and can invite other applications to joi
 === "React Native"
 
     ```tsx
-    // Set the route to the participant first
-    await app.setRoute(inviteName, connId);
-
     // Invite the participant
     await session.inviteAndWaitAsync(inviteName);
 

@@ -16,5 +16,4 @@ extend-exclude = [
     "**/*.yaml",
     "**/*.pbxproj",
     "**/*.pbxproj.bak",
-    "charts/**",
 ]
