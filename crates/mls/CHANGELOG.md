@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - semver correction
+
+`0.3.11` moved to the `mls-rs` 0.56 / `mls-rs-core` 0.27 line as a **patch**
+release, and required `agntcy-slim-persistence = "^0.1.0"` — which admits
+`0.1.1`, also incorrectly patch-bumped onto the same new line (see that
+crate's changelog). Combined with a consumer held on `agntcy-slim-auth
+0.15.x` (which pins the 0.54 line), a fresh resolve could select `slim-mls
+0.3.10` (0.54) together with `slim-persistence 0.1.1` (0.56) in the same
+graph and fail to build. See [#2142](https://github.com/agntcy/slim/issues/2142).
+
+This release has no code changes from `0.3.11` beyond requiring
+`agntcy-slim-persistence = "^0.2.0"` — it exists so the version number
+correctly signals the breaking dependency change that `0.3.11` should have
+carried.
+
 ## [0.3.11](https://github.com/agntcy/slim/compare/slim-mls-v0.3.10...slim-mls-v0.3.11) - 2026-09-17
 
 ### Other
