@@ -8,6 +8,13 @@ description = "SLIM session internal implementation."
 [lib]
 name = "slim_session"
 
+[features]
+# Widens the persistence decoders (`pub(crate)` by default) to a `#[doc(hidden)]
+# pub` surface so `crates/session/fuzz` can call them directly. Off by
+# default and not part of any default feature set, so it never becomes de
+# facto public API — see the `fuzzing` module in `src/lib.rs`.
+fuzzing = []
+
 [dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-datapath = { workspace = true }

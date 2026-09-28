@@ -8,6 +8,13 @@ description = "Encrypted, disk-backed persistence for SLIM MLS group and session
 [lib]
 name = "slim_persistence"
 
+[features]
+# Widens `ValueCipher::decrypt`/`encrypt` (`pub(crate)` by default) to a
+# `#[doc(hidden)] pub` surface so `crates/persistence/fuzz` can call them
+# directly. Off by default and not part of any default feature set, so it
+# never becomes de facto public API — see the `fuzzing` module in `src/lib.rs`.
+fuzzing = []
+
 [dependencies]
 hex = "0.4"
 mls-rs = { workspace = true }
