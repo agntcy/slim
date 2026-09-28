@@ -54,8 +54,8 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 
     ```go
     import (
-        slim "github.com/agntcy/slim-bindings-go/v2"
-        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
+        slim "github.com/agntcy/slim-bindings-go"
+        slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
     )
 
     server1, _ := slim.NameFromString("myorg/default/server-1")

@@ -68,7 +68,7 @@ This is useful for broadcasting configuration, querying multiple services, or sc
 
 ## Supported Languages
 
-SLIMRPC code generation is supported for Python, Go, Java, Kotlin, and .NET (C#). See the [Compiler](./compiler.md) page for installation and usage.
+SLIMRPC code generation is supported for Python, Go, Java, Kotlin, and .NET (C#). See the [Compiler](./compiler.md) page for installation and usage. For .NET runtime details and the `Agntcy.Slim.SlimRpc` namespace, see the [.NET SDK guide](../dotnet.md).
 
 ## Tutorials
 
