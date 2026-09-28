@@ -1,0 +1,44 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Its own workspace on purpose: `[workspace]` at the bottom detaches this
+# crate from the repo root, so `cargo build --workspace` never sees it and the
+# nightly toolchain libFuzzer needs stays off everyone else's build path. See
+# `crates/proto/fuzz/Cargo.toml` for the sibling crate this mirrors.
+
+[package]
+name = "agntcy-slim-datapath-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+prost = "0.14"
+
+# `fuzzing` compiles link_ecdh's pure-Rust backend as a real dependency on
+# native (normally dev-dependency-only) and exposes both link_ecdh backends
+# publicly, so the link-ecdh-parse target can call each directly.
+[dependencies.agntcy-slim-datapath]
+path = ".."
+features = ["fuzzing"]
+
+[[bin]]
+name = "header-mac-verify"
+path = "fuzz_targets/header-mac-verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link-ecdh-parse"
+path = "fuzz_targets/link-ecdh-parse.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
