@@ -217,6 +217,13 @@ nav:
           - SLIM SDK:
               - slim/components/sdk/index.md
               - Installation: slim/components/sdk/install.md
+              - Python SDK: slim/components/sdk/python.md
+              - Go SDK: slim/components/sdk/go.md
+              - .NET SDK: slim/components/sdk/dotnet.md
+              - Java SDK: slim/components/sdk/java.md
+              - Kotlin SDK: slim/components/sdk/kotlin.md
+              - Node.js SDK: slim/components/sdk/node.md
+              - React Native SDK: slim/components/sdk/react-native.md
               - SLIMRPC:
                   - slim/components/sdk/slimrpc/index.md
                   - Compiler: slim/components/sdk/slimrpc/compiler.md

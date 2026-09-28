@@ -9,8 +9,9 @@ The SLIMRPC compiler is a set of `protoc` plugins that generate client and serve
 | Python | `protoc-gen-slimrpc-python` |
 | Go | `protoc-gen-slimrpc-go` |
 | Java | `protoc-gen-slimrpc-java` |
-| Kotlin | `protoc-gen-slimrpc-java` (same plugin) |
+| Kotlin | `protoc-gen-slimrpc-kotlin` |
 | .NET (C#) | `protoc-gen-slimrpc-csharp` |
+| Node.js / TypeScript | `protoc-gen-slimrpc-node` |
 
 ## Installation
 
@@ -75,17 +76,41 @@ Add the SLIMRPC plugin to your `buf.gen.yaml` alongside the standard protobuf pl
 
 === "Kotlin"
 
-    Kotlin uses the same Java plugin. Add both to generate Java sources consumable from Kotlin:
+    ```yaml
+    version: v2
+    clean: true
+    managed:
+      enabled: true
+      override:
+        - file_option: java_package_prefix
+          value: com
+    inputs:
+      - proto_file: example.proto
+    plugins:
+      - remote: buf.build/protocolbuffers/java
+        out: types
+      - remote: buf.build/protocolbuffers/kotlin
+        out: types
+      - local: protoc-gen-slimrpc-kotlin
+        out: slimrpc
+    ```
+
+=== "Node.js"
 
     ```yaml
     version: v2
     managed:
       enabled: true
+    inputs:
+      - proto_file: example.proto
     plugins:
-      - remote: buf.build/protocolbuffers/java
-        out: src/main/java
-      - local: protoc-gen-slimrpc-java
-        out: src/main/java
+      - local: protoc-gen-slimrpc-node
+        out: types
+      - remote: buf.build/bufbuild/es:v2.12.1
+        out: types
+        opt:
+          - target=ts
+          - import_extension=js
     ```
 
 === ".NET"
@@ -121,8 +146,14 @@ protoc --slimrpc-go_out=types --go_out=types example.proto
 # Java
 protoc --slimrpc-java_out=src/main/java --java_out=src/main/java example.proto
 
+# Kotlin
+protoc --slimrpc-kotlin_out=slimrpc --kotlin_out=types example.proto
+
 # C#
 protoc --slimrpc-csharp_out=Generated --csharp_out=Generated example.proto
+
+# Node.js / TypeScript
+protoc --slimrpc-node_out=types --es_out=types example.proto
 ```
 
 ## Generated Code

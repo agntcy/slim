@@ -73,6 +73,20 @@ mod backend;
 #[path = "link_ecdh/backend_pure.rs"]
 mod backend_pure;
 
+// Both backends again, this time `pub` and keyed by their own name rather than
+// by target, so `crates/datapath/fuzz` can call each directly and assert they
+// reach the same accept/reject decision on identical peer-supplied bytes (a
+// divergence between them is itself a bug). Gated behind `fuzzing` so this
+// widened surface never leaks into the default public API; native-only
+// because on wasm32 `backend` already *is* the pure one, so there is nothing
+// to compare it against.
+#[cfg(all(feature = "fuzzing", not(target_arch = "wasm32")))]
+#[path = "link_ecdh/backend_awslc.rs"]
+pub mod fuzzing_backend_awslc;
+#[cfg(all(feature = "fuzzing", not(target_arch = "wasm32")))]
+#[path = "link_ecdh/backend_pure.rs"]
+pub mod fuzzing_backend_pure;
+
 /// Opaque ephemeral private key, backend-specific. Held between
 /// [`generate_x25519_ephemeral`] and [`derive_header_mac_from_ecdh`].
 pub type EphemeralKey = backend::EphemeralKey;
@@ -176,6 +190,31 @@ mod tests {
     fn pure_ecdh_backend_rejects_bad_peer_key() {
         let (sk, _pk) = backend_pure::generate().unwrap();
         let err = backend_pure::derive(sk, &[0u8; 8], "link").unwrap_err();
+        assert!(matches!(err, HeaderMacError::KeyAgreement));
+    }
+
+    // All-zero is a valid-length but non-contributory (low-order) X25519 public
+    // key: a peer sending it can force the shared secret to a publicly known
+    // value regardless of our private key (see `SharedSecret::was_contributory`
+    // docs). Regression test for a real divergence the datapath fuzz targets
+    // (crates/datapath/fuzz) found: `backend_awslc` already rejects this, but
+    // `backend_pure::derive` silently accepted it before this fix.
+    #[test]
+    fn pure_ecdh_backend_rejects_non_contributory_peer_key() {
+        let (sk, _pk) = backend_pure::generate().unwrap();
+        let err = backend_pure::derive(sk, &[0u8; X25519_PUBLIC_KEY_LEN], "link").unwrap_err();
+        assert!(matches!(err, HeaderMacError::KeyAgreement));
+    }
+
+    // Same non-contributory-key check, for the hybrid (X25519 + ML-KEM-768)
+    // derivation path.
+    #[test]
+    fn pure_ecdh_backend_rejects_non_contributory_peer_key_hybrid() {
+        let (sk, _pk) = backend_pure::generate().unwrap();
+        let mlkem_shared = [0u8; 32];
+        let err =
+            backend_pure::derive_hybrid(sk, &[0u8; X25519_PUBLIC_KEY_LEN], &mlkem_shared, "link")
+                .unwrap_err();
         assert!(matches!(err, HeaderMacError::KeyAgreement));
     }
 

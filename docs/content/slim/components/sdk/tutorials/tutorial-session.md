@@ -81,7 +81,7 @@ A point-to-point session connects your application to a single remote instance. 
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go/v2"
+        slim "github.com/agntcy/slim-bindings-go"
     )
 
     func runClient(app *slim.App, remoteName *slim.Name) *slim.Session {

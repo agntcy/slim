@@ -42,7 +42,7 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 
     ```go
     import (
-        slim_rpc "github.com/agntcy/slim-bindings-go/v2/slim_rpc"
+        slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
         pb "example/types"
     )
 

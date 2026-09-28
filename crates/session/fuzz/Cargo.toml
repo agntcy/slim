@@ -1,0 +1,47 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Its own workspace on purpose: `[workspace]` at the bottom detaches this
+# crate from the repo root, so `cargo build --workspace` never sees it and the
+# nightly toolchain libFuzzer needs stays off everyone else's build path. Same
+# pattern as `crates/proto/fuzz`.
+
+[package]
+name = "agntcy-slim-session-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+prost = "0.14"
+
+[dependencies.agntcy-slim-session]
+path = ".."
+# See `fuzzing` in `crates/session/src/lib.rs`: this is the only place in the
+# repo that enables the feature.
+features = ["fuzzing"]
+
+[dependencies.agntcy-slim-datapath]
+path = "../../datapath"
+
+[[bin]]
+name = "decode-name"
+path = "fuzz_targets/decode-name.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode-participant"
+path = "fuzz_targets/decode-participant.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
