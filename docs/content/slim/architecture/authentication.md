@@ -31,10 +31,11 @@ A symmetric key used to sign and verify application identity tokens. Each applic
 
 **Properties:**
 - Simple to configure — no external infrastructure required
-- Any application holding the same secret can verify messages from any other holder
+- Any application holding the same secret can verify messages from any other holder — and, symmetrically, can *sign* as any identity that shares the secret. There is no per-application isolation and no non-repudiation: the secret proves membership in the group, not which member sent a given message.
 - Each application has a unique identity (base name + random suffix); the secret only governs whether that identity is trusted
+- A single leaked secret compromises every identity that uses it, and rotation means redistributing the new secret to every holder at once
 
-**Use when:** Development, local testing, or closed internal networks where all participants are equally trusted.
+**Use when:** Development, local testing, or closed internal networks where all participants are equally trusted. Prefer JWT or SPIRE for anything else — both give each application its own credential, so one compromised application does not let an attacker impersonate the rest.
 
 ### JWT (JSON Web Tokens)
 
