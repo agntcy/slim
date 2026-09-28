@@ -40,3 +40,20 @@ pub use store::PersistenceConfig;
 // restore; persistence is treated as disabled there.
 #[cfg(not(target_arch = "wasm32"))]
 pub use store::PersistentStore;
+
+/// Fuzzing-only surface for `crates/persistence/fuzz`
+/// (`agntcy-slim-persistence-fuzz`).
+///
+/// `ValueCipher` and its `encrypt`/`decrypt` are `pub(crate)` in [`cipher`]
+/// because at-rest encryption is an internal detail, not public API. This
+/// module exists only behind the `fuzzing` feature (off by default, not part
+/// of any default feature set) so the fuzz crate can drive real
+/// encrypt/decrypt round trips without making the cipher generally `pub`;
+/// `#[doc(hidden)]` also keeps it out of rustdoc for anyone who does enable
+/// the feature. Not covered by semver.
+#[cfg(all(feature = "fuzzing", not(target_arch = "wasm32")))]
+#[doc(hidden)]
+pub mod fuzzing {
+    pub use crate::cipher::decrypt_fuzz as decrypt;
+    pub use crate::cipher::encrypt_fuzz as encrypt;
+}
