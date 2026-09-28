@@ -6790,6 +6790,10 @@
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared_secret</span>
 <span class="w">      </span><span class="nt">secret</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;secret-for-cluster-a-abcdefghi-1234567890&quot;</span>
+<span class="w">      </span><span class="c1"># SPIRE (production) -- see &quot;Choosing a Credential Method&quot; in</span>
+<span class="w">      </span><span class="c1"># architecture/authentication.md</span>
+<span class="w">      </span><span class="c1"># type: spire</span>
+<span class="w">      </span><span class="c1"># socket_path: &quot;/run/spire/agent-sockets/api.sock&quot;</span>
 
 <span class="w">    </span><span class="c1"># Data plane API configuration</span>
 <span class="w">    </span><span class="nt">dataplane</span><span class="p">:</span>
@@ -7361,6 +7365,18 @@ gateway automatically, which prevents gateway loops.</p>
 <li>Consider using environment variable substitution: <code>data: "${env:JWT_SECRET}"</code></li>
 <li>For production, store secrets in secure secret management systems</li>
 </ul>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Shared secret is a symmetric credential</p>
+<p>Every holder of a shared secret can sign as, and therefore impersonate,
+every other holder — there is no per-application isolation and no
+non-repudiation. A single leaked secret compromises every identity that
+uses it, and rotating it requires redistributing it to every holder at
+once. Rotating the secret string does not change this.</p>
+<p>Use shared secret for development, local testing, or closed networks
+where all participants are equally trusted. For anything else, use JWT
+with an external identity provider or SPIRE — see <a href="../../../architecture/authentication/#choosing-a-credential-method">Choosing a Credential
+Method</a>.</p>
 </div>
 <h4 id="spire-authentication">SPIRE Authentication</h4>
 <p>SPIRE does not have a separate <code>auth</code> type. Instead, SPIRE provides authentication through the following mechanisms:</p>

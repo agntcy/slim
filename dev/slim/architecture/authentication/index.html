@@ -5144,9 +5144,10 @@
 <p>A symmetric key used to sign and verify application identity tokens. Each application's identity is independently generated from a base name (derived from the application name) plus a random suffix. When the application sends a message, SLIM creates a token containing the identity and signs it with an HMAC keyed by the shared secret. When a session receives a message, it verifies the HMAC using the same secret — if verification passes, the sender's identity is trusted; if not, the message is dropped.</p>
 <p><strong>Properties:</strong>
 - Simple to configure — no external infrastructure required
-- Any application holding the same secret can verify messages from any other holder
-- Each application has a unique identity (base name + random suffix); the secret only governs whether that identity is trusted</p>
-<p><strong>Use when:</strong> Development, local testing, or closed internal networks where all participants are equally trusted.</p>
+- Any application holding the same secret can verify messages from any other holder — and, symmetrically, can <em>sign</em> as any identity that shares the secret. There is no per-application isolation and no non-repudiation: the secret proves membership in the group, not which member sent a given message.
+- Each application has a unique identity (base name + random suffix); the secret only governs whether that identity is trusted
+- A single leaked secret compromises every identity that uses it, and rotation means redistributing the new secret to every holder at once</p>
+<p><strong>Use when:</strong> Development, local testing, or closed internal networks where all participants are equally trusted. Prefer JWT or SPIRE for anything else — both give each application its own credential, so one compromised application does not let an attacker impersonate the rest.</p>
 <h3 id="jwt-json-web-tokens">JWT (JSON Web Tokens)</h3>
 <p>The application holds a signed JWT. The <code>sub</code> (subject) claim of the JWT is the application's identity. When the application sends a message, the JWT is included as the identity token. When a session receives a message, it verifies the JWT signature using the issuer's public key or JWKS endpoint — if valid, the <code>sub</code> claim is accepted as the sender's identity.</p>
 <p>Tokens can come from:</p>
