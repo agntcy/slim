@@ -111,6 +111,32 @@ impl ValueCipher {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Fuzzing-only surface (crates/persistence/fuzz).
+// ---------------------------------------------------------------------------
+//
+// `ValueCipher` and its `encrypt`/`decrypt` methods are `pub(crate)`: nothing
+// outside this crate is meant to reach the raw AEAD operations directly.
+// Rather than a blanket `pub` on the type (which would make it de facto
+// public API), the `fuzzing` feature — off by default and not part of any
+// default feature set — gates these free functions instead. They take only
+// already-public types (`&str`, `&[u8]`, `PersistenceError`) in their
+// signatures, so `ValueCipher` itself never has to be exposed; only
+// `crates/persistence/fuzz` enables the feature. See `fuzzing` in
+// `src/lib.rs`.
+
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn encrypt_fuzz(identity: &str, plaintext: &[u8]) -> Result<Vec<u8>, PersistenceError> {
+    ValueCipher::derive(None, identity)?.encrypt(plaintext)
+}
+
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn decrypt_fuzz(identity: &str, blob: &[u8]) -> Result<Vec<u8>, PersistenceError> {
+    ValueCipher::derive(None, identity)?.decrypt(blob)
+}
+
 fn derive_key(ikm: &[u8]) -> Result<[u8; 32], PersistenceError> {
     let salt = Salt::new(HKDF_SHA256, HKDF_SALT);
     let prk = salt.extract(ikm);

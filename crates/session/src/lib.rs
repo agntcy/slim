@@ -37,6 +37,22 @@ mod runtime;
 #[cfg(test)]
 pub mod test_utils;
 
+/// Fuzzing-only surface for `crates/session/fuzz` (`agntcy-slim-session-fuzz`).
+///
+/// `decode_name`/`decode_participant` are `pub(crate)` in [`persistence`]
+/// because they are an internal parsing step, not public API. This module
+/// exists only behind the `fuzzing` feature (off by default, not part of any
+/// default feature set) so the fuzz crate can call them without making them
+/// generally `pub`; `#[doc(hidden)]` also keeps it out of rustdoc for anyone
+/// who does enable the feature. Not covered by semver.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing {
+    pub use crate::errors::SessionError;
+    pub use crate::persistence::decode_name_fuzz as decode_name;
+    pub use crate::persistence::decode_participant_fuzz as decode_participant;
+}
+
 // Traits
 pub use traits::MessageHandler;
 
