@@ -8,6 +8,10 @@ on:
   push:
     branches:
       - main
+  # Lets a maintainer re-run this without needing a throwaway commit --
+  # e.g. after clearing a transient failure like a yanked dependency
+  # blocking cargo-semver-checks.
+  workflow_dispatch: {}
 
 permissions: {}
 
