@@ -86,6 +86,14 @@ pub fn derive(
         .map_err(|_| HeaderMacError::KeyAgreement)?;
     let peer = PublicKey::from(peer_bytes);
     let shared = my_private.diffie_hellman(&peer);
+    // Reject a non-contributory (e.g. all-zero / low-order) peer public key: a
+    // malicious peer can otherwise force the shared secret to a publicly known
+    // value, regardless of our private key (see `SharedSecret::was_contributory`
+    // docs). `backend_awslc`'s `agree_ephemeral` already rejects this case, so
+    // this keeps both backends in agreement.
+    if !shared.was_contributory() {
+        return Err(HeaderMacError::KeyAgreement);
+    }
 
     let hk = hkdf::Hkdf::<sha2::Sha256>::new(Some(link_id.as_bytes()), shared.as_bytes());
     let mut okm = [0u8; 32];
@@ -150,6 +158,11 @@ pub fn derive_hybrid(
         .map_err(|_| HeaderMacError::KeyAgreement)?;
     let peer = PublicKey::from(peer_bytes);
     let x25519_shared = my_private.diffie_hellman(&peer);
+    // Same non-contributory-key rejection as `derive` above -- the hybrid mode
+    // still folds a forceable-to-zero X25519 contribution into the KDF input.
+    if !x25519_shared.was_contributory() {
+        return Err(HeaderMacError::KeyAgreement);
+    }
 
     let mut ikm = [0u8; 64];
     ikm[..32].copy_from_slice(x25519_shared.as_bytes());

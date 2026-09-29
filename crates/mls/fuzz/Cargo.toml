@@ -1,0 +1,58 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Its own workspace on purpose: `[workspace]` at the bottom detaches this
+# crate from the repo root, so `cargo build --workspace` never sees it and the
+# nightly toolchain libFuzzer needs stays off everyone else's build path.
+
+[package]
+name = "agntcy-slim-mls-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Shared group-setup scaffolding used by all three targets (see src/lib.rs).
+[lib]
+name = "agntcy_slim_mls_fuzz"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+libfuzzer-sys = "0.4"
+# Only `Mls::initialize` (and a couple of identity-rotation helpers) are
+# always-async; everything on the fuzzed paths themselves is synchronous on
+# native. A minimal current-thread runtime is enough to drive that one call.
+tokio = { version = "1", features = ["rt"] }
+
+[dependencies.agntcy-slim-mls]
+path = ".."
+
+[dependencies.agntcy-slim-auth]
+path = "../../auth"
+
+[[bin]]
+name = "process-commit"
+path = "fuzz_targets/process-commit.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "process-welcome"
+path = "fuzz_targets/process-welcome.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "process-proposal"
+path = "fuzz_targets/process-proposal.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

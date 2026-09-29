@@ -150,6 +150,10 @@ services:
     auth:
       type: shared_secret
       secret: "secret-for-cluster-a-abcdefghi-1234567890"
+      # SPIRE (production) -- see "Choosing a Credential Method" in
+      # architecture/authentication.md
+      # type: spire
+      # socket_path: "/run/spire/agent-sockets/api.sock"
 
     # Data plane API configuration
     dataplane:
@@ -749,6 +753,18 @@ The following key types are supported:
     - Both must use the **same** HMAC algorithm (HS256, HS384, or HS512)
     - Consider using environment variable substitution: `data: "${env:JWT_SECRET}"`
     - For production, store secrets in secure secret management systems
+
+!!! warning "Shared secret is a symmetric credential"
+    Every holder of a shared secret can sign as, and therefore impersonate,
+    every other holder — there is no per-application isolation and no
+    non-repudiation. A single leaked secret compromises every identity that
+    uses it, and rotating it requires redistributing it to every holder at
+    once. Rotating the secret string does not change this.
+
+    Use shared secret for development, local testing, or closed networks
+    where all participants are equally trusted. For anything else, use JWT
+    with an external identity provider or SPIRE — see [Choosing a Credential
+    Method](../../architecture/authentication.md#choosing-a-credential-method).
 
 #### SPIRE Authentication
 
