@@ -14,6 +14,7 @@ runtime:
 services:
   slim/0:
     node_id: slim-server
+    default_gateway: auto
     dataplane:
       servers:
         - endpoint: "0.0.0.0:46357"

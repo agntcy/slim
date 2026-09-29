@@ -12,6 +12,19 @@ name = "slim_datapath"
 default = []
 kubernetes = ["dep:kube", "dep:k8s-openapi"]
 otel_tracing = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
+# Compiles `link_ecdh`'s pure-Rust backend as a real dependency on native
+# targets (normally it is dev-dependency-only, compiled just for `cargo test`)
+# and exposes both backends publicly, so `crates/datapath/fuzz` can call each
+# directly and assert they agree on identical peer-supplied bytes.
+fuzzing = [
+    "dep:getrandom",
+    "dep:hkdf",
+    "dep:hmac",
+    "dep:ml-kem",
+    "dep:rand_core",
+    "dep:sha2",
+    "dep:x25519-dalek",
+]
 
 [dependencies]
 agntcy-slim-config = { workspace = true }
@@ -39,16 +52,26 @@ aws-lc-rs = { workspace = true }
 display-error-chain = { workspace = true }
 drain = { workspace = true }
 fastwebsockets = { workspace = true }
+# Below: the pure-Rust `link_ecdh` backend, real (optional) dependencies only
+# under the `fuzzing` feature -- see `[features]`. Otherwise these are
+# dev-dependency-only on native (below).
+getrandom = { workspace = true, optional = true }
 h2 = { workspace = true }
+hkdf = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 http = { workspace = true }
 k8s-openapi = { workspace = true, features = ["v1_32"], optional = true }
 kube = { workspace = true, optional = true }
+ml-kem = { workspace = true, optional = true }
+rand_core = { workspace = true, optional = true }
 semver = { workspace = true }
+sha2 = { workspace = true, optional = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
+x25519-dalek = { workspace = true, optional = true }
 
 # rand / uuid transitively need getrandom, and link_ecdh's pure-Rust backend uses
 # it directly; on wasm32 the `wasm_js` backend must be enabled.

@@ -2,11 +2,18 @@
 name = "agntcy-slim-persistence"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.1"
+version = "0.2.0"
 description = "Encrypted, disk-backed persistence for SLIM MLS group and session state."
 
 [lib]
 name = "slim_persistence"
+
+[features]
+# Widens `ValueCipher::decrypt`/`encrypt` (`pub(crate)` by default) to a
+# `#[doc(hidden)] pub` surface so `crates/persistence/fuzz` can call them
+# directly. Off by default and not part of any default feature set, so it
+# never becomes de facto public API — see the `fuzzing` module in `src/lib.rs`.
+fuzzing = []
 
 [dependencies]
 hex = "0.4"

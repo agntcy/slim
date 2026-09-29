@@ -9,9 +9,9 @@ Each binding bundles two components:
 
 ## Supported Languages
 
-Python, Go, .NET, Java, Kotlin, Node.js, and React Native.
+[Python](./python.md) · [Go](./go.md) · [.NET](./dotnet.md) · [Java](./java.md) · [Kotlin](./kotlin.md) · [Node.js](./node.md) · [React Native](./react-native.md)
 
-See [Installation](./install.md) for per-language package names, requirements, and install commands.
+Each language guide covers its API surface, transport authentication, SLIMRPC, examples, and platform support. See [Installation](./install.md) for package names, requirements, and install commands side by side.
 
 ## How It Fits Into SLIM
 
@@ -53,5 +53,6 @@ Work through the tutorials to learn the fundamentals step by step:
 ## What to Read Next
 
 - [Installation](./install.md) — Install the SDK for your language
+- Language SDK guides — [Python](./python.md), [Go](./go.md), [.NET](./dotnet.md), [Java](./java.md), [Kotlin](./kotlin.md), [Node.js](./node.md), [React Native](./react-native.md)
 - [Architecture](../../architecture/index.md) — Understand the full SLIM architecture
 - [Sessions](../../architecture/sessions/index.md) — Deep dive into session types and the session lifecycle

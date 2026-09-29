@@ -165,6 +165,30 @@ pub(crate) fn decode_participant(bytes: &[u8]) -> Result<Participant, SessionErr
 }
 
 // ---------------------------------------------------------------------------
+// Fuzzing-only surface (crates/session/fuzz).
+// ---------------------------------------------------------------------------
+//
+// `decode_name`/`decode_participant` parse bytes coming back out of the KV
+// store, which a corrupted or tampered store can hand back arbitrary. They
+// are `pub(crate)` because nothing outside this crate is meant to call them
+// directly. Rather than a blanket `pub` (which would make them de facto
+// public API), the `fuzzing` feature — off by default and not part of any
+// default feature set — gates a `#[doc(hidden)] pub` wrapper that only
+// `crates/session/fuzz` enables. See `fuzzing` in `src/lib.rs`.
+
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn decode_name_fuzz(bytes: &[u8]) -> Result<ProtoName, SessionError> {
+    decode_name(bytes)
+}
+
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn decode_participant_fuzz(bytes: &[u8]) -> Result<Participant, SessionError> {
+    decode_participant(bytes)
+}
+
+// ---------------------------------------------------------------------------
 // Config conversions.
 // ---------------------------------------------------------------------------
 

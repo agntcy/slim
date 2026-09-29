@@ -150,11 +150,22 @@ services:
     auth:
       type: shared_secret
       secret: "secret-for-cluster-a-abcdefghi-1234567890"
+      # SPIRE (production) -- see "Choosing a Credential Method" in
+      # architecture/authentication.md
+      # type: spire
+      # socket_path: "/run/spire/agent-sockets/api.sock"
 
     # Data plane API configuration
     dataplane:
       servers: [...] # Server endpoints this instance will listen on
       clients: [...] # Client connections this instance will make
+
+    # Fallback for local publishes that have no matching route.
+    # `auto` (default) selects the only Edge connection; with zero or multiple
+    # Edge connections, configure an explicit route or gateway pin instead.
+    # `off` disables automatic fallback; explicit set_route and
+    # set_default_gateway calls remain available.
+    default_gateway: auto
 
     # Controller connectivity configuration (optional)
     controller:
@@ -172,6 +183,20 @@ services:
         type: static
         peers: [...]
 ```
+
+### Default Gateway Fallback
+
+`default_gateway` controls how a local publish is forwarded when no route
+matches its destination:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | Automatically forwards through the only Edge connection. With no Edge connection, or with more than one, the publish is not forwarded automatically. This is the default. |
+| `off` | Disables automatic fallback. Explicit `set_route` routes and `set_default_gateway` pins are still honored. |
+
+The fallback only applies to local-origin publishes. Messages arriving from
+an Edge, Remote, or Peer connection are never sent back through the default
+gateway automatically, which prevents gateway loops.
 
 ### Post-Quantum Cryptography (`enforce_pqc`)
 
@@ -728,6 +753,18 @@ The following key types are supported:
     - Both must use the **same** HMAC algorithm (HS256, HS384, or HS512)
     - Consider using environment variable substitution: `data: "${env:JWT_SECRET}"`
     - For production, store secrets in secure secret management systems
+
+!!! warning "Shared secret is a symmetric credential"
+    Every holder of a shared secret can sign as, and therefore impersonate,
+    every other holder — there is no per-application isolation and no
+    non-repudiation. A single leaked secret compromises every identity that
+    uses it, and rotating it requires redistributing it to every holder at
+    once. Rotating the secret string does not change this.
+
+    Use shared secret for development, local testing, or closed networks
+    where all participants are equally trusted. For anything else, use JWT
+    with an external identity provider or SPIRE — see [Choosing a Credential
+    Method](../../architecture/authentication.md#choosing-a-credential-method).
 
 #### SPIRE Authentication
 
