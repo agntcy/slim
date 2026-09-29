@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.12](https://github.com/agntcy/slim/compare/slim-session-v0.7.11...slim-session-v0.7.12) - 2026-09-29
+
+### Added
+
+- *(fuzz)* add session-persistence and cipher targets ([#2135](https://github.com/agntcy/slim/pull/2135))
+
+### Fixed
+
+- *(session)* close three receiver recovery gaps ([#2132](https://github.com/agntcy/slim/pull/2132))
+- *(session)* retire recovered receive retries ([#2128](https://github.com/agntcy/slim/pull/2128))
+
+### Other
+
+- *(session)* add property-based stateful testing for SessionReceiver ([#2145](https://github.com/agntcy/slim/pull/2145))
+
 ## [0.7.11](https://github.com/agntcy/slim/compare/slim-session-v0.7.10...slim-session-v0.7.11) - 2026-09-01
 
 ### Fixed

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.8...slim-datapath-v0.19.0) - 2026-09-29
+
+### Added
+
+- *(fuzz)* add header-MAC and link-ECDH datapath fuzz targets ([#2136](https://github.com/agntcy/slim/pull/2136))
+- *(datapath)* implement default gateway as a fallback when route is… ([#2080](https://github.com/agntcy/slim/pull/2080))
+
+### Other
+
+- *(datapath,control-plane)* mark DataPathError and TopologyConfig non_exhaustive ([#2147](https://github.com/agntcy/slim/pull/2147))
+- cover default gateway fallback regressions ([#2096](https://github.com/agntcy/slim/pull/2096))
+
 ## [0.18.8](https://github.com/agntcy/slim/compare/slim-datapath-v0.18.7...slim-datapath-v0.18.8) - 2026-09-17
 
 ### Other
