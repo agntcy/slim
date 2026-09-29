@@ -52,6 +52,7 @@ tonic = { version = "0.14", default-features = false }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 criterion = { workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }
 
