@@ -13,6 +13,7 @@ use thiserror::Error;
 
 /// DataPath and subscription table errors merged into a single enum.
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum DataPathError {
     // Connection lifecycle
     #[error("connection error")]
