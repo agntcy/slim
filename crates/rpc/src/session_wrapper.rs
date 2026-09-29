@@ -163,7 +163,7 @@ impl SessionRx {
 
             let source = msg.get_source();
             Ok(ReceivedMessage {
-                metadata: msg.metadata,
+                metadata: msg.get_metadata_map(),
                 payload,
                 source,
             })

@@ -550,9 +550,8 @@ async fn wait_for_link_between_domains_entry(
     timeout: Duration,
 ) -> LinkEntry {
     let deadline = tokio::time::Instant::now() + timeout;
-    let mut links = vec![];
     loop {
-        links = collect_links(client, "", "").await;
+        let links = collect_links(client, "", "").await;
         if let Some(link) = links.iter().find(|l| {
             if l.deleted || l.status != LINK_APPLIED {
                 return false;

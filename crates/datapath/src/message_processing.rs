@@ -1648,6 +1648,7 @@ impl MessageProcessor {
                     };
                     let msg = ProtoMessage {
                         metadata: Default::default(),
+                        metadata_v3: Default::default(),
                         message_type: Some(LinkType(link)),
                     };
                     let _ = tx.send(Ok(msg)).await;

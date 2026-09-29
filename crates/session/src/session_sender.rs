@@ -203,7 +203,7 @@ impl SessionSender {
         mut message: Message,
         ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<SessionOutput, SessionError> {
-        let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
+        let is_publish_to = message.contains_metadata(PUBLISH_TO);
 
         if is_publish_to && !self.endpoints_list.contains_key(&message.get_encoded_dst()) {
             let dst = message.get_dst();
@@ -278,7 +278,7 @@ impl SessionSender {
 
     fn set_timer_and_send(&mut self, message: Message) -> Result<SessionOutput, SessionError> {
         let message_id = message.get_id();
-        let is_publish_to = message.metadata.contains_key(PUBLISH_TO);
+        let is_publish_to = message.contains_metadata(PUBLISH_TO);
         debug!(%message_id, "send new message");
 
         if let Some(timer_factory) = &self.timer_factory {
@@ -1378,9 +1378,7 @@ mod tests {
             .unwrap();
 
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        message.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         let output = sender
             .on_message(message.clone(), None)
@@ -1423,9 +1421,7 @@ mod tests {
             .unwrap();
 
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        message.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         let result = sender.on_message(message, None);
 
@@ -1464,9 +1460,7 @@ mod tests {
             .unwrap();
 
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        message.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         let output = sender
             .on_message(message, None)
@@ -1512,9 +1506,7 @@ mod tests {
             .unwrap();
 
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        message.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         let output = sender
             .on_message(message, None)
@@ -1533,7 +1525,7 @@ mod tests {
         ack.get_session_header_mut().set_message_id(message_id);
         ack.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
-        ack.metadata.insert(PUBLISH_TO.to_string(), String::new());
+        ack.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         sender.on_message(ack, None).expect("error sending ack");
 
@@ -1578,9 +1570,7 @@ mod tests {
             .unwrap();
 
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        message.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         let output = sender
             .on_message(message, None)
@@ -1646,9 +1636,7 @@ mod tests {
             .unwrap();
 
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        message.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         sender
             .on_message(message, None)
@@ -1693,9 +1681,7 @@ mod tests {
             .unwrap();
 
         message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        message.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         let (ack_tx, mut ack_rx) = oneshot::channel();
 
@@ -1715,7 +1701,7 @@ mod tests {
         ack.get_session_header_mut().set_message_id(message_id);
         ack.get_session_header_mut()
             .set_session_message_type(slim_datapath::api::ProtoSessionMessageType::MsgAck);
-        ack.metadata.insert(PUBLISH_TO.to_string(), String::new());
+        ack.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         sender.on_message(ack, None).expect("error sending ack");
 
@@ -1781,9 +1767,7 @@ mod tests {
             .build_publish()
             .unwrap();
         publish_to_msg.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
-        publish_to_msg
-            .metadata
-            .insert(PUBLISH_TO.to_string(), String::new());
+        publish_to_msg.insert_metadata(PUBLISH_TO.to_string(), String::new());
 
         let output = sender
             .on_message(publish_to_msg, None)

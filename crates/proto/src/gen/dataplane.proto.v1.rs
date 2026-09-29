@@ -34,6 +34,10 @@ pub struct Message {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
+    /// Field 5 is already used by the link message. Keep that tag stable so
+    /// adding typed metadata does not change the wire format of existing links.
+    #[prost(message, optional, tag = "7")]
+    pub metadata_v3: ::core::option::Option<::prost_types::Struct>,
     #[prost(oneof = "message::MessageType", tags = "1, 2, 3, 5, 6")]
     pub message_type: ::core::option::Option<message::MessageType>,
 }

@@ -1348,9 +1348,7 @@ mod tests {
         message3.get_session_header_mut().set_message_id(3);
         message3.get_session_header_mut().set_session_id(10);
         message3.get_slim_header_mut().set_incoming_conn(Some(1));
-        message3
-            .metadata
-            .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
+        message3.insert_metadata(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         let output = receiver
             .on_message(message3)
@@ -1364,7 +1362,7 @@ mod tests {
         // ACK should have PUBLISH_TO metadata
         let slims = slim_messages(&output);
         assert_eq!(slims.len(), 1);
-        assert!(slims[0].metadata.contains_key(PUBLISH_TO));
+        assert!(slims[0].contains_metadata(PUBLISH_TO));
     }
 
     #[tokio::test]
@@ -1395,9 +1393,7 @@ mod tests {
         message1.get_session_header_mut().set_message_id(1);
         message1.get_session_header_mut().set_session_id(10);
         message1.get_slim_header_mut().set_incoming_conn(Some(1));
-        message1
-            .metadata
-            .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
+        message1.insert_metadata(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         let output = receiver
             .on_message(message1)
@@ -1409,7 +1405,7 @@ mod tests {
         // Ack should NOT have PUBLISH_TO metadata (it was removed in P2P mode)
         let slims = slim_messages(&output);
         assert_eq!(slims.len(), 1);
-        assert!(!slims[0].metadata.contains_key(PUBLISH_TO));
+        assert!(!slims[0].contains_metadata(PUBLISH_TO));
     }
 
     #[tokio::test]
@@ -1437,9 +1433,7 @@ mod tests {
         message.get_session_header_mut().set_message_id(1);
         message.get_session_header_mut().set_session_id(10);
         message.get_slim_header_mut().set_incoming_conn(Some(1));
-        message
-            .metadata
-            .insert(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
+        message.insert_metadata(PUBLISH_TO.to_string(), TRUE_VAL.to_string());
 
         let output = receiver.on_message(message).expect("error sending message");
 

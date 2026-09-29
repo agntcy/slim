@@ -162,9 +162,10 @@ mod tests {
 
         let mut proto_msg = ProtoMessage {
             message_type: Some(ProtoPublishType(publish)),
-            metadata,
+            metadata: Default::default(),
+            metadata_v3: None,
         };
-
+        proto_msg.set_metadata_map(metadata);
         proto_msg.set_incoming_conn(Some(connection_id));
 
         proto_msg
