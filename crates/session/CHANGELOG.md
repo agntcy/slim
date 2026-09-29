@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.12] - semver correction
+
+`0.7.11` required `agntcy-slim-mls = "^0.3.11"` and `agntcy-slim-persistence
+= "^0.1.1"`. Both `0.3.11` and `0.1.1` were yanked as incorrect patch
+releases onto the `mls-rs` 0.56 line (see those crates' changelogs), leaving
+`^0.3.11` and `^0.1.1` unresolvable — no other version in either caret range
+exists. See [#2142](https://github.com/agntcy/slim/issues/2142).
+
+This release has no code changes from `0.7.11` beyond requiring
+`agntcy-slim-mls = "^0.4.0"` and `agntcy-slim-persistence = "^0.2.0"` — it
+exists so the crate resolves again from crates.io.
+
 ## [0.7.11](https://github.com/agntcy/slim/compare/slim-session-v0.7.10...slim-session-v0.7.11) - 2026-09-01
 
 ### Fixed

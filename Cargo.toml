@@ -43,7 +43,7 @@ resolver = "2"
 # Local dependencies
 agntcy-slim = { path = "crates/slim", version = "2.3.3" }
 agntcy-slim-auth = { path = "crates/auth", version = "0.16.0" }
-agntcy-slim-bindings = { path = "crates/slim-bindings", version = "2.3.3" }
+agntcy-slim-bindings = { path = "crates/slim-bindings", version = "2.3.4" }
 agntcy-slim-config = { path = "crates/config", version = "0.16.2" }
 agntcy-slim-control-plane = { path = "crates/control-plane", version = "2.3.3" }
 agntcy-slim-controller = { path = "crates/controller", version = "0.13.1" }
@@ -52,8 +52,8 @@ agntcy-slim-mls = { path = "crates/mls", version = "0.4.0" }
 agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.0" }
 agntcy-slim-proto = { path = "crates/proto", version = "0.6.2" }
 agntcy-slim-rpc = { path = "crates/rpc", version = "2.3.3" }
-agntcy-slim-service = { path = "crates/service", version = "0.12.11", default-features = false }
-agntcy-slim-session = { path = "crates/session", version = "0.7.11" }
+agntcy-slim-service = { path = "crates/service", version = "0.12.12", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.7.12" }
 agntcy-slim-signal = { path = "crates/signal", version = "0.1.26" }
 agntcy-slim-testing = { path = "crates/testing" }
 agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.21" }

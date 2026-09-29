@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-bindings"
-version.workspace = true
+version = "2.3.4"
 edition = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }

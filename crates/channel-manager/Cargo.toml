@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-channel-manager"
-version.workspace = true
+version = "2.3.4"
 edition.workspace = true
 license.workspace = true
 description = "Channel Manager for SLIM - manages channels and participants via gRPC"

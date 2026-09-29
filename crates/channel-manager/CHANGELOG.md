@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.4] - semver correction
+
+`2.3.3` required `agntcy-slim-persistence = "^0.1.1"`. `0.1.1` was yanked as
+an incorrect patch release onto the `mls-rs` 0.56 line (see that crate's
+changelog), leaving `^0.1.1` unresolvable — no other version in that caret
+range exists. See [#2142](https://github.com/agntcy/slim/issues/2142).
+
+This release has no code changes from `2.3.3` beyond requiring
+`agntcy-slim-persistence = "^0.2.0"` — it exists so the crate resolves again
+from crates.io.
+
 ## [2.3.3](https://github.com/agntcy/slim/compare/slim-channel-manager-v2.3.0...slim-channel-manager-v2.3.3) - 2026-09-17
 
 ### Other

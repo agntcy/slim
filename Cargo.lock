@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "2.3.3"
+version = "2.3.4"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-version = "2.3.3"
+version = "2.3.4"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -422,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.12.11"
+version = "0.12.12"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
