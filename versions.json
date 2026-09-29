@@ -505,6 +505,13 @@
     "aliases": []
   },
   {
+    "version": "slim-persistence-v0.2.0",
+    "title": "slim-persistence-v0.2.0",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-persistence-v0.1.1",
     "title": "slim-persistence-v0.1.1",
     "aliases": []
@@ -567,9 +574,7 @@
   {
     "version": "slim-datapath-v0.19.0",
     "title": "slim-datapath-v0.19.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-datapath-v0.18.8",
