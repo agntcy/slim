@@ -322,12 +322,16 @@ impl SessionReceiver {
     ) -> Result<SessionOutput, SessionError> {
         debug!(%id, "timeout for message");
         let key = PendingRtxKey { name, id };
-        let pending = self
-            .pending_rtxs
-            .get(&key)
-            .ok_or_else(|| SessionError::MissingPayload {
-                context: "pending_rtx_timer",
-            })?;
+
+        // The entry can already be gone if a different recovery path (an RTX
+        // reply, remove_endpoint) resolved it first -- Timer::stop() only
+        // cancels *future* firings, so an already in-flight notification
+        // racing a different resolution is an ordinary occurrence, not a bug.
+        // See #2133.
+        let Some(pending) = self.pending_rtxs.get(&key) else {
+            debug!(%id, "ignore stale timer timeout for an already-resolved rtx");
+            return Ok(SessionOutput::new());
+        };
 
         debug!(%id, "send rtx request again");
         let mut output = SessionOutput::new();
@@ -345,12 +349,13 @@ impl SessionReceiver {
             "timer failure for message, clear state",
         );
         let key = PendingRtxKey { name, id };
-        let mut pending =
-            self.pending_rtxs
-                .remove(&key)
-                .ok_or_else(|| SessionError::MissingPayload {
-                    context: "pending_rtx_timer",
-                })?;
+
+        // Same race as on_timer_timeout: the entry can already be gone if a
+        // different recovery path resolved it first. See #2133.
+        let Some(mut pending) = self.pending_rtxs.remove(&key) else {
+            debug!(%id, "ignore stale timer failure for an already-resolved rtx");
+            return Ok(SessionOutput::new());
+        };
 
         // stop the timer and remove the name if no pending rtx left
         pending.timer.stop();
@@ -1108,5 +1113,264 @@ mod tests {
         assert!(app_messages(&output).is_empty());
         assert!(app_errors(&output).is_empty());
         assert!(slim_messages(&output).is_empty());
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_stale_timer_notification_after_retry_exhaustion_is_tolerated() {
+        // Minimal case found by the proptest_stateful module (#2133): a
+        // TimerFailure that already resolved a gap must not make a later,
+        // racing TimerTimeout for the same id hard-error -- Timer::stop()
+        // only cancels *future* firings, so the in-flight notification is an
+        // ordinary occurrence, not a bug.
+        let settings = TimerSettings::constant(Duration::from_secs(60)).with_max_retries(2);
+        let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+
+        let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote_name = ProtoName::from_strings(["org", "ns", "remote"]);
+        let encoded_remote = remote_name.name.unwrap();
+
+        let mut receiver = SessionReceiver::new(
+            Some(settings),
+            10,
+            local_name.clone(),
+            ProtoSessionType::PointToPoint,
+            Some(tx_signal),
+        );
+
+        let publish = |id: u32| {
+            let mut message = Message::builder()
+                .source(remote_name.clone())
+                .destination(local_name.clone())
+                .application_payload("payload", vec![id as u8])
+                .build_publish()
+                .unwrap();
+            message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+            message.get_session_header_mut().set_message_id(id);
+            message.get_session_header_mut().set_session_id(10);
+            message.get_slim_header_mut().set_incoming_conn(Some(1));
+            message
+        };
+
+        receiver.on_message(publish(1)).unwrap();
+        // gap at id 2 triggers an RTX request and a pending retry timer
+        receiver.on_message(publish(3)).unwrap();
+        assert!(!receiver.pending_rtxs.is_empty());
+
+        // Retry exhaustion resolves and removes the pending entry for id 2.
+        receiver
+            .on_timer_failure(2, encoded_remote)
+            .expect("timer failure must succeed while the entry is still live");
+        assert!(receiver.pending_rtxs.is_empty());
+
+        // A duplicate/racing timeout notification for the same id arrives
+        // after the failure already resolved it.
+        let output = receiver
+            .on_timer_timeout(2, encoded_remote)
+            .expect("a stale timer timeout must not hard-error");
+        assert!(slim_messages(&output).is_empty());
+        assert!(app_messages(&output).is_empty());
+        assert!(app_errors(&output).is_empty());
+    }
+}
+
+/// Property-based (stateful) testing over `SessionReceiver`'s own operation
+/// sequence, per #2133 — sequencing/state bugs like #2129/#2130 involve only
+/// well-formed messages (invisible to decode-level fuzzing) and don't panic
+/// (cargo-fuzz's default signal), so this drives the receiver's public API
+/// through generated call sequences and checks invariants directly on its
+/// state instead.
+#[cfg(test)]
+mod proptest_stateful {
+    use std::collections::HashSet;
+    use std::time::Duration;
+
+    use proptest::prelude::*;
+
+    use super::*;
+
+    const NUM_ENDPOINTS: u8 = 2;
+    const MAX_ID: u32 = 6;
+
+    #[derive(Debug, Clone, Copy)]
+    enum PublishKind {
+        Msg,
+        RtxReplyOk,
+        RtxReplyErr,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum Op {
+        Publish {
+            endpoint: u8,
+            id: u32,
+            kind: PublishKind,
+        },
+        TimerTimeout {
+            history_idx: usize,
+        },
+        TimerFailure {
+            history_idx: usize,
+        },
+        RemoveEndpoint {
+            endpoint: u8,
+        },
+    }
+
+    fn op_strategy() -> impl Strategy<Value = Op> {
+        prop_oneof![
+            3 => (0..NUM_ENDPOINTS, 1..=MAX_ID, prop_oneof![
+                Just(PublishKind::Msg),
+                Just(PublishKind::RtxReplyOk),
+                Just(PublishKind::RtxReplyErr),
+            ])
+                .prop_map(|(endpoint, id, kind)| Op::Publish { endpoint, id, kind }),
+            1 => (0usize..64).prop_map(|history_idx| Op::TimerTimeout { history_idx }),
+            1 => (0usize..64).prop_map(|history_idx| Op::TimerFailure { history_idx }),
+            1 => (0..NUM_ENDPOINTS).prop_map(|endpoint| Op::RemoveEndpoint { endpoint }),
+        ]
+    }
+
+    fn endpoint_name(idx: u8) -> ProtoName {
+        ProtoName::from_strings(["org", "ns", &format!("remote{idx}")])
+    }
+
+    /// Applies one generated `Op` to `receiver`, returning the underlying
+    /// `SessionReceiver` call's result — `None` for `RemoveEndpoint` (no
+    /// `Result` to check) and for a `TimerTimeout`/`TimerFailure` whose
+    /// `history_idx` has nothing to index yet.
+    fn apply(
+        receiver: &mut SessionReceiver,
+        local_name: &ProtoName,
+        history: &mut Vec<(EncodedName, u32)>,
+        op: Op,
+    ) -> Option<Result<SessionOutput, SessionError>> {
+        let before: HashSet<(EncodedName, u32)> = receiver
+            .pending_rtxs
+            .keys()
+            .map(|k| (k.name, k.id))
+            .collect();
+
+        let result = match op {
+            Op::Publish { endpoint, id, kind } => {
+                let remote = endpoint_name(endpoint);
+                let mut message = Message::builder()
+                    .source(remote.clone())
+                    .destination(local_name.clone())
+                    .application_payload("payload", vec![id as u8])
+                    .build_publish()
+                    .unwrap();
+                message.get_session_header_mut().set_message_id(id);
+                message.get_session_header_mut().set_session_id(10);
+                message.get_slim_header_mut().set_incoming_conn(Some(1));
+                match kind {
+                    PublishKind::Msg => {
+                        message.set_session_message_type(
+                            slim_datapath::api::ProtoSessionMessageType::Msg,
+                        );
+                    }
+                    PublishKind::RtxReplyOk => {
+                        message.set_session_message_type(
+                            slim_datapath::api::ProtoSessionMessageType::RtxReply,
+                        );
+                    }
+                    PublishKind::RtxReplyErr => {
+                        message.set_session_message_type(
+                            slim_datapath::api::ProtoSessionMessageType::RtxReply,
+                        );
+                        message.get_slim_header_mut().set_error(Some(true));
+                    }
+                }
+                Some(receiver.on_message(message))
+            }
+            Op::TimerTimeout { history_idx } => {
+                if history.is_empty() {
+                    None
+                } else {
+                    let (name, id) = history[history_idx % history.len()];
+                    Some(receiver.on_timer_timeout(id, name))
+                }
+            }
+            Op::TimerFailure { history_idx } => {
+                if history.is_empty() {
+                    None
+                } else {
+                    let (name, id) = history[history_idx % history.len()];
+                    Some(receiver.on_timer_failure(id, name))
+                }
+            }
+            Op::RemoveEndpoint { endpoint } => {
+                receiver.remove_endpoint(&endpoint_name(endpoint));
+                None
+            }
+        };
+
+        // Every (name, id) that just became a pending RTX is a key this
+        // receiver itself created — a later timer op is allowed to target it
+        // even after it's since been resolved another way (that's exactly
+        // the stale-notification race being tested for), since a real timer
+        // notification could never reference anything else.
+        let after = receiver.pending_rtxs.keys().map(|k| (k.name, k.id));
+        history.extend(after.filter(|k| !before.contains(k)));
+
+        result
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+
+        /// Two invariants over `SessionReceiver`'s state, checked after every
+        /// generated operation:
+        ///
+        /// - `pending_rtxs` never holds an entry for a name absent from
+        ///   `buffer` — direct regression coverage for #2129's
+        ///   `remove_endpoint` gap.
+        /// - A timer notification for a key this receiver itself created
+        ///   never hard-errors, even when a different recovery path (an RTX
+        ///   reply, `remove_endpoint`) already resolved it first —
+        ///   `Timer::stop()` only cancels *future* firings, so an
+        ///   already-in-flight notification racing a different resolution is
+        ///   an ordinary occurrence, not caller misuse.
+        #[test]
+        fn receiver_never_orphans_pending_rtx_or_hard_errors_on_stale_timer(
+            ops in proptest::collection::vec(op_strategy(), 1..40),
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async move {
+                let settings = TimerSettings::constant(Duration::from_secs(30)).with_max_retries(5);
+                let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(64);
+                let local_name = ProtoName::from_strings(["org", "ns", "local"]);
+
+                let mut receiver = SessionReceiver::new(
+                    Some(settings),
+                    10,
+                    local_name.clone(),
+                    ProtoSessionType::PointToPoint,
+                    Some(tx_signal),
+                );
+                let mut history: Vec<(EncodedName, u32)> = Vec::new();
+
+                for op in ops {
+                    let result = apply(&mut receiver, &local_name, &mut history, op);
+
+                    if let Some(res) = &result {
+                        prop_assert!(
+                            res.is_ok(),
+                            "op {op:?} returned {res:?}, which would abort a draining processing loop"
+                        );
+                    }
+
+                    for key in receiver.pending_rtxs.keys() {
+                        prop_assert!(
+                            receiver.buffer.contains_key(&key.name),
+                            "pending_rtxs has an entry for id {} with no matching buffer entry after op {op:?}",
+                            key.id,
+                        );
+                    }
+                }
+
+                Ok(())
+            })?;
+        }
     }
 }
