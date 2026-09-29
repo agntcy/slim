@@ -335,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.3.11"
+version = "0.4.0"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-persistence"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
