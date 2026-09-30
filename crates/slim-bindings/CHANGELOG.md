@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1](https://github.com/agntcy/slim/compare/slim-bindings-v3.0.0...slim-bindings-v3.0.1) - 2026-09-30
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [3.0.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.3.3...slim-bindings-v3.0.0) - 2026-09-29
 
 ### Added
