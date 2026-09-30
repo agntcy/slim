@@ -46,6 +46,12 @@
       "description": ["Add ci label to PRs which bump GitHub Actions, and group them in a single PR."]
     },
     {
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["uniffi"],
+      "allowedVersions": "<0.32",
+      "description": ["Hold uniffi at 0.31.x: uniffi-bindgen-go, uniffi-bindgen-cs, uniffi-bindgen-react-native and the PyPI uniffi-bindgen have no 0.32 release, and agntcy/slim-bindings uses them to generate the Go, .NET, Python and Node bindings."]
+    },
+    {
       "matchJsonata": [
         "$exists(vulnerabilityFixVersion) or isVulnerabilityAlert = true"
       ],
