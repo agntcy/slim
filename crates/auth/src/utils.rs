@@ -54,7 +54,7 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
         // an uncompressed SEC1 point. A random 32-byte value is a valid scalar
         // with overwhelming probability; retry the vanishingly rare
         // rejections.
-        use p256::elliptic_curve::sec1::ToEncodedPoint;
+        use p256::elliptic_curve::sec1::ToSec1Point;
         use p256::pkcs8::EncodePrivateKey;
         for _ in 0..8 {
             let mut scalar = [0_u8; 32];
@@ -68,7 +68,7 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
                     .to_vec();
                 let public = secret_key
                     .public_key()
-                    .to_encoded_point(false)
+                    .to_sec1_point(false)
                     .as_bytes()
                     .to_vec();
                 return Ok((private, public));
