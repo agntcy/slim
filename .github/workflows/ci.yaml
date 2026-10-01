@@ -120,6 +120,9 @@ jobs:
     name: Build SLIM docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     needs: [changes]
+    permissions:
+      contents: read
+      packages: write
     # Run only on pushes to main, not on PRs, and only when the workspace
     # actually changed -- the `on:` filter used to imply the latter.
     if: >-
