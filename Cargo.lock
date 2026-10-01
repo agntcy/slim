@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.16.3"
+version = "0.16.4"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.16.5"
+version = "0.16.6"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -201,7 +201,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-control-plane"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.13.4"
+version = "0.13.5"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.19.2"
+version = "0.19.3"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -335,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-proto"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-rpc"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-bindings",
@@ -422,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.13.2"
+version = "0.13.3"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.7.14"
+version = "0.7.15"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -490,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-signal"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "agntcy-slim-version",
  "tokio",
@@ -534,7 +534,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.4.24"
+version = "0.4.25"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -557,11 +557,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "3.0.1"
+version = "3.0.2"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
