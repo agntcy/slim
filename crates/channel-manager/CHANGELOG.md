@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.0.1...slim-channel-manager-v3.0.2) - 2026-09-30
+
+### Other
+
+- updated the following local packages: agntcy-slim-auth, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-service, agntcy-slim
+
 ## [3.0.0](https://github.com/agntcy/slim/compare/slim-channel-manager-v2.3.3...slim-channel-manager-v3.0.0) - 2026-09-29
 
 ### Other
