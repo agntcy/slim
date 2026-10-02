@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.16.0"
+version = "0.16.3"
 dependencies = [
  "agntcy-slim-version",
  "aws-lc-rs",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.16.2"
+version = "0.16.5"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-version",
@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.18.8"
+version = "0.19.2"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.3.11"
+version = "0.4.2"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-persistence"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -189,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-proto"
-version = "0.6.2"
+version = "0.6.5"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.7.11"
+version = "0.7.14"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -250,7 +250,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.4.21"
+version = "0.4.24"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "2.3.3"
+version = "3.0.1"
 
 [[package]]
 name = "ahash"
@@ -2264,9 +2264,9 @@ dependencies = [
 
 [[package]]
 name = "lazy_static"
-version = "1.5.0"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "libc"
@@ -3269,9 +3269,9 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark-to-cmark"
-version = "22.0.1"
+version = "22.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab1ad36992cead65f02aa399a373a42730922f1525d988172634fdefdecb8a60"
+checksum = "84bbb29c624230c4bd1047bbdb2aa47e41c860e9665ce62ba9504eebe91bf867"
 dependencies = [
  "pulldown-cmark",
 ]
@@ -4365,9 +4365,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-rustls"
-version = "0.26.5"
+version = "0.26.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0c85f2c3ef0b1cd58b36682f4b17aaa995f0e5db534d85692b4903abce21f67"
+checksum = "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db"
 dependencies = [
  "rustls",
  "tokio",
@@ -5382,9 +5382,9 @@ dependencies = [
 
 [[package]]
 name = "yoke-derive"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33811428bee40dbceb6d545e95754741d17a6aef9a4849f0fd62e2ba4f412a78"
+checksum = "ec8ebde2db3681e8c9980cc27822030e68752690ddfa9473e739aeb4dbde6d71"
 dependencies = [
  "proc-macro2",
  "quote",
