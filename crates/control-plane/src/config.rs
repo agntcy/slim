@@ -351,6 +351,7 @@ impl TopologySettings {
 
 /// Topology link graph mode.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub enum TopologyConfig {
     /// No topology configured: API-managed mode. The DB owns topology state
     /// and full CRUD operations are available via gRPC/CLI.

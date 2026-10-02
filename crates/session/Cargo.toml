@@ -2,7 +2,7 @@
 name = "agntcy-slim-session"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.7.11"
+version = "0.7.14"
 description = "SLIM session internal implementation."
 
 [lib]
@@ -52,6 +52,7 @@ tonic = { version = "0.14", default-features = false }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim-testing = { workspace = true }
 criterion = { workspace = true }
+proptest = { workspace = true }
 tempfile = { workspace = true }
 tracing-test = { workspace = true }
 

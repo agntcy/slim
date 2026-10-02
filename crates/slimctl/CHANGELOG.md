@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2](https://github.com/agntcy/slim/compare/slimctl-v3.0.1...slimctl-v3.0.2) - 2026-09-30
+
+### Other
+
+- updated the following local packages: agntcy-slim-auth, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-service, agntcy-slim
+
+## [3.0.0](https://github.com/agntcy/slim/compare/slimctl-v2.3.3...slimctl-v3.0.0) - 2026-09-29
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [2.3.3](https://github.com/agntcy/slim/compare/slimctl-v2.3.0...slimctl-v2.3.3) - 2026-09-17
 
 ### Other

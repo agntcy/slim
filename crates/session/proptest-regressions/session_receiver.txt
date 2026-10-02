@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5487e4e1a9f8551ce4084116f35a40c4db700a44d84096f7ddf8e5499bf8fc47 # shrinks to ops = [Publish { endpoint: 0, id: 4, kind: Msg }, Publish { endpoint: 0, id: 6, kind: Msg }, TimerFailure { history_idx: 0 }, TimerTimeout { history_idx: 0 }]
