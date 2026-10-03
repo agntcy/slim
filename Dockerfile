@@ -43,6 +43,10 @@ curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
 chmod +x /tmp/llvm.sh
 /tmp/llvm.sh 19
 
+# Verify the .deb against the official release checksums; fails closed on
+# any mismatch. NOTE: if renovate bumps TASK_VERSION, the two SHA-256 values
+# below must be refreshed from the new release's published checksums in the
+# same PR, otherwise the build stops here.
 case ${TARGETARCH} in
     "amd64")
         TASK_SHA256=9cf4f181d1741d0f918eecc0326df0fc2dc8ac11f21f56ce68629dfbb1fdde6c
@@ -60,7 +64,9 @@ TASK_DEB=/tmp/task.deb
 curl --fail --location --silent --show-error \
     --output "${TASK_DEB}" \
     "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_${TASK_VERSION}_linux_${TARGETARCH}.deb"
-echo "${TASK_SHA256}  ${TASK_DEB}" | sha256sum --check --status
+# No --status: on a mismatch sha256sum must print which file failed so the
+# log explains the abort instead of failing silently.
+echo "${TASK_SHA256}  ${TASK_DEB}" | sha256sum --check
 dpkg --install "${TASK_DEB}"
 rm "${TASK_DEB}"
 EOF
