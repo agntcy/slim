@@ -7,6 +7,13 @@ FROM --platform=${BUILDPLATFORM} rust:1.95-slim-bookworm@sha256:d7482085ff5b415f
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 ARG TARGETARCH
+ARG TARGETPLATFORM
+# BUILDARCH/BUILDPLATFORM describe the machine this stage *runs on*
+# (${BUILDPLATFORM}); the stage cross-compiles for ${TARGETARCH}. Package
+# installs below must therefore use BUILDARCH, not TARGETARCH.
+ARG BUILDARCH
+ARG BUILDPLATFORM
+ARG TASK_VERSION=3.53.1
 
 RUN <<EOF
 case ${TARGETARCH} in
@@ -42,8 +49,37 @@ curl -L -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh
 chmod +x /tmp/llvm.sh
 /tmp/llvm.sh 19
 
-curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | bash
-apt-get install -y task
+# Download the Task .deb for the architecture this stage RUNS on (BUILDARCH),
+# not the target: this stage runs natively on ${BUILDPLATFORM} and only
+# cross-compiles for ${TARGETARCH}. A ${TARGETARCH} package would fail
+# dpkg's architecture check (amd64 rootfs vs arm64 .deb) and could not be
+# executed here anyway.
+# Verify against the official release checksums; fails closed on any
+# mismatch. NOTE: if renovate bumps TASK_VERSION, the two SHA-256 values
+# below must be refreshed from the new release's published checksums in the
+# same PR, otherwise the build stops here.
+case ${BUILDARCH} in
+    "amd64")
+        TASK_SHA256=9cf4f181d1741d0f918eecc0326df0fc2dc8ac11f21f56ce68629dfbb1fdde6c
+        ;;
+    "arm64")
+        TASK_SHA256=7c2822c453b2c8c08cd62624d5657cdc7e613e73060d9a6f661c50c3850e6cfa
+        ;;
+    *)
+        echo "Unsupported build platform: ${BUILDPLATFORM}"
+        exit 1
+        ;;
+esac
+
+TASK_DEB=/tmp/task.deb
+curl --fail --location --silent --show-error \
+    --output "${TASK_DEB}" \
+    "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_${TASK_VERSION}_linux_${BUILDARCH}.deb"
+# No --status: on a mismatch sha256sum must print which file failed so the
+# log explains the abort instead of failing silently.
+echo "${TASK_SHA256}  ${TASK_DEB}" | sha256sum --check
+dpkg --install "${TASK_DEB}"
+rm "${TASK_DEB}"
 EOF
 
 # Copy source code
