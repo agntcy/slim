@@ -9,12 +9,30 @@ on:
     tags:
       - 'slim-*'
       - 'control-plane-*'
+  # Rebuild the images of an existing release tag with the workflow on the
+  # selected branch. A tag-triggered run always uses the workflow as it was at
+  # the tag, so re-running it cannot pick up a CI fix made after the release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, e.g. slim-v3.0.1"
+        required: true
+        type: string
+      latest:
+        description: "Also move the latest tag (only when rebuilding the newest release)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# Keyed on the tag being built, not on github.ref: every workflow_dispatch run
+# carries the same ref (the branch the workflow is read from), so dispatching a
+# rebuild for several tags would put them all in one group, where only one run
+# stays pending and any further one displaces it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -25,22 +43,40 @@ jobs:
     outputs:
       matrix: ${{ steps.all-targets.outputs.matrix }}
       image-tag: ${{ steps.resolve.outputs.version }}
+      ref: ${{ steps.tag.outputs.ref }}
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^(slim|control-plane)(-[a-z0-9-]+)?-v[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::not a release tag: ${tag}"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "ref=refs/tags/${tag}" >> "${GITHUB_OUTPUT}"
+
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ steps.tag.outputs.ref }}
 
       - name: Filter target
         id: resolve
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           # This assumes tags are in this form
           # slim-<component1>-<component2>-v<version>
 
           # strip slim- prefix from the tag
-          _target=${GITHUB_REF_NAME#slim}
+          _target=${TAG#slim}
 
           # remove version to only get the component
           target=${_target%-v*}
@@ -83,12 +119,43 @@ jobs:
     permissions:
       contents: 'read'
       packages: 'write'
-      attestations: 'write'
     with:
       bake-targets: ${{ matrix.target }}
       image-tag: ${{ needs.prepare-build.outputs.image-tag }}
-    secrets:
-      github-token: ${{ secrets.GITHUB_TOKEN }}
+      ref: ${{ needs.prepare-build.outputs.ref }}
+      push: true
+      latest: ${{ github.event_name == 'push' || inputs.latest }}
+
+  # A failed image build follows a release that already looks done (crates,
+  # tags and GitHub release are out), so it went unnoticed for days. Make it
+  # loud.
+  report-failure:
+    name: Report failed image release
+    needs: [prepare-build, build-push]
+    if: ${{ failure() && needs.prepare-build.outputs.matrix != '[]' && needs.prepare-build.outputs.matrix != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare-build.outputs.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          tag="${TAG#refs/tags/}"
+          title="Container image release failed: ${tag}"
+          body="The image build for \`${tag}\` failed: ${RUN_URL}
+
+          After fixing the cause, rebuild with the **ci-release-images** workflow (Run workflow, tag \`${tag}\`)."
+          existing=$(gh issue list --state open --search "in:title \"${title}\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Failed again: ${RUN_URL}"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
 
   # test-integration:
   #   name: Run integration tests

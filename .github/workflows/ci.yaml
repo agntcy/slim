@@ -130,4 +130,9 @@ jobs:
       && needs.changes.outputs.workspace == 'true'
     with:
       bake-targets: slim
-      image-tag: ${{ github.sha }}
+      # A moving tag, pushed on every merge. This is what keeps the release
+      # push path honest: it is the same login-build-push-verify path a tag
+      # release takes, so a broken grant or credential fails here, on the
+      # merge that caused it, instead of weeks later during a release.
+      image-tag: main
+      push: true
