@@ -27,8 +27,12 @@ on:
 permissions:
   contents: read
 
+# Keyed on the tag being built, not on github.ref: every workflow_dispatch run
+# carries the same ref (the branch the workflow is read from), so dispatching a
+# rebuild for several tags would put them all in one group, where only one run
+# stays pending and any further one displaces it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
