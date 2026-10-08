@@ -34,7 +34,7 @@ The default verifier expects the owner's subject to be a `did:key` encoding an E
 ```
 
 - `not_after` is in Unix seconds. `nonce` must be unique per grant. `role` is carried but not enforced.
-- `signature` is the standard, padded base64 encoding of an Ed25519 signature over the UTF-8 bytes of `channel`, `invitee`, `action`, `role`, `not_after` (in decimal) and `nonce`, in that order, joined with a NUL byte.
+- `signature` is the standard, padded base64 encoding of an Ed25519 signature over the UTF-8 bytes of the literal `SLIM-CHANNEL-GRANT/1`, then `channel`, `invitee`, `action`, `role`, `not_after` (in decimal) and `nonce`, in that order, joined with a NUL byte. There is no trailing NUL.
 
 Deployments embedding the Channel Manager can plug in a different verifier for other grant formats or key schemes, for example one that resolves an agent's binding certificate to its human owner.
 

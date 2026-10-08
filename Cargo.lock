@@ -145,6 +145,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
