@@ -15,7 +15,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::caller_identity::CallerIdentity;
-use crate::grant::GrantVerifier;
+use crate::grant::{DidKeyEd25519Verifier, GrantVerifier};
 use crate::ownership::ChannelOwnership;
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
@@ -94,17 +94,14 @@ impl ChannelManagerServer {
     /// `conn_id` pins the default gateway, so invites keep working on a
     /// multi-uplink service where auto-detection would be ambiguous.
     ///
-    /// `grant_verifier` authenticates a grant presented by a non-owner
-    /// caller on `AddParticipant`/`DeleteParticipant` -- swap in a different
-    /// implementation for a different grant format or key scheme (see
-    /// `crate::grant::GrantVerifier`); `DidKeyEd25519Verifier` is a
-    /// reasonable default.
+    /// Grants presented by non-owners are verified with
+    /// [`DidKeyEd25519Verifier`]; use [`Self::with_grant_verifier`] to swap in
+    /// a different grant format or key scheme.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
         sessions: Arc<SessionsList>,
         config_mode: bool,
-        grant_verifier: Arc<dyn GrantVerifier>,
     ) -> Self {
         if let Err(e) = app.set_default_gateway(conn_id) {
             warn!("failed to pin default gateway to conn {conn_id}: {e}");
@@ -114,9 +111,15 @@ impl ChannelManagerServer {
             app,
             sessions,
             ownership: ChannelOwnership::new(),
-            grant_verifier,
+            grant_verifier: Arc::new(DidKeyEd25519Verifier),
             config_mode,
         }
+    }
+
+    /// Replaces the default grant verifier (see `crate::grant::GrantVerifier`).
+    pub fn with_grant_verifier(mut self, grant_verifier: Arc<dyn GrantVerifier>) -> Self {
+        self.grant_verifier = grant_verifier;
+        self
     }
 
     /// Guard for mutating operations: returns an error response when the server
@@ -792,7 +795,6 @@ mod tests {
 
     // ── enforce_grant ─────────────────────────────────────────────────
 
-    use crate::grant::DidKeyEd25519Verifier;
     use aws_lc_rs::rand::SystemRandom;
     use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
 

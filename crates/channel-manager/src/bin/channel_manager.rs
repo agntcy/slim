@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agntcy_slim_channel_manager::config::Config;
-use agntcy_slim_channel_manager::grant::DidKeyEd25519Verifier;
 use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelManagerServiceServer;
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
@@ -351,13 +350,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create gRPC server
-    let server = ChannelManagerServer::new(
-        arc_app.clone(),
-        conn_id,
-        sessions.clone(),
-        config_mode,
-        Arc::new(DidKeyEd25519Verifier),
-    );
+    let server = ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
     let svc = ChannelManagerServiceServer::new(server);
 
     info!(

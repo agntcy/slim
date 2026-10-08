@@ -5,7 +5,6 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
 
-use agntcy_slim_channel_manager::grant::DidKeyEd25519Verifier;
 use agntcy_slim_channel_manager::proto::channel_manager_service_client::ChannelManagerServiceClient;
 use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelManagerServiceServer;
 use agntcy_slim_channel_manager::proto::{
@@ -152,13 +151,7 @@ async fn start_channel_manager(
 
     // Create sessions list and gRPC server
     let sessions = Arc::new(SessionsList::new());
-    let server = ChannelManagerServer::new(
-        app.clone(),
-        conn_id,
-        sessions.clone(),
-        false,
-        Arc::new(DidKeyEd25519Verifier),
-    );
+    let server = ChannelManagerServer::new(app.clone(), conn_id, sessions.clone(), false);
     let svc = ChannelManagerServiceServer::new(server);
 
     // Start gRPC server using ServerConfig
