@@ -14,6 +14,7 @@ use agntcy_slim_channel_manager::config::Config;
 use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelManagerServiceServer;
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
+use agntcy_slim_channel_manager::store::StateStore;
 
 use anyhow::Context;
 use clap::Parser;
@@ -350,7 +351,24 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create gRPC server
-    let server = ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
+    let mut server =
+        ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
+
+    // Ownership and grant replay state persist exactly when sessions do: a
+    // restored channel without its owner would accept changes from anyone.
+    // Refuse to start rather than run that way.
+    if let Some(p) = &config.manager.persistence {
+        let key = p
+            .encryption_passphrase
+            .clone()
+            .map(MlsEncryptionKey::Passphrase);
+        let store = StateStore::open(&p.path, &config.manager.local_name, key)
+            .context("failed to open channel-manager state store")?;
+        server = server
+            .with_state_store(store)
+            .await
+            .context("failed to load channel ownership and grant state")?;
+    }
     let svc = ChannelManagerServiceServer::new(server);
 
     info!(

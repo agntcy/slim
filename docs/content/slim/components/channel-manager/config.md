@@ -168,6 +168,22 @@ Channels listed here are created at startup. For each channel:
 
 Channels can also be created and participants managed at runtime using `slimctl channel-manager` commands after the service is running.
 
+### `persistence`
+
+Optional. When present, channels survive a restart: the session layer keeps MLS group state and session records in an encrypted SQLite database under `path`, and the Channel Manager restores them on startup. Each channel's owner and the grants already used against it are restored too, from a second encrypted database in the same directory, protected by the same passphrase.
+
+- `path` — directory for the encrypted databases
+- `encryption-passphrase` — passphrase the encryption key is derived from; required unless `insecure: true`
+- `insecure` — allow running without a passphrase; the key is then derived from the public `local-name` and protects against tampering only, not disclosure
+- `delete-sessions-on-shutdown` — `true` (default) deletes all channels on a clean shutdown; `false` keeps them for the next start
+
+Without this section everything, channels included, is kept in memory and lost on restart.
+
+The Channel Manager refuses to start if `persistence` is configured but channel ownership can't be loaded: a restored channel without its owner would accept participant changes from anyone.
+
+!!! warning "Run a single replica per state directory"
+    Replicas don't share ownership or used-grant state. With two Channel Managers on the same channels, a single-use grant could be accepted once by each.
+
 ## Related
 
 - [Installation Guide](./install.md) — Build and run the Channel Manager
