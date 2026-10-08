@@ -60,33 +60,42 @@ mod tests {
     const NOW: u64 = 1_000;
     const LATER: u64 = 2_000;
 
+    /// A fresh random nonce, as a real grant would carry. (Literal nonces
+    /// would also trip CodeQL's hard-coded cryptographic value rule.)
+    fn nonce() -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+
     #[test]
     fn accepts_a_nonce_once() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "n1", LATER, NOW));
-        assert!(!nonces.consume("org/ns/ch1", "n1", LATER, NOW));
+        let n = nonce();
+        assert!(nonces.consume("org/ns/ch1", &n, LATER, NOW));
+        assert!(!nonces.consume("org/ns/ch1", &n, LATER, NOW));
     }
 
     #[test]
     fn scopes_nonces_by_channel() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "n1", LATER, NOW));
-        assert!(nonces.consume("org/ns/ch2", "n1", LATER, NOW));
+        let n = nonce();
+        assert!(nonces.consume("org/ns/ch1", &n, LATER, NOW));
+        assert!(nonces.consume("org/ns/ch2", &n, LATER, NOW));
     }
 
     #[test]
     fn keeps_a_nonce_until_its_grant_expires() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "n1", LATER, NOW));
+        let n = nonce();
+        assert!(nonces.consume("org/ns/ch1", &n, LATER, NOW));
         // Still within the grant's validity: replay is refused.
-        assert!(!nonces.consume("org/ns/ch1", "n1", LATER, LATER));
+        assert!(!nonces.consume("org/ns/ch1", &n, LATER, LATER));
     }
 
     #[test]
     fn forgets_nonces_of_expired_grants() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "old", NOW, NOW));
-        assert!(nonces.consume("org/ns/ch1", "new", LATER + 10, LATER + 1));
+        assert!(nonces.consume("org/ns/ch1", &nonce(), NOW, NOW));
+        assert!(nonces.consume("org/ns/ch1", &nonce(), LATER + 10, LATER + 1));
         assert_eq!(nonces.len(), 1);
     }
 }
