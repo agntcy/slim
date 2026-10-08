@@ -14,6 +14,7 @@ use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
+use crate::caller_identity::CallerIdentity;
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
     AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
@@ -99,7 +100,11 @@ impl ChannelManagerServer {
         }
     }
 
-    async fn handle_create_channel(&self, req: CreateChannelRequest) -> CommandResponse {
+    async fn handle_create_channel(
+        &self,
+        req: CreateChannelRequest,
+        caller: Option<CallerIdentity>,
+    ) -> CommandResponse {
         if let Some(err) = self.ensure_api_mode() {
             return err;
         }
@@ -165,11 +170,15 @@ impl ChannelManagerServer {
             return self.error_response(format!("channel {channel_name} already exists"));
         }
 
-        info!("Created channel {channel_name}");
+        info!(caller = ?caller, "Created channel {channel_name}");
         self.success_response()
     }
 
-    async fn handle_delete_channel(&self, req: DeleteChannelRequest) -> CommandResponse {
+    async fn handle_delete_channel(
+        &self,
+        req: DeleteChannelRequest,
+        caller: Option<CallerIdentity>,
+    ) -> CommandResponse {
         if let Some(err) = self.ensure_api_mode() {
             return err;
         }
@@ -180,11 +189,15 @@ impl ChannelManagerServer {
             return self.error_response(format!("{e}"));
         }
 
-        info!("Deleted channel {channel_name}");
+        info!(caller = ?caller, "Deleted channel {channel_name}");
         self.success_response()
     }
 
-    async fn handle_add_participant(&self, req: AddParticipantRequest) -> CommandResponse {
+    async fn handle_add_participant(
+        &self,
+        req: AddParticipantRequest,
+        caller: Option<CallerIdentity>,
+    ) -> CommandResponse {
         if let Some(err) = self.ensure_api_mode() {
             return err;
         }
@@ -218,11 +231,18 @@ impl ChannelManagerServer {
             return self.error_response(msg);
         }
 
-        info!("Added participant {participant_name_str} to channel {channel_name}");
+        info!(
+            caller = ?caller,
+            "Added participant {participant_name_str} to channel {channel_name}"
+        );
         self.success_response()
     }
 
-    async fn handle_delete_participant(&self, req: DeleteParticipantRequest) -> CommandResponse {
+    async fn handle_delete_participant(
+        &self,
+        req: DeleteParticipantRequest,
+        caller: Option<CallerIdentity>,
+    ) -> CommandResponse {
         if let Some(err) = self.ensure_api_mode() {
             return err;
         }
@@ -255,13 +275,16 @@ impl ChannelManagerServer {
             return self.error_response(msg);
         }
 
-        info!("Removed participant {participant_name_str} from channel {channel_name}");
+        info!(
+            caller = ?caller,
+            "Removed participant {participant_name_str} from channel {channel_name}"
+        );
         self.success_response()
     }
 
-    async fn handle_list_channels(&self) -> ListChannelsResponse {
+    async fn handle_list_channels(&self, caller: Option<CallerIdentity>) -> ListChannelsResponse {
         let channels = self.sessions.list_channel_names().await;
-        info!("Listing channels, count: {}", channels.len());
+        info!(caller = ?caller, "Listing channels, count: {}", channels.len());
 
         ListChannelsResponse {
             success: true,
@@ -273,6 +296,7 @@ impl ChannelManagerServer {
     async fn handle_list_participants(
         &self,
         req: ListParticipantsRequest,
+        caller: Option<CallerIdentity>,
     ) -> ListParticipantsResponse {
         let channel_name = &req.channel_name;
 
@@ -306,6 +330,7 @@ impl ChannelManagerServer {
             .collect();
 
         info!(
+            caller = ?caller,
             "Listing participants for channel {channel_name}, count: {}",
             participant_names.len()
         );
@@ -324,53 +349,65 @@ impl ChannelManagerService for ChannelManagerServer {
         &self,
         request: Request<CreateChannelRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
+        let caller = CallerIdentity::from_request(&request);
         let req = request.into_inner();
         debug!("Received create_channel request");
-        Ok(Response::new(self.handle_create_channel(req).await))
+        Ok(Response::new(self.handle_create_channel(req, caller).await))
     }
 
     async fn delete_channel(
         &self,
         request: Request<DeleteChannelRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
+        let caller = CallerIdentity::from_request(&request);
         let req = request.into_inner();
         debug!("Received delete_channel request");
-        Ok(Response::new(self.handle_delete_channel(req).await))
+        Ok(Response::new(self.handle_delete_channel(req, caller).await))
     }
 
     async fn add_participant(
         &self,
         request: Request<AddParticipantRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
+        let caller = CallerIdentity::from_request(&request);
         let req = request.into_inner();
         debug!("Received add_participant request");
-        Ok(Response::new(self.handle_add_participant(req).await))
+        Ok(Response::new(
+            self.handle_add_participant(req, caller).await,
+        ))
     }
 
     async fn delete_participant(
         &self,
         request: Request<DeleteParticipantRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
+        let caller = CallerIdentity::from_request(&request);
         let req = request.into_inner();
         debug!("Received delete_participant request");
-        Ok(Response::new(self.handle_delete_participant(req).await))
+        Ok(Response::new(
+            self.handle_delete_participant(req, caller).await,
+        ))
     }
 
     async fn list_channels(
         &self,
-        _request: Request<ListChannelsRequest>,
+        request: Request<ListChannelsRequest>,
     ) -> Result<Response<ListChannelsResponse>, Status> {
+        let caller = CallerIdentity::from_request(&request);
         debug!("Received list_channels request");
-        Ok(Response::new(self.handle_list_channels().await))
+        Ok(Response::new(self.handle_list_channels(caller).await))
     }
 
     async fn list_participants(
         &self,
         request: Request<ListParticipantsRequest>,
     ) -> Result<Response<ListParticipantsResponse>, Status> {
+        let caller = CallerIdentity::from_request(&request);
         let req = request.into_inner();
         debug!("Received list_participants request");
-        Ok(Response::new(self.handle_list_participants(req).await))
+        Ok(Response::new(
+            self.handle_list_participants(req, caller).await,
+        ))
     }
 }
 
