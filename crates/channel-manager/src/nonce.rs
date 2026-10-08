@@ -113,35 +113,44 @@ mod tests {
     const NOW: u64 = 1_000;
     const LATER: u64 = 2_000;
 
+    /// A fresh random nonce, as a real grant would carry. (Literal nonces
+    /// would also trip CodeQL's hard-coded cryptographic value rule.)
+    fn nonce() -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+
     #[test]
     fn accepts_a_nonce_once() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "n1", LATER, NOW).unwrap());
-        assert!(!nonces.consume("org/ns/ch1", "n1", LATER, NOW).unwrap());
+        let n = nonce();
+        assert!(nonces.consume("org/ns/ch1", &n, LATER, NOW).unwrap());
+        assert!(!nonces.consume("org/ns/ch1", &n, LATER, NOW).unwrap());
     }
 
     #[test]
     fn scopes_nonces_by_channel() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "n1", LATER, NOW).unwrap());
-        assert!(nonces.consume("org/ns/ch2", "n1", LATER, NOW).unwrap());
+        let n = nonce();
+        assert!(nonces.consume("org/ns/ch1", &n, LATER, NOW).unwrap());
+        assert!(nonces.consume("org/ns/ch2", &n, LATER, NOW).unwrap());
     }
 
     #[test]
     fn keeps_a_nonce_until_its_grant_expires() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "n1", LATER, NOW).unwrap());
+        let n = nonce();
+        assert!(nonces.consume("org/ns/ch1", &n, LATER, NOW).unwrap());
         // Still within the grant's validity: replay is refused.
-        assert!(!nonces.consume("org/ns/ch1", "n1", LATER, LATER).unwrap());
+        assert!(!nonces.consume("org/ns/ch1", &n, LATER, LATER).unwrap());
     }
 
     #[test]
     fn forgets_nonces_of_expired_grants() {
         let nonces = NonceStore::new();
-        assert!(nonces.consume("org/ns/ch1", "old", NOW, NOW).unwrap());
+        assert!(nonces.consume("org/ns/ch1", &nonce(), NOW, NOW).unwrap());
         assert!(
             nonces
-                .consume("org/ns/ch1", "new", LATER + 10, LATER + 1)
+                .consume("org/ns/ch1", &nonce(), LATER + 10, LATER + 1)
                 .unwrap()
         );
         assert_eq!(nonces.len(), 1);
@@ -154,18 +163,19 @@ mod tests {
     #[test]
     fn a_consumed_nonce_stays_consumed_across_a_restart() {
         let dir = tempfile::tempdir().unwrap();
+        let n = nonce();
         let before = NonceStore::load(store(dir.path()), NOW).unwrap();
-        assert!(before.consume("org/ns/ch1", "n1", LATER, NOW).unwrap());
+        assert!(before.consume("org/ns/ch1", &n, LATER, NOW).unwrap());
 
         let after = NonceStore::load(store(dir.path()), NOW).unwrap();
-        assert!(!after.consume("org/ns/ch1", "n1", LATER, NOW).unwrap());
+        assert!(!after.consume("org/ns/ch1", &n, LATER, NOW).unwrap());
     }
 
     #[test]
     fn loading_drops_nonces_of_grants_that_expired_meanwhile() {
         let dir = tempfile::tempdir().unwrap();
         let before = NonceStore::load(store(dir.path()), NOW).unwrap();
-        assert!(before.consume("org/ns/ch1", "n1", LATER, NOW).unwrap());
+        assert!(before.consume("org/ns/ch1", &nonce(), LATER, NOW).unwrap());
 
         let after = NonceStore::load(store(dir.path()), LATER + 1).unwrap();
         assert_eq!(after.len(), 0);
