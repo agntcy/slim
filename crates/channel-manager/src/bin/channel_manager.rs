@@ -28,6 +28,10 @@ use slim_session::{Direction, SessionConfig, session_config::MlsSettings};
 use slim_tracing::TracingConfiguration;
 use tracing::{error, info, warn};
 
+/// How often channels whose TTL has passed are deleted -- a channel may
+/// outlive its TTL by up to this much.
+const REAPER_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Channel Manager - manages SLIM channels and participants
 #[derive(Parser)]
 #[command(name = "channel-manager")]
@@ -369,7 +373,9 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("failed to load channel ownership and grant state")?;
     }
-    let svc = ChannelManagerServiceServer::new(server);
+    let server = Arc::new(server);
+    let reaper = server.spawn_reaper(REAPER_INTERVAL);
+    let svc = ChannelManagerServiceServer::from_arc(server);
 
     info!(
         endpoint = %config.manager.api_server.endpoint,
@@ -393,6 +399,8 @@ async fn main() -> anyhow::Result<()> {
             info!("Shutdown signal received");
         }
     }
+
+    reaper.abort();
 
     // Cleanup: either delete sessions from SLIM or just go offline, depending on config.
     info!("Shutting down...");

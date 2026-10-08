@@ -1,7 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! Durable channel-manager state: channel owners and consumed grant nonces.
+//! Durable channel-manager state: channel owners, channel expiry times, and
+//! consumed grant nonces.
 //!
 //! Kept in channel-manager's own encrypted KV store, next to (not inside)
 //! the session layer's store -- same directory and passphrase, separate
@@ -21,12 +22,19 @@ use crate::ownership::ChannelOwner;
 
 const OWNER_PREFIX: &str = "owner:";
 const NONCE_PREFIX: &str = "nonce:";
+const EXPIRY_PREFIX: &str = "expiry:";
 
 #[derive(Serialize, Deserialize)]
 struct OwnerRecord {
     channel: String,
     subject: String,
     callback_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExpiryRecord {
+    channel: String,
+    expires_at: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -94,6 +102,29 @@ impl StateStore {
             .collect()
     }
 
+    pub fn put_expiry(&self, channel: &str, expires_at: u64) -> Result<(), PersistenceError> {
+        let record = ExpiryRecord {
+            channel: channel.to_string(),
+            expires_at,
+        };
+        self.kv.put(&expiry_key(channel), &encode(&record)?)
+    }
+
+    pub fn delete_expiry(&self, channel: &str) -> Result<(), PersistenceError> {
+        self.kv.delete(&expiry_key(channel))
+    }
+
+    pub fn load_expiries(&self) -> Result<Vec<(String, u64)>, PersistenceError> {
+        self.kv
+            .list_prefix(EXPIRY_PREFIX)?
+            .into_iter()
+            .map(|(_, value)| {
+                let record: ExpiryRecord = decode(&value)?;
+                Ok((record.channel, record.expires_at))
+            })
+            .collect()
+    }
+
     pub fn put_nonce(&self, nonce: &ConsumedNonce) -> Result<(), PersistenceError> {
         let record = NonceRecord {
             channel: nonce.channel.clone(),
@@ -126,6 +157,10 @@ impl StateStore {
 
 fn owner_key(channel: &str) -> String {
     format!("{OWNER_PREFIX}{}", hash_hex(channel.as_bytes()))
+}
+
+fn expiry_key(channel: &str) -> String {
+    format!("{EXPIRY_PREFIX}{}", hash_hex(channel.as_bytes()))
 }
 
 fn nonce_key(channel: &str, nonce: &str) -> String {
@@ -207,6 +242,19 @@ mod tests {
     }
 
     #[test]
+    fn expiries_survive_reopening_the_store() {
+        let dir = tempfile::tempdir().unwrap();
+        open(dir.path()).put_expiry("org/ns/ch1", 2_000).unwrap();
+        assert_eq!(
+            open(dir.path()).load_expiries().unwrap(),
+            vec![("org/ns/ch1".to_string(), 2_000)]
+        );
+
+        open(dir.path()).delete_expiry("org/ns/ch1").unwrap();
+        assert!(open(dir.path()).load_expiries().unwrap().is_empty());
+    }
+
+    #[test]
     fn keys_do_not_reveal_channel_names() {
         let dir = tempfile::tempdir().unwrap();
         let store = open(dir.path());
@@ -218,6 +266,7 @@ mod tests {
                 not_after: 2_000,
             })
             .unwrap();
+        store.put_expiry("org/ns/secret-channel", 2_000).unwrap();
 
         for (key, _) in store.kv.list_prefix("").unwrap() {
             assert!(

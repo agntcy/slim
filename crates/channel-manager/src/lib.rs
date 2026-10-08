@@ -13,6 +13,7 @@
 pub mod approval;
 pub mod caller_identity;
 pub mod config;
+pub mod expiry;
 pub mod grant;
 pub mod nonce;
 pub mod ownership;

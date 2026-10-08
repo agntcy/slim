@@ -92,6 +92,8 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
                 mls_enabled: !disable_mls,
                 // TODO(#2174): expose an --owner-callback-name flag.
                 owner_callback_name: None,
+                // TODO(#2174): expose a --ttl flag.
+                ttl_seconds: None,
             };
             let response = rpc!(client, create_channel, request);
             check_command_response(response, &format!("Channel {channel} created successfully"))

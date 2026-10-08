@@ -12,11 +12,13 @@ use slim_persistence::PersistenceError;
 use slim_service::app::App;
 use slim_session::completion_handle::CompletionHandle;
 use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
+use tokio::task::JoinHandle;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::approval::{ApprovalDecision, OwnerApprover, SlimOwnerApprover};
 use crate::caller_identity::CallerIdentity;
+use crate::expiry::ChannelExpiry;
 use crate::grant::{DidKeyEd25519Verifier, GrantAction, GrantVerifier};
 use crate::nonce::NonceStore;
 use crate::ownership::{ChannelOwner, ChannelOwnership};
@@ -177,6 +179,7 @@ pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
     sessions: Arc<SessionsList>,
     ownership: ChannelOwnership,
+    expiry: ChannelExpiry,
     nonces: NonceStore,
     grant_verifier: Arc<dyn GrantVerifier>,
     owner_approver: Arc<dyn OwnerApprover>,
@@ -216,6 +219,7 @@ impl ChannelManagerServer {
             app,
             sessions,
             ownership: ChannelOwnership::new(),
+            expiry: ChannelExpiry::new(),
             nonces: NonceStore::new(),
             grant_verifier: Arc::new(DidKeyEd25519Verifier),
             approval_timeout: DEFAULT_APPROVAL_TIMEOUT,
@@ -243,14 +247,15 @@ impl ChannelManagerServer {
         self
     }
 
-    /// Persists channel ownership and consumed grant nonces in `store`, so
-    /// they survive a restart along with the sessions they govern. Without
-    /// it, a channel restored from session persistence would come back with
-    /// no owner -- and so with no grant required to change it.
+    /// Persists channel ownership, expiry and consumed grant nonces in
+    /// `store`, so they survive a restart along with the sessions they
+    /// govern. Without it, a channel restored from session persistence would
+    /// come back with no owner -- and so with no grant required to change
+    /// it -- and no expiry.
     ///
-    /// Call after the sessions list has been restored: owners are kept only
-    /// for channels it contains, and dropped (from the store too) for the
-    /// rest.
+    /// Call after the sessions list has been restored: owners and expiry are
+    /// kept only for channels it contains, and dropped (from the store too)
+    /// for the rest.
     pub async fn with_state_store(mut self, store: StateStore) -> Result<Self, PersistenceError> {
         let restored: std::collections::HashSet<String> = self
             .sessions
@@ -259,8 +264,72 @@ impl ChannelManagerServer {
             .into_iter()
             .collect();
         self.ownership = ChannelOwnership::load(store.clone(), |c| restored.contains(c))?;
+        self.expiry = ChannelExpiry::load(store.clone(), |c| restored.contains(c))?;
         self.nonces = NonceStore::load(store, unix_now())?;
         Ok(self)
+    }
+
+    /// Spawns the task that deletes channels whose TTL has passed, checking
+    /// every `interval`. The first check runs immediately, deleting channels
+    /// that expired while the channel manager was down. Abort the returned
+    /// handle on shutdown.
+    pub fn spawn_reaper(self: &Arc<Self>, interval: Duration) -> JoinHandle<()> {
+        let server = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                server.reap_expired(unix_now()).await;
+            }
+        })
+    }
+
+    async fn reap_expired(&self, now: u64) {
+        for channel in self.expiry.expired(now).await {
+            match self.sessions.remove_session(&channel, &self.app).await {
+                Ok(()) => info!(%channel, "Deleted expired channel"),
+                Err(e) => warn!(%channel, error = %e, "Failed to delete expired channel"),
+            }
+            // remove_session drops the channel from the list even when
+            // deleting its SLIM session fails, so there's nothing to retry:
+            // forget its state either way, or this would warn about it on
+            // every pass.
+            self.forget_channel(&channel).await;
+        }
+    }
+
+    /// Drops a deleted channel's owner and expiry records. Store errors are
+    /// only logged: the stale records are dropped at the next startup, since
+    /// the channel won't be restored.
+    async fn forget_channel(&self, channel_name: &str) {
+        if let Err(e) = self.ownership.remove_owner(channel_name).await {
+            warn!("Failed to delete owner record of channel {channel_name}: {e}");
+        }
+        if let Err(e) = self.expiry.remove_expiry(channel_name).await {
+            warn!("Failed to delete expiry record of channel {channel_name}: {e}");
+        }
+    }
+
+    /// Records a new channel's expiry and owner, if any -- durably, when
+    /// there's a store.
+    async fn record_new_channel(
+        &self,
+        channel_name: &str,
+        expires_at: Option<u64>,
+        owner: Option<ChannelOwner>,
+    ) -> Result<(), PersistenceError> {
+        if let Some(expires_at) = expires_at {
+            self.expiry
+                .set_expiry(channel_name.to_string(), expires_at)
+                .await?;
+        }
+        if let Some(owner) = owner {
+            self.ownership
+                .set_owner(channel_name.to_string(), owner)
+                .await?;
+        }
+        Ok(())
     }
 
     /// Guard for mutating operations: returns an error response when the server
@@ -319,6 +388,10 @@ impl ChannelManagerServer {
         // Check if the channel already exists before doing expensive SLIM work
         if self.sessions.get_session(channel_name).await.is_some() {
             return self.error_response(format!("channel {channel_name} already exists"));
+        }
+
+        if req.ttl_seconds == Some(0) {
+            return self.error_response("ttl-seconds must be positive".to_string());
         }
 
         // Parse the channel name
@@ -387,21 +460,25 @@ impl ChannelManagerServer {
         // The creator becomes the owner. No caller identity means no auth
         // middleware is configured, so the channel is created with no owner
         // on record rather than failing the request.
-        if let Some(c) = &caller {
-            let owner = ChannelOwner {
-                subject: c.subject.clone(),
-                callback_name: req.owner_callback_name.clone(),
-            };
-            if let Err(e) = self.ownership.set_owner(channel_name.clone(), owner).await {
-                // A channel whose owner wasn't recorded durably would come
-                // back from a restart ownerless, and so ungated: undo it.
-                error!("Failed to record owner of channel {channel_name}: {e}");
-                if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
-                    error!("Failed to roll back channel {channel_name}: {e}");
-                }
-                return self
-                    .error_response(format!("failed to record owner of channel {channel_name}"));
+        let owner = caller.as_ref().map(|c| ChannelOwner {
+            subject: c.subject.clone(),
+            callback_name: req.owner_callback_name.clone(),
+        });
+        let expires_at = req.ttl_seconds.map(|ttl| unix_now().saturating_add(ttl));
+        if let Err(e) = self
+            .record_new_channel(channel_name, expires_at, owner)
+            .await
+        {
+            // Not recorded durably, the channel would come back from a
+            // restart ownerless -- and so ungated -- or never expiring: undo
+            // it.
+            error!("Failed to record state of channel {channel_name}: {e}");
+            if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
+                error!("Failed to roll back channel {channel_name}: {e}");
             }
+            self.forget_channel(channel_name).await;
+            return self
+                .error_response(format!("failed to record state of channel {channel_name}"));
         }
 
         info!(caller = ?caller, "Created channel {channel_name}");
@@ -422,11 +499,7 @@ impl ChannelManagerServer {
             error!("Failed to delete channel {channel_name}: {e}");
             return self.error_response(format!("{e}"));
         }
-        if let Err(e) = self.ownership.remove_owner(channel_name).await {
-            // Harmless: dropped at the next startup, since the channel won't
-            // be restored.
-            warn!("Failed to delete owner record of channel {channel_name}: {e}");
-        }
+        self.forget_channel(channel_name).await;
 
         info!(caller = ?caller, "Deleted channel {channel_name}");
         self.success_response()
@@ -584,6 +657,7 @@ impl ChannelManagerServer {
                     .get_owner(channel_name)
                     .await
                     .map(|o| o.subject),
+                expires_at: self.expiry.get_expiry(channel_name).await,
             });
         }
 
@@ -885,6 +959,7 @@ mod tests {
             channel_name: "org/namespace/channel".to_string(),
             mls_enabled: true,
             owner_callback_name: None,
+            ttl_seconds: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert!(request.mls_enabled);
@@ -896,6 +971,7 @@ mod tests {
             channel_name: "org/namespace/channel".to_string(),
             mls_enabled: false,
             owner_callback_name: None,
+            ttl_seconds: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert!(!request.mls_enabled);
