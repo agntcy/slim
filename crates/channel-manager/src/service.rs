@@ -965,6 +965,7 @@ mod tests {
         not_after: u64,
     ) -> Vec<u8> {
         let payload = [
+            "SLIM-CHANNEL-GRANT/1",
             channel,
             invitee,
             action,
