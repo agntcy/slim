@@ -14,6 +14,7 @@ pub mod approval;
 pub mod caller_identity;
 pub mod config;
 pub mod grant;
+pub mod nonce;
 pub mod ownership;
 pub mod service;
 pub mod sessions;
