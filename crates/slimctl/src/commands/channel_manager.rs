@@ -110,6 +110,9 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
             let request = AddParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                // TODO(#2174): expose a --grant flag once a signed grant is
+                // required (the channel has an owner and this caller isn't it).
+                grant: None,
             };
             let response = rpc!(client, add_participant, request);
             check_command_response(
@@ -125,6 +128,9 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
             let request = DeleteParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                // TODO(#2174): expose a --grant flag once a signed grant is
+                // required (the channel has an owner and this caller isn't it).
+                grant: None,
             };
             let response = rpc!(client, delete_participant, request);
             check_command_response(

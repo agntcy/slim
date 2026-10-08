@@ -11,12 +11,19 @@ pub struct DeleteChannelRequest {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
 }
+/// `grant` is required when the channel has an owner on record and the
+/// caller isn't that owner: a signed grant from the owner authorizing this
+/// exact change. Its format is whichever GrantVerifier the server was built
+/// with expects -- opaque bytes here. Unset (or any other case) means no
+/// grant is being presented.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddParticipantRequest {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub grant: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteParticipantRequest {
@@ -24,6 +31,8 @@ pub struct DeleteParticipantRequest {
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub grant: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListChannelsRequest {}

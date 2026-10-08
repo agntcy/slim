@@ -195,6 +195,9 @@ async fn main() -> Result<()> {
             let request = AddParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                // TODO(#2174): expose a --grant flag once a signed grant is
+                // required (the channel has an owner and this caller isn't it).
+                grant: None,
             };
             let response = client
                 .add_participant(request)
@@ -213,6 +216,9 @@ async fn main() -> Result<()> {
             let request = DeleteParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                // TODO(#2174): expose a --grant flag once a signed grant is
+                // required (the channel has an owner and this caller isn't it).
+                grant: None,
             };
             let response = client
                 .delete_participant(request)
@@ -868,6 +874,7 @@ endpoint: "http://127.0.0.1:{port}"
             .add_participant(AddParticipantRequest {
                 channel_name: "org/ns/ch1".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()
@@ -894,6 +901,7 @@ endpoint: "http://127.0.0.1:{port}"
             .add_participant(AddParticipantRequest {
                 channel_name: "org/ns/missing".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()
@@ -920,6 +928,7 @@ endpoint: "http://127.0.0.1:{port}"
             .delete_participant(DeleteParticipantRequest {
                 channel_name: "org/ns/ch1".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()
@@ -948,6 +957,7 @@ endpoint: "http://127.0.0.1:{port}"
             .delete_participant(DeleteParticipantRequest {
                 channel_name: "org/ns/missing".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()

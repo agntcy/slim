@@ -15,6 +15,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::caller_identity::CallerIdentity;
+use crate::grant::GrantVerifier;
 use crate::ownership::ChannelOwnership;
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
@@ -24,11 +25,61 @@ use crate::proto::{
 };
 use crate::sessions::SessionsList;
 
+/// Enforces the grant contract for a mutating participant-change RPC.
+///
+/// A channel with no owner on record needs no grant -- unchanged,
+/// pre-ownership behavior. The owner needs no grant for their own channel.
+/// Anyone else must present one that verifies and names this exact channel
+/// and participant and hasn't expired.
+///
+/// A free function (not a method) so it's testable without constructing a
+/// full `ChannelManagerServer`, which needs a real `App`.
+async fn enforce_grant(
+    ownership: &ChannelOwnership,
+    grant_verifier: &dyn GrantVerifier,
+    channel_name: &str,
+    participant_name: &str,
+    caller: &Option<CallerIdentity>,
+    grant: &Option<Vec<u8>>,
+) -> Result<(), String> {
+    let Some(owner) = ownership.get_owner(channel_name).await else {
+        return Ok(());
+    };
+    if caller.as_ref().is_some_and(|c| c.subject == owner) {
+        return Ok(());
+    }
+
+    let Some(grant_bytes) = grant else {
+        return Err(format!(
+            "channel {channel_name} requires a grant from its owner"
+        ));
+    };
+
+    let parsed = grant_verifier
+        .verify(&owner, grant_bytes)
+        .map_err(|e| format!("invalid grant: {e}"))?;
+
+    if parsed.channel != channel_name || parsed.invitee != participant_name {
+        return Err("grant does not authorize this channel/participant".to_string());
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if parsed.not_after < now {
+        return Err("grant has expired".to_string());
+    }
+
+    Ok(())
+}
+
 /// gRPC server for the Channel Manager service
 pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
     sessions: Arc<SessionsList>,
     ownership: ChannelOwnership,
+    grant_verifier: Arc<dyn GrantVerifier>,
     /// When true, channels are owned by the config file and mutating APIs are disabled.
     config_mode: bool,
 }
@@ -42,11 +93,18 @@ impl ChannelManagerServer {
     ///
     /// `conn_id` pins the default gateway, so invites keep working on a
     /// multi-uplink service where auto-detection would be ambiguous.
+    ///
+    /// `grant_verifier` authenticates a grant presented by a non-owner
+    /// caller on `AddParticipant`/`DeleteParticipant` -- swap in a different
+    /// implementation for a different grant format or key scheme (see
+    /// `crate::grant::GrantVerifier`); `DidKeyEd25519Verifier` is a
+    /// reasonable default.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
         sessions: Arc<SessionsList>,
         config_mode: bool,
+        grant_verifier: Arc<dyn GrantVerifier>,
     ) -> Self {
         if let Err(e) = app.set_default_gateway(conn_id) {
             warn!("failed to pin default gateway to conn {conn_id}: {e}");
@@ -56,6 +114,7 @@ impl ChannelManagerServer {
             app,
             sessions,
             ownership: ChannelOwnership::new(),
+            grant_verifier,
             config_mode,
         }
     }
@@ -206,6 +265,26 @@ impl ChannelManagerServer {
         self.success_response()
     }
 
+    /// See `enforce_grant`.
+    async fn check_grant(
+        &self,
+        channel_name: &str,
+        participant_name: &str,
+        caller: &Option<CallerIdentity>,
+        grant: &Option<Vec<u8>>,
+    ) -> Result<(), CommandResponse> {
+        enforce_grant(
+            &self.ownership,
+            self.grant_verifier.as_ref(),
+            channel_name,
+            participant_name,
+            caller,
+            grant,
+        )
+        .await
+        .map_err(|msg| self.error_response(msg))
+    }
+
     async fn handle_add_participant(
         &self,
         req: AddParticipantRequest,
@@ -223,6 +302,13 @@ impl ChannelManagerServer {
                 return self.error_response(format!("channel {channel_name} not found"));
             }
         };
+
+        if let Err(resp) = self
+            .check_grant(channel_name, participant_name_str, &caller, &req.grant)
+            .await
+        {
+            return resp;
+        }
 
         let participant_name = match ProtoName::parse_name(participant_name_str) {
             Ok(n) => n,
@@ -268,6 +354,13 @@ impl ChannelManagerServer {
                 return self.error_response(format!("channel {channel_name} not found"));
             }
         };
+
+        if let Err(resp) = self
+            .check_grant(channel_name, participant_name_str, &caller, &req.grant)
+            .await
+        {
+            return resp;
+        }
 
         let participant_name = match ProtoName::parse_name(participant_name_str) {
             Ok(n) => n,
@@ -632,6 +725,7 @@ mod tests {
         let request = AddParticipantRequest {
             channel_name: "org/namespace/channel".to_string(),
             participant_name: "org/namespace/app".to_string(),
+            grant: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert_eq!(request.participant_name, "org/namespace/app");
@@ -642,6 +736,7 @@ mod tests {
         let request = DeleteParticipantRequest {
             channel_name: "org/namespace/channel".to_string(),
             participant_name: "org/namespace/app".to_string(),
+            grant: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert_eq!(request.participant_name, "org/namespace/app");
@@ -693,5 +788,201 @@ mod tests {
                 .participant_name
                 .contains(&"org/ns/app4".to_string())
         );
+    }
+
+    // ── enforce_grant ─────────────────────────────────────────────────
+
+    use crate::grant::DidKeyEd25519Verifier;
+    use aws_lc_rs::rand::SystemRandom;
+    use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
+
+    /// Generates a fresh Ed25519 keypair and its did:key identifier.
+    fn new_owner() -> (Ed25519KeyPair, String) {
+        let rng = SystemRandom::new();
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+        let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+
+        let mut multicodec = vec![0xed, 0x01];
+        multicodec.extend_from_slice(key_pair.public_key().as_ref());
+        let did_key = format!("did:key:z{}", bs58::encode(multicodec).into_string());
+
+        (key_pair, did_key)
+    }
+
+    fn sign_grant(
+        key_pair: &Ed25519KeyPair,
+        channel: &str,
+        invitee: &str,
+        not_after: u64,
+    ) -> Vec<u8> {
+        let payload = [channel, invitee, "member", &not_after.to_string(), "nonce"].join("\0");
+        let signature = key_pair.sign(payload.as_bytes());
+        serde_json::json!({
+            "channel": channel,
+            "invitee": invitee,
+            "role": "member",
+            "not_after": not_after,
+            "nonce": "nonce",
+            "signature": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature.as_ref()),
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    const FAR_FUTURE: u64 = 9_999_999_999;
+
+    #[tokio::test]
+    async fn enforce_grant_allows_an_ownerless_channel_without_a_grant() {
+        let ownership = ChannelOwnership::new();
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &None,
+            &None,
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn enforce_grant_allows_the_owner_without_a_grant() {
+        let ownership = ChannelOwnership::new();
+        let (_key, owner) = new_owner();
+        ownership
+            .set_owner("org/ns/ch1".to_string(), owner.clone())
+            .await;
+        let caller = Some(CallerIdentity { subject: owner });
+
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &caller,
+            &None,
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn enforce_grant_denies_a_non_owner_with_no_grant() {
+        let ownership = ChannelOwnership::new();
+        let (_key, owner) = new_owner();
+        ownership.set_owner("org/ns/ch1".to_string(), owner).await;
+
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &None,
+            &None,
+        )
+        .await;
+        assert!(result.unwrap_err().contains("requires a grant"));
+    }
+
+    #[tokio::test]
+    async fn enforce_grant_allows_a_non_owner_with_a_valid_grant() {
+        let ownership = ChannelOwnership::new();
+        let (owner_key, owner) = new_owner();
+        ownership.set_owner("org/ns/ch1".to_string(), owner).await;
+        let grant = sign_grant(&owner_key, "org/ns/ch1", "org/ns/agent1", FAR_FUTURE);
+
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &None,
+            &Some(grant),
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn enforce_grant_denies_a_grant_signed_by_someone_other_than_the_owner() {
+        let ownership = ChannelOwnership::new();
+        let (_, owner) = new_owner();
+        let (impostor_key, _) = new_owner();
+        ownership.set_owner("org/ns/ch1".to_string(), owner).await;
+        let grant = sign_grant(&impostor_key, "org/ns/ch1", "org/ns/agent1", FAR_FUTURE);
+
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &None,
+            &Some(grant),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("invalid grant"));
+    }
+
+    #[tokio::test]
+    async fn enforce_grant_denies_a_grant_for_a_different_channel() {
+        let ownership = ChannelOwnership::new();
+        let (owner_key, owner) = new_owner();
+        ownership.set_owner("org/ns/ch1".to_string(), owner).await;
+        let grant = sign_grant(
+            &owner_key,
+            "org/ns/other-channel",
+            "org/ns/agent1",
+            FAR_FUTURE,
+        );
+
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &None,
+            &Some(grant),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("does not authorize"));
+    }
+
+    #[tokio::test]
+    async fn enforce_grant_denies_a_grant_for_a_different_invitee() {
+        let ownership = ChannelOwnership::new();
+        let (owner_key, owner) = new_owner();
+        ownership.set_owner("org/ns/ch1".to_string(), owner).await;
+        let grant = sign_grant(&owner_key, "org/ns/ch1", "org/ns/someone-else", FAR_FUTURE);
+
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &None,
+            &Some(grant),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("does not authorize"));
+    }
+
+    #[tokio::test]
+    async fn enforce_grant_denies_an_expired_grant() {
+        let ownership = ChannelOwnership::new();
+        let (owner_key, owner) = new_owner();
+        ownership.set_owner("org/ns/ch1".to_string(), owner).await;
+        let grant = sign_grant(&owner_key, "org/ns/ch1", "org/ns/agent1", 1);
+
+        let result = enforce_grant(
+            &ownership,
+            &DidKeyEd25519Verifier,
+            "org/ns/ch1",
+            "org/ns/agent1",
+            &None,
+            &Some(grant),
+        )
+        .await;
+        assert!(result.unwrap_err().contains("expired"));
     }
 }
