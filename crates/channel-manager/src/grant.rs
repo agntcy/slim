@@ -17,15 +17,34 @@ use std::fmt;
 use aws_lc_rs::signature::{self, UnparsedPublicKey};
 use serde::{Deserialize, Serialize};
 
+/// Which change a grant authorizes. Part of what's signed, so a grant to
+/// add someone can't be spent removing them, or the other way round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GrantAction {
+    Add,
+    Delete,
+}
+
+impl GrantAction {
+    fn as_str(self) -> &'static str {
+        match self {
+            GrantAction::Add => "add",
+            GrantAction::Delete => "delete",
+        }
+    }
+}
+
 /// The parsed, authenticated contents of a grant: what the owner actually
 /// authorized. Verifying a grant proves it was signed by the channel's
 /// owner -- it does not, on its own, prove it applies to the request at
-/// hand. Callers must still check `channel`/`invitee`/`not_after` against
-/// the request they received.
+/// hand. Callers must still check `channel`/`invitee`/`action`/`not_after`
+/// against the request they received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Grant {
     pub channel: String,
     pub invitee: String,
+    pub action: GrantAction,
     pub role: String,
     /// Unix seconds after which the grant is no longer valid.
     pub not_after: u64,
@@ -63,11 +82,12 @@ impl std::error::Error for GrantError {}
 /// Authenticates a grant and parses what it authorizes.
 ///
 /// A deployment supplies its own implementation to `ChannelManagerServer`
-/// (see `ChannelManagerServer::new`) to use a different grant format or key
-/// scheme than the default. Implementations only authenticate and parse --
-/// checking the parsed `Grant` against the live request (channel, invitee,
-/// expiry) is the caller's job, so every verifier gets that enforcement
-/// uniformly rather than having to implement it itself.
+/// (see `ChannelManagerServer::with_grant_verifier`) to use a different
+/// grant format or key scheme than the default. Implementations only
+/// authenticate and parse -- checking the parsed `Grant` against the live
+/// request (channel, invitee, action, expiry) is the caller's job, so every
+/// verifier gets that enforcement uniformly rather than having to implement
+/// it itself.
 pub trait GrantVerifier: Send + Sync {
     /// Verifies `grant` was signed by `owner`, returning its parsed
     /// contents on success.
@@ -76,11 +96,13 @@ pub trait GrantVerifier: Send + Sync {
 
 /// The wire format [`DidKeyEd25519Verifier`] expects in a request's `grant`
 /// field: the grant's fields alongside a detached signature over their
-/// canonical encoding (see `canonical_bytes`).
+/// canonical encoding (see `canonical_bytes`). `action` is `"add"` or
+/// `"delete"`.
 #[derive(Debug, Serialize, Deserialize)]
 struct SignedGrant {
     channel: String,
     invitee: String,
+    action: GrantAction,
     role: String,
     not_after: u64,
     nonce: String,
@@ -88,20 +110,22 @@ struct SignedGrant {
     signature: String,
 }
 
-/// Byte representation a grant's fields are signed over. NUL-separated:
-/// none of the fields are expected to contain NUL bytes (they're protocol
-/// names, a role label, a timestamp and a nonce), so this needs no escaping
-/// and no field-order ambiguity, unlike signing re-serialized JSON would.
-fn canonical_bytes(
-    channel: &str,
-    invitee: &str,
-    role: &str,
-    not_after: u64,
-    nonce: &str,
-) -> Vec<u8> {
-    [channel, invitee, role, &not_after.to_string(), nonce]
-        .join("\0")
-        .into_bytes()
+/// Byte representation a grant is signed over: its fields, in this order,
+/// NUL-separated. None of them are expected to contain NUL bytes (they're
+/// protocol names, an action, a role label, a timestamp and a nonce), so
+/// this needs no escaping and has no field-order ambiguity, unlike signing
+/// re-serialized JSON would.
+fn canonical_bytes(grant: &Grant) -> Vec<u8> {
+    [
+        grant.channel.as_str(),
+        grant.invitee.as_str(),
+        grant.action.as_str(),
+        grant.role.as_str(),
+        &grant.not_after.to_string(),
+        grant.nonce.as_str(),
+    ]
+    .join("\0")
+    .into_bytes()
 }
 
 /// Decodes a `did:key` identifier that encodes an Ed25519 public key.
@@ -146,25 +170,20 @@ impl GrantVerifier for DidKeyEd25519Verifier {
         )
         .map_err(|e| GrantError::MalformedGrant(format!("signature: {e}")))?;
 
-        let payload = canonical_bytes(
-            &signed.channel,
-            &signed.invitee,
-            &signed.role,
-            signed.not_after,
-            &signed.nonce,
-        );
-
-        UnparsedPublicKey::new(&signature::ED25519, &pubkey_bytes[..])
-            .verify(&payload, &signature_bytes)
-            .map_err(|_| GrantError::InvalidSignature)?;
-
-        Ok(Grant {
+        let grant = Grant {
             channel: signed.channel,
             invitee: signed.invitee,
+            action: signed.action,
             role: signed.role,
             not_after: signed.not_after,
             nonce: signed.nonce,
-        })
+        };
+
+        UnparsedPublicKey::new(&signature::ED25519, &pubkey_bytes[..])
+            .verify(&canonical_bytes(&grant), &signature_bytes)
+            .map_err(|_| GrantError::InvalidSignature)?;
+
+        Ok(grant)
     }
 }
 
@@ -187,103 +206,110 @@ mod tests {
         (key_pair, did_key)
     }
 
-    fn sign_grant(
-        key_pair: &Ed25519KeyPair,
-        channel: &str,
-        invitee: &str,
-        role: &str,
-        not_after: u64,
-        nonce: &str,
-    ) -> Vec<u8> {
-        let payload = canonical_bytes(channel, invitee, role, not_after, nonce);
-        let signature = key_pair.sign(&payload);
-        let signed = SignedGrant {
-            channel: channel.to_string(),
-            invitee: invitee.to_string(),
-            role: role.to_string(),
-            not_after,
-            nonce: nonce.to_string(),
+    fn grant() -> Grant {
+        Grant {
+            channel: "org/ns/ch1".to_string(),
+            invitee: "org/ns/agent1".to_string(),
+            action: GrantAction::Add,
+            role: "member".to_string(),
+            not_after: 9_999_999_999,
+            nonce: "nonce-1".to_string(),
+        }
+    }
+
+    fn sign(key_pair: &Ed25519KeyPair, grant: &Grant) -> SignedGrant {
+        let signature = key_pair.sign(&canonical_bytes(grant));
+        SignedGrant {
+            channel: grant.channel.clone(),
+            invitee: grant.invitee.clone(),
+            action: grant.action,
+            role: grant.role.clone(),
+            not_after: grant.not_after,
+            nonce: grant.nonce.clone(),
             signature: base64::Engine::encode(
                 &base64::engine::general_purpose::STANDARD,
                 signature.as_ref(),
             ),
-        };
-        serde_json::to_vec(&signed).unwrap()
+        }
+    }
+
+    fn to_bytes(signed: &SignedGrant) -> Vec<u8> {
+        serde_json::to_vec(signed).unwrap()
     }
 
     #[test]
     fn verifies_a_correctly_signed_grant() {
         let (key_pair, owner) = new_owner();
-        let grant = sign_grant(
-            &key_pair,
-            "org/ns/ch1",
-            "org/ns/agent1",
-            "member",
-            9_999_999_999,
-            "nonce-1",
-        );
+        let bytes = to_bytes(&sign(&key_pair, &grant()));
 
-        let parsed = DidKeyEd25519Verifier.verify(&owner, &grant).unwrap();
-        assert_eq!(
-            parsed,
-            Grant {
-                channel: "org/ns/ch1".to_string(),
-                invitee: "org/ns/agent1".to_string(),
-                role: "member".to_string(),
-                not_after: 9_999_999_999,
-                nonce: "nonce-1".to_string(),
-            }
-        );
+        assert_eq!(DidKeyEd25519Verifier.verify(&owner, &bytes), Ok(grant()));
+    }
+
+    #[test]
+    fn serializes_the_action_as_a_lowercase_string() {
+        let (key_pair, _) = new_owner();
+        let json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(&sign(&key_pair, &grant()))).unwrap();
+
+        assert_eq!(json["action"], "add");
     }
 
     #[test]
     fn rejects_a_grant_signed_by_a_different_key() {
-        let (_signer_key, _signer_owner) = new_owner();
         let (signer_key, _) = new_owner();
         let (_, claimed_owner) = new_owner();
-        let grant = sign_grant(
-            &signer_key,
-            "org/ns/ch1",
-            "org/ns/agent1",
-            "member",
-            9_999_999_999,
-            "n",
-        );
+        let bytes = to_bytes(&sign(&signer_key, &grant()));
 
         assert_eq!(
-            DidKeyEd25519Verifier.verify(&claimed_owner, &grant),
+            DidKeyEd25519Verifier.verify(&claimed_owner, &bytes),
             Err(GrantError::InvalidSignature)
         );
     }
 
     #[test]
-    fn rejects_a_tampered_field() {
+    fn rejects_a_tampered_invitee() {
         let (key_pair, owner) = new_owner();
-        let grant = sign_grant(
-            &key_pair,
-            "org/ns/ch1",
-            "org/ns/agent1",
-            "member",
-            9_999_999_999,
-            "n",
-        );
-        let mut tampered: SignedGrant = serde_json::from_slice(&grant).unwrap();
+        let mut tampered = sign(&key_pair, &grant());
         tampered.invitee = "org/ns/someone-else".to_string();
-        let tampered_bytes = serde_json::to_vec(&tampered).unwrap();
 
         assert_eq!(
-            DidKeyEd25519Verifier.verify(&owner, &tampered_bytes),
+            DidKeyEd25519Verifier.verify(&owner, &to_bytes(&tampered)),
             Err(GrantError::InvalidSignature)
         );
+    }
+
+    #[test]
+    fn rejects_an_add_grant_rewritten_as_a_delete() {
+        let (key_pair, owner) = new_owner();
+        let mut tampered = sign(&key_pair, &grant());
+        tampered.action = GrantAction::Delete;
+
+        assert_eq!(
+            DidKeyEd25519Verifier.verify(&owner, &to_bytes(&tampered)),
+            Err(GrantError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn rejects_an_unknown_action() {
+        let (key_pair, owner) = new_owner();
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&to_bytes(&sign(&key_pair, &grant()))).unwrap();
+        json["action"] = "promote".into();
+
+        let err = DidKeyEd25519Verifier
+            .verify(&owner, json.to_string().as_bytes())
+            .unwrap_err();
+        assert!(matches!(err, GrantError::MalformedGrant(_)));
     }
 
     #[test]
     fn rejects_an_owner_that_is_not_a_did_key() {
         let (key_pair, _) = new_owner();
-        let grant = sign_grant(&key_pair, "org/ns/ch1", "org/ns/agent1", "member", 1, "n");
+        let bytes = to_bytes(&sign(&key_pair, &grant()));
 
         assert_eq!(
-            DidKeyEd25519Verifier.verify("not-a-did-key", &grant),
+            DidKeyEd25519Verifier.verify("not-a-did-key", &bytes),
             Err(GrantError::UnsupportedOwnerFormat(
                 "not-a-did-key".to_string()
             ))
@@ -312,10 +338,10 @@ mod tests {
         )
         .into_string();
         let owner = format!("did:key:z{bogus}");
-        let grant = sign_grant(&key_pair, "org/ns/ch1", "org/ns/agent1", "member", 1, "n");
+        let bytes = to_bytes(&sign(&key_pair, &grant()));
 
         assert!(matches!(
-            DidKeyEd25519Verifier.verify(&owner, &grant),
+            DidKeyEd25519Verifier.verify(&owner, &bytes),
             Err(GrantError::UnsupportedOwnerFormat(_))
         ));
     }

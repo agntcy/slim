@@ -16,7 +16,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::approval::{ApprovalDecision, OwnerApprover, SlimOwnerApprover};
 use crate::caller_identity::CallerIdentity;
-use crate::grant::{DidKeyEd25519Verifier, GrantVerifier};
+use crate::grant::{DidKeyEd25519Verifier, GrantAction, GrantVerifier};
 use crate::ownership::{ChannelOwner, ChannelOwnership};
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
@@ -34,7 +34,15 @@ const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 struct ParticipantChange<'a> {
     channel: &'a str,
     participant: &'a str,
-    action: ParticipantAction,
+    action: GrantAction,
+}
+
+/// The approval protocol's name for a grant action.
+fn approval_action(action: GrantAction) -> ParticipantAction {
+    match action {
+        GrantAction::Add => ParticipantAction::Add,
+        GrantAction::Delete => ParticipantAction::Delete,
+    }
 }
 
 /// What authorizing a participant change needs from the server -- borrowed,
@@ -94,7 +102,7 @@ impl GrantPolicy<'_> {
         let request = ApprovalRequest {
             channel_name: change.channel.to_string(),
             participant_name: change.participant.to_string(),
-            action: change.action as i32,
+            action: approval_action(change.action) as i32,
             requester: caller.as_ref().map(|c| c.subject.clone()),
         };
 
@@ -124,8 +132,11 @@ impl GrantPolicy<'_> {
             .verify(owner_subject, grant)
             .map_err(|e| format!("invalid grant: {e}"))?;
 
-        if parsed.channel != change.channel || parsed.invitee != change.participant {
-            return Err("grant does not authorize this channel/participant".to_string());
+        if parsed.channel != change.channel
+            || parsed.invitee != change.participant
+            || parsed.action != change.action
+        {
+            return Err("grant does not authorize this change".to_string());
         }
 
         let now = std::time::SystemTime::now()
@@ -411,7 +422,7 @@ impl ChannelManagerServer {
                 &ParticipantChange {
                     channel: channel_name,
                     participant: participant_name_str,
-                    action: ParticipantAction::Add,
+                    action: GrantAction::Add,
                 },
                 &caller,
                 &req.grant,
@@ -471,7 +482,7 @@ impl ChannelManagerServer {
                 &ParticipantChange {
                     channel: channel_name,
                     participant: participant_name_str,
-                    action: ParticipantAction::Delete,
+                    action: GrantAction::Delete,
                 },
                 &caller,
                 &req.grant,
@@ -934,17 +945,39 @@ mod tests {
         (key_pair, did_key)
     }
 
+    /// Signs an "add" grant.
     fn sign_grant(
         key_pair: &Ed25519KeyPair,
         channel: &str,
         invitee: &str,
         not_after: u64,
     ) -> Vec<u8> {
-        let payload = [channel, invitee, "member", &not_after.to_string(), "nonce"].join("\0");
+        sign_grant_for(key_pair, channel, invitee, "add", not_after)
+    }
+
+    /// Builds the default verifier's wire format by hand, independently of
+    /// `crate::grant`'s own helpers, so these tests also pin that format.
+    fn sign_grant_for(
+        key_pair: &Ed25519KeyPair,
+        channel: &str,
+        invitee: &str,
+        action: &str,
+        not_after: u64,
+    ) -> Vec<u8> {
+        let payload = [
+            channel,
+            invitee,
+            action,
+            "member",
+            &not_after.to_string(),
+            "nonce",
+        ]
+        .join("\0");
         let signature = key_pair.sign(payload.as_bytes());
         serde_json::json!({
             "channel": channel,
             "invitee": invitee,
+            "action": action,
             "role": "member",
             "not_after": not_after,
             "nonce": "nonce",
@@ -1016,7 +1049,7 @@ mod tests {
         ParticipantChange {
             channel: CHANNEL,
             participant: AGENT,
-            action: ParticipantAction::Add,
+            action: GrantAction::Add,
         }
     }
 
@@ -1170,11 +1203,11 @@ mod tests {
     #[tokio::test]
     async fn tells_the_owner_which_action_is_being_requested() {
         let (ownership, key, _) = owned_channel(true).await;
-        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
-            &key, CHANNEL, AGENT, FAR_FUTURE,
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant_for(
+            &key, CHANNEL, AGENT, "delete", FAR_FUTURE,
         ))));
         let delete = ParticipantChange {
-            action: ParticipantAction::Delete,
+            action: GrantAction::Delete,
             ..add()
         };
 
@@ -1187,6 +1220,42 @@ mod tests {
             approver.calls()[0].1.action,
             ParticipantAction::Delete as i32
         );
+    }
+
+    #[tokio::test]
+    async fn denies_an_add_grant_presented_for_a_delete() {
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+        let delete = ParticipantChange {
+            action: GrantAction::Delete,
+            ..add()
+        };
+
+        let result = policy(&ownership, &approver)
+            .enforce(&delete, &None, &grant)
+            .await;
+
+        assert!(result.unwrap_err().contains("does not authorize"));
+    }
+
+    #[tokio::test]
+    async fn denies_a_returned_grant_for_a_different_action() {
+        let (ownership, key, _) = owned_channel(true).await;
+        // Asked to approve a delete, the owner returns a grant to add.
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
+            &key, CHANNEL, AGENT, FAR_FUTURE,
+        ))));
+        let delete = ParticipantChange {
+            action: GrantAction::Delete,
+            ..add()
+        };
+
+        let result = policy(&ownership, &approver)
+            .enforce(&delete, &None, &None)
+            .await;
+
+        assert!(result.unwrap_err().contains("does not authorize"));
     }
 
     #[tokio::test]
