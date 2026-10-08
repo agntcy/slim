@@ -163,6 +163,8 @@ async fn main() -> Result<()> {
             let request = CreateChannelRequest {
                 channel_name: channel.clone(),
                 mls_enabled: !disable_mls,
+                // TODO(#2174): expose an --owner-callback-name flag.
+                owner_callback_name: None,
             };
             let response = client
                 .create_channel(request)
@@ -777,6 +779,7 @@ endpoint: "http://127.0.0.1:{port}"
             .create_channel(CreateChannelRequest {
                 channel_name: "org/ns/new-ch".to_string(),
                 mls_enabled: true,
+                owner_callback_name: None,
             })
             .await
             .unwrap()
@@ -801,6 +804,7 @@ endpoint: "http://127.0.0.1:{port}"
             .create_channel(CreateChannelRequest {
                 channel_name: "org/ns/existing".to_string(),
                 mls_enabled: true,
+                owner_callback_name: None,
             })
             .await
             .unwrap()

@@ -10,6 +10,7 @@
 // TODO(wasm32): channel-manager wraps tonic gRPC + the native session layer.
 #![cfg(not(target_arch = "wasm32"))]
 
+pub mod approval;
 pub mod caller_identity;
 pub mod config;
 pub mod grant;

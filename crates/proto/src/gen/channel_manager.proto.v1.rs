@@ -5,6 +5,12 @@ pub struct CreateChannelRequest {
     pub channel_name: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub mls_enabled: bool,
+    /// SLIM name (org/namespace/app) at which the creator -- who becomes the
+    /// channel's owner -- can be asked to approve participant changes others
+    /// request without presenting a grant. Without one, such a request is
+    /// denied outright. See ApprovalRequest.
+    #[prost(string, optional, tag = "3")]
+    pub owner_callback_name: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteChannelRequest {
@@ -79,6 +85,67 @@ pub struct ListParticipantsResponse {
     pub error_msg: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "3")]
     pub participant_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ApprovalRequest {
+    #[prost(string, tag = "1")]
+    pub channel_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub participant_name: ::prost::alloc::string::String,
+    #[prost(enumeration = "ParticipantAction", tag = "3")]
+    pub action: i32,
+    /// Verified identity of whoever requested the change, if the channel
+    /// manager has one.
+    #[prost(string, optional, tag = "4")]
+    pub requester: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ApprovalResponse {
+    #[prost(oneof = "approval_response::Decision", tags = "1, 2")]
+    pub decision: ::core::option::Option<approval_response::Decision>,
+}
+/// Nested message and enum types in `ApprovalResponse`.
+pub mod approval_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Decision {
+        /// A grant signed by the owner authorizing exactly the requested change,
+        /// in whatever format the channel manager's grant verifier expects. It is
+        /// verified exactly like a grant presented on the original request.
+        #[prost(bytes, tag = "1")]
+        Grant(::prost::alloc::vec::Vec<u8>),
+        /// The owner declined, with a human-readable reason.
+        #[prost(string, tag = "2")]
+        Denied(::prost::alloc::string::String),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ParticipantAction {
+    Unspecified = 0,
+    Add = 1,
+    Delete = 2,
+}
+impl ParticipantAction {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "PARTICIPANT_ACTION_UNSPECIFIED",
+            Self::Add => "PARTICIPANT_ACTION_ADD",
+            Self::Delete => "PARTICIPANT_ACTION_DELETE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PARTICIPANT_ACTION_UNSPECIFIED" => Some(Self::Unspecified),
+            "PARTICIPANT_ACTION_ADD" => Some(Self::Add),
+            "PARTICIPANT_ACTION_DELETE" => Some(Self::Delete),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 #[cfg(not(target_arch = "wasm32"))]

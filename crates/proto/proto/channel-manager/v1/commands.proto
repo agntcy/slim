@@ -7,6 +7,11 @@ package channel_manager.proto.v1;
 message CreateChannelRequest {
   string channel_name = 1;
   bool mls_enabled = 2;
+  // SLIM name (org/namespace/app) at which the creator -- who becomes the
+  // channel's owner -- can be asked to approve participant changes others
+  // request without presenting a grant. Without one, such a request is
+  // denied outright. See ApprovalRequest.
+  optional string owner_callback_name = 3;
 }
 
 message DeleteChannelRequest {
@@ -62,6 +67,41 @@ message ListParticipantsResponse {
   bool success = 1;
   optional string error_msg = 2;
   repeated string participant_name = 3;
+}
+
+// Owner approval, sent by the channel manager over SLIM (slim-rpc, not
+// gRPC) to a channel owner's callback name when a non-owner requests a
+// participant change without presenting a grant. The owner's endpoint
+// registers a unary handler for service
+// "channel_manager.proto.v1.ChannelOwnerApproval", method "RequestApproval",
+// taking an ApprovalRequest and returning an ApprovalResponse. It is
+// deliberately not declared as a `service` here: the channel manager is the
+// client of this contract, never its server.
+
+enum ParticipantAction {
+  PARTICIPANT_ACTION_UNSPECIFIED = 0;
+  PARTICIPANT_ACTION_ADD = 1;
+  PARTICIPANT_ACTION_DELETE = 2;
+}
+
+message ApprovalRequest {
+  string channel_name = 1;
+  string participant_name = 2;
+  ParticipantAction action = 3;
+  // Verified identity of whoever requested the change, if the channel
+  // manager has one.
+  optional string requester = 4;
+}
+
+message ApprovalResponse {
+  oneof decision {
+    // A grant signed by the owner authorizing exactly the requested change,
+    // in whatever format the channel manager's grant verifier expects. It is
+    // verified exactly like a grant presented on the original request.
+    bytes grant = 1;
+    // The owner declined, with a human-readable reason.
+    string denied = 2;
+  }
 }
 
 service ChannelManagerService {
