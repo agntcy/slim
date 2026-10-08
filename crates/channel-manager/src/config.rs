@@ -16,7 +16,9 @@
 //!
 //! - **API mode** (`channels` empty): the persistence store is the source of
 //!   truth. All sessions restored from the store are used as-is and the full
-//!   gRPC API is available for dynamic channel management.
+//!   gRPC API is available for dynamic channel management. Only channels
+//!   created this way can have an owner (gating participant changes behind
+//!   their grants) and a TTL; config-mode channels have neither.
 //!
 //! ## Persistence and replicas
 //!

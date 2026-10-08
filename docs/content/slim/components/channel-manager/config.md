@@ -187,5 +187,6 @@ The Channel Manager refuses to start if `persistence` is configured but channel 
 ## Related
 
 - [Installation Guide](./install.md) — Build and run the Channel Manager
+- [Channel Ownership, Grants and Expiry](./ownership.md) — Owners, grants and time to live for channels created through the API
 - [Groups](../../architecture/sessions/group.md) — The group communication model and moderator role
 - [Authentication](../../architecture/authentication.md) — TLS, mTLS, JWT, and SPIRE authentication options
