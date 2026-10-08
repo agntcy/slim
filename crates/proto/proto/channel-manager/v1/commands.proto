@@ -34,10 +34,21 @@ message CommandResponse {
   optional string error_msg = 3;
 }
 
+// A channel and its owner. `owner` is unset for a channel with no owner on
+// record -- e.g. a config-mode channel, which has no creator-as-caller to
+// default an owner from.
+message ChannelInfo {
+  string channel_name = 1;
+  optional string owner = 2;
+}
+
 message ListChannelsResponse {
   bool success = 1;
   optional string error_msg = 2;
+  // Deprecated: channel names only, kept for existing callers. New callers
+  // should use `channels` below, which also carries each channel's owner.
   repeated string channel_name = 3;
+  repeated ChannelInfo channels = 4;
 }
 
 message ListParticipantsResponse {

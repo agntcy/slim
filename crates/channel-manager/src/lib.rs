@@ -12,6 +12,7 @@
 
 pub mod caller_identity;
 pub mod config;
+pub mod ownership;
 pub mod service;
 pub mod sessions;
 

@@ -383,6 +383,7 @@ mod tests {
                 success: true,
                 error_msg: None,
                 channel_name: vec!["org/ns/ch1".to_string(), "org/ns/ch2".to_string()],
+                channels: vec![],
             }))
         }
 
