@@ -110,13 +110,19 @@ struct SignedGrant {
     signature: String,
 }
 
-/// Byte representation a grant is signed over: its fields, in this order,
-/// NUL-separated. None of them are expected to contain NUL bytes (they're
-/// protocol names, an action, a role label, a timestamp and a nonce), so
-/// this needs no escaping and has no field-order ambiguity, unlike signing
-/// re-serialized JSON would.
+/// Domain-separation tag: the first element of every grant's signed bytes,
+/// so a signature made for something else with the same key can never
+/// verify as a grant. Bump the version if the layout below changes.
+const GRANT_DOMAIN: &str = "SLIM-CHANNEL-GRANT/1";
+
+/// Byte representation a grant is signed over: [`GRANT_DOMAIN`] then the
+/// grant's fields, in this order, NUL-separated. None of them are expected
+/// to contain NUL bytes (they're protocol names, an action, a role label, a
+/// timestamp and a nonce), so this needs no escaping and has no field-order
+/// ambiguity, unlike signing re-serialized JSON would.
 fn canonical_bytes(grant: &Grant) -> Vec<u8> {
     [
+        GRANT_DOMAIN,
         grant.channel.as_str(),
         grant.invitee.as_str(),
         grant.action.as_str(),
@@ -286,6 +292,22 @@ mod tests {
 
         assert_eq!(
             DidKeyEd25519Verifier.verify(&owner, &to_bytes(&tampered)),
+            Err(GrantError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn rejects_a_signature_made_without_the_domain_prefix() {
+        let (key_pair, owner) = new_owner();
+        let mut signed = sign(&key_pair, &grant());
+        let unprefixed = &canonical_bytes(&grant())[GRANT_DOMAIN.len() + 1..];
+        signed.signature = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            key_pair.sign(unprefixed).as_ref(),
+        );
+
+        assert_eq!(
+            DidKeyEd25519Verifier.verify(&owner, &to_bytes(&signed)),
             Err(GrantError::InvalidSignature)
         );
     }
