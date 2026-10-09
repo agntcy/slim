@@ -51,6 +51,8 @@ To ask the owner, the Channel Manager sends an `ApprovalRequest` over SLIM, usin
 
 The request comes from the SLIM name `<local-name>-approval`, which the Channel Manager registers with the same credentials as its `local-name`.
 
+An owner endpoint should accept a request only from the Channel Manager, checked by its verified identity rather than by the sender's name or the request's `requester` field. In a SlimRPC handler that is `ctx.session().peer_identity()` (`peer_subject()` in the bindings): the subject of the identity token the Channel Manager's approval app set up the session with. It is set only for sessions using MLS, which SlimRPC calls do.
+
 Because the owner's endpoint connects to SLIM outbound, it needs no inbound ports. An owner who doesn't reply within 60 seconds, or can't be reached, has denied the request. A grant the owner returns is checked exactly like one passed with `--grant-file`.
 
 ## Expiry
