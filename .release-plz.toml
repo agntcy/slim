@@ -7,6 +7,46 @@ release = false
 git_tag_name = "{{ package | replace(from='agntcy-', to='') }}-v{{ version }}"
 git_release_name = "{{ package | replace(from='agntcy-', to='') }} v{{ version }}"
 
+# release-plz's default PR body (as of 0.3.169) plus the bot's sign-off. The
+# merge queue builds the release commit from the PR body, and the DCO app
+# checks it; release-plz can't sign off its own commits.
+pr_body = '''
+{% set changes %}
+{%- for release in releases %}
+{%- if release.changelog %}{% if releases | length > 1 %}
+## `{{ release.package }}`
+{% endif %}
+<blockquote>
+
+{% if release.title %}## {{ release.title }}
+{% endif %}
+{{ release.changelog }}
+</blockquote>{% endif %}
+{% endfor %}
+{% endset %}
+
+## 🤖 New release
+{% for release in releases %}
+* `{{ release.package }}`: {% if release.previous_version and release.previous_version != release.next_version %}{{ release.previous_version }} -> {% endif %}{{ release.next_version }}{% if release.semver_check == "incompatible" %} (⚠ API breaking changes){% elif release.semver_check == "compatible" %} (✓ API compatible changes){% endif %}
+{%- endfor %}
+{%- for release in releases %}{% if release.breaking_changes %}
+
+### ⚠ `{{ release.package }}` breaking changes
+
+```text
+{{ release.breaking_changes }}
+```{% endif %}{% endfor %}
+{% if changes %}
+<details><summary><i><b>Changelog</b></i></summary><p>
+{{ changes }}
+</p></details>
+{% endif %}
+---
+This PR was generated with [release-plz](https://github.com/release-plz/release-plz/).
+
+Signed-off-by: Agntcy Build Bot <build@agntcy.io>
+'''
+
 [[package]]
 name = "agntcy-slim-version"
 publish = true
