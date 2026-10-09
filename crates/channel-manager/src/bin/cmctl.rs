@@ -19,12 +19,13 @@
 //!   add-participant        Add participant to channel
 //!   delete-participant     Remove participant from channel
 
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use agntcy_slim_channel_manager::proto::channel_manager_service_client::ChannelManagerServiceClient;
 use agntcy_slim_channel_manager::proto::{
-    AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
-    DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
+    AddParticipantRequest, ChannelInfo, CommandResponse, CreateChannelRequest,
+    DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
 };
 
 use anyhow::{Context, Result, bail};
@@ -63,6 +64,14 @@ enum Command {
         /// Disable MLS for this channel (MLS is enabled by default)
         #[arg(long = "disable-mls", default_value_t = false)]
         disable_mls: bool,
+        /// SLIM name (org/namespace/app) at which you, as the channel's
+        /// owner, can be asked to approve participant changes others request
+        /// without a grant
+        #[arg(long = "owner-callback-name", value_name = "NAME")]
+        owner_callback_name: Option<String>,
+        /// Delete the channel automatically this many seconds after creation
+        #[arg(long = "ttl-seconds", value_name = "SECONDS")]
+        ttl_seconds: Option<u64>,
     },
 
     /// Delete a channel
@@ -79,6 +88,11 @@ enum Command {
         channel: String,
         /// Participant name (org/namespace/app)
         participant: String,
+        /// File holding a grant signed by the channel's owner authorizing
+        /// this change ("-" reads stdin). Needed on an owned channel unless
+        /// you're its owner or it can ask the owner to approve
+        #[arg(long = "grant-file", value_name = "PATH")]
+        grant_file: Option<PathBuf>,
     },
 
     /// Remove a participant from a channel
@@ -88,6 +102,11 @@ enum Command {
         channel: String,
         /// Participant name (org/namespace/app)
         participant: String,
+        /// File holding a grant signed by the channel's owner authorizing
+        /// this change ("-" reads stdin). Needed on an owned channel unless
+        /// you're its owner or it can ask the owner to approve
+        #[arg(long = "grant-file", value_name = "PATH")]
+        grant_file: Option<PathBuf>,
     },
 
     /// List all channels
@@ -100,6 +119,48 @@ enum Command {
         /// Channel name (org/namespace/channel)
         channel: String,
     },
+}
+
+/// Reads a grant from `path` ("-" for stdin), if one was given.
+fn read_grant(path: Option<&Path>) -> Result<Option<Vec<u8>>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let mut grant = Vec::new();
+    if path == Path::new("-") {
+        std::io::stdin()
+            .read_to_end(&mut grant)
+            .context("failed to read grant from stdin")?;
+    } else {
+        grant = std::fs::read(path)
+            .with_context(|| format!("failed to read grant file: {}", path.display()))?;
+    }
+    Ok(Some(grant))
+}
+
+/// One line of `list-channels` output: the name, then owner and expiry when
+/// the channel has them.
+fn describe_channel(info: &ChannelInfo) -> String {
+    let mut details = Vec::new();
+    if let Some(owner) = &info.owner {
+        details.push(format!("owner: {owner}"));
+    }
+    if let Some(expires_at) = info.expires_at {
+        details.push(format!("expires: {}", format_unix_time(expires_at)));
+    }
+    if details.is_empty() {
+        info.channel_name.clone()
+    } else {
+        format!("{} ({})", info.channel_name, details.join(", "))
+    }
+}
+
+fn format_unix_time(secs: u64) -> String {
+    i64::try_from(secs)
+        .ok()
+        .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .unwrap_or_else(|| secs.to_string())
 }
 
 /// Load a ClientConfig from a YAML file
@@ -159,10 +220,14 @@ async fn main() -> Result<()> {
         Command::CreateChannel {
             channel,
             disable_mls,
+            owner_callback_name,
+            ttl_seconds,
         } => {
             let request = CreateChannelRequest {
                 channel_name: channel.clone(),
                 mls_enabled: !disable_mls,
+                owner_callback_name,
+                ttl_seconds,
             };
             let response = client
                 .create_channel(request)
@@ -191,10 +256,12 @@ async fn main() -> Result<()> {
         Command::AddParticipant {
             channel,
             participant,
+            grant_file,
         } => {
             let request = AddParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                grant: read_grant(grant_file.as_deref())?,
             };
             let response = client
                 .add_participant(request)
@@ -209,10 +276,12 @@ async fn main() -> Result<()> {
         Command::DeleteParticipant {
             channel,
             participant,
+            grant_file,
         } => {
             let request = DeleteParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                grant: read_grant(grant_file.as_deref())?,
             };
             let response = client
                 .delete_participant(request)
@@ -237,9 +306,15 @@ async fn main() -> Result<()> {
                         .unwrap_or_else(|| "unknown error".to_string())
                 );
             }
-            println!("Channels ({}):", resp.channel_name.len());
-            for name in &resp.channel_name {
-                println!("  - {name}");
+            // A server predating ChannelInfo fills only the plain name list.
+            let lines: Vec<String> = if resp.channels.is_empty() {
+                resp.channel_name
+            } else {
+                resp.channels.iter().map(describe_channel).collect()
+            };
+            println!("Channels ({}):", lines.len());
+            for line in &lines {
+                println!("  - {line}");
             }
             Ok(())
         }
@@ -383,6 +458,7 @@ mod tests {
                 success: true,
                 error_msg: None,
                 channel_name: vec!["org/ns/ch1".to_string(), "org/ns/ch2".to_string()],
+                channels: vec![],
             }))
         }
 
@@ -567,6 +643,7 @@ this: is: invalid: yaml: [
             Command::CreateChannel {
                 channel,
                 disable_mls,
+                ..
             } => {
                 assert_eq!(channel, "org/namespace/channel");
                 assert!(!disable_mls, "MLS should be enabled by default");
@@ -592,6 +669,7 @@ this: is: invalid: yaml: [
             Command::CreateChannel {
                 channel,
                 disable_mls,
+                ..
             } => {
                 assert_eq!(channel, "org/namespace/channel");
                 assert!(disable_mls, "MLS should be disabled");
@@ -614,6 +692,7 @@ this: is: invalid: yaml: [
             Command::AddParticipant {
                 channel,
                 participant,
+                ..
             } => {
                 assert_eq!(channel, "org/namespace/channel");
                 assert_eq!(participant, "org/namespace/app");
@@ -636,6 +715,7 @@ this: is: invalid: yaml: [
             Command::DeleteParticipant {
                 channel,
                 participant,
+                ..
             } => {
                 assert_eq!(channel, "org/namespace/channel");
                 assert_eq!(participant, "org/namespace/app");
@@ -770,6 +850,8 @@ endpoint: "http://127.0.0.1:{port}"
             .create_channel(CreateChannelRequest {
                 channel_name: "org/ns/new-ch".to_string(),
                 mls_enabled: true,
+                owner_callback_name: None,
+                ttl_seconds: None,
             })
             .await
             .unwrap()
@@ -794,6 +876,8 @@ endpoint: "http://127.0.0.1:{port}"
             .create_channel(CreateChannelRequest {
                 channel_name: "org/ns/existing".to_string(),
                 mls_enabled: true,
+                owner_callback_name: None,
+                ttl_seconds: None,
             })
             .await
             .unwrap()
@@ -867,6 +951,7 @@ endpoint: "http://127.0.0.1:{port}"
             .add_participant(AddParticipantRequest {
                 channel_name: "org/ns/ch1".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()
@@ -893,6 +978,7 @@ endpoint: "http://127.0.0.1:{port}"
             .add_participant(AddParticipantRequest {
                 channel_name: "org/ns/missing".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()
@@ -919,6 +1005,7 @@ endpoint: "http://127.0.0.1:{port}"
             .delete_participant(DeleteParticipantRequest {
                 channel_name: "org/ns/ch1".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()
@@ -947,6 +1034,7 @@ endpoint: "http://127.0.0.1:{port}"
             .delete_participant(DeleteParticipantRequest {
                 channel_name: "org/ns/missing".to_string(),
                 participant_name: "org/ns/p1".to_string(),
+                grant: None,
             })
             .await
             .unwrap()
@@ -1024,5 +1112,80 @@ endpoint: "http://127.0.0.1:{port}"
             .into_inner();
         assert!(!resp.success);
         assert!(resp.error_msg.unwrap().contains("not found"));
+    }
+
+    #[test]
+    fn test_args_parsing_create_channel_with_owner_callback_and_ttl() {
+        let args = Args::try_parse_from([
+            "cmctl",
+            "create-channel",
+            "org/namespace/channel",
+            "--owner-callback-name",
+            "org/namespace/owner",
+            "--ttl-seconds",
+            "3600",
+        ])
+        .unwrap();
+        match args.command {
+            Command::CreateChannel {
+                owner_callback_name,
+                ttl_seconds,
+                ..
+            } => {
+                assert_eq!(owner_callback_name.as_deref(), Some("org/namespace/owner"));
+                assert_eq!(ttl_seconds, Some(3600));
+            }
+            _ => panic!("expected CreateChannel command"),
+        }
+    }
+
+    #[test]
+    fn test_args_parsing_delete_participant_with_grant_file() {
+        let args = Args::try_parse_from([
+            "cmctl",
+            "delete-participant",
+            "org/namespace/channel",
+            "org/namespace/app",
+            "--grant-file",
+            "-",
+        ])
+        .unwrap();
+        match args.command {
+            Command::DeleteParticipant { grant_file, .. } => {
+                assert_eq!(grant_file, Some(PathBuf::from("-")));
+            }
+            _ => panic!("expected DeleteParticipant command"),
+        }
+    }
+
+    #[test]
+    fn test_describe_channel() {
+        let owned = ChannelInfo {
+            channel_name: "org/ns/ch1".to_string(),
+            owner: Some("did:key:z6Mkowner".to_string()),
+            expires_at: Some(1_800_000_000),
+        };
+        assert_eq!(
+            describe_channel(&owned),
+            "org/ns/ch1 (owner: did:key:z6Mkowner, expires: 2027-01-15T08:00:00Z)"
+        );
+        let plain = ChannelInfo {
+            channel_name: "org/ns/ch2".to_string(),
+            owner: None,
+            expires_at: None,
+        };
+        assert_eq!(describe_channel(&plain), "org/ns/ch2");
+    }
+
+    #[test]
+    fn test_read_grant() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"signed-grant").unwrap();
+        assert_eq!(
+            read_grant(Some(file.path())).unwrap(),
+            Some(b"signed-grant".to_vec())
+        );
+        assert_eq!(read_grant(None).unwrap(), None);
+        assert!(read_grant(Some(Path::new("/nonexistent/grant.json"))).is_err());
     }
 }

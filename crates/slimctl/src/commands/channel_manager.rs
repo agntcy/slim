@@ -1,13 +1,16 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::{Result, bail};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::client::get_channel_manager_client;
 use crate::proto::channel_manager::proto::v1::{
-    AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
-    DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
+    AddParticipantRequest, ChannelInfo, CommandResponse, CreateChannelRequest,
+    DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
 };
 use crate::rpc;
 use slim_config::grpc::client::ClientConfig;
@@ -28,6 +31,14 @@ pub enum ChannelManagerCommand {
         /// Disable MLS for this channel (MLS is enabled by default)
         #[arg(long = "disable-mls", default_value_t = false)]
         disable_mls: bool,
+        /// SLIM name (org/namespace/app) at which you, as the channel's
+        /// owner, can be asked to approve participant changes others request
+        /// without a grant
+        #[arg(long = "owner-callback-name", value_name = "NAME")]
+        owner_callback_name: Option<String>,
+        /// Delete the channel automatically this many seconds after creation
+        #[arg(long = "ttl-seconds", value_name = "SECONDS")]
+        ttl_seconds: Option<u64>,
     },
 
     /// Delete a channel
@@ -44,6 +55,11 @@ pub enum ChannelManagerCommand {
         channel: String,
         /// Participant name (org/namespace/app)
         participant: String,
+        /// File holding a grant signed by the channel's owner authorizing
+        /// this change ("-" reads stdin). Needed on an owned channel unless
+        /// you're its owner or it can ask the owner to approve
+        #[arg(long = "grant-file", value_name = "PATH")]
+        grant_file: Option<PathBuf>,
     },
 
     /// Remove a participant from a channel
@@ -53,6 +69,11 @@ pub enum ChannelManagerCommand {
         channel: String,
         /// Participant name (org/namespace/app)
         participant: String,
+        /// File holding a grant signed by the channel's owner authorizing
+        /// this change ("-" reads stdin). Needed on an owned channel unless
+        /// you're its owner or it can ask the owner to approve
+        #[arg(long = "grant-file", value_name = "PATH")]
+        grant_file: Option<PathBuf>,
     },
 
     /// List all channels
@@ -65,6 +86,48 @@ pub enum ChannelManagerCommand {
         /// Channel name (org/namespace/channel)
         channel: String,
     },
+}
+
+/// Reads a grant from `path` ("-" for stdin), if one was given.
+fn read_grant(path: Option<&Path>) -> Result<Option<Vec<u8>>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let mut grant = Vec::new();
+    if path == Path::new("-") {
+        std::io::stdin()
+            .read_to_end(&mut grant)
+            .context("failed to read grant from stdin")?;
+    } else {
+        grant = std::fs::read(path)
+            .with_context(|| format!("failed to read grant file: {}", path.display()))?;
+    }
+    Ok(Some(grant))
+}
+
+/// One line of `list-channels` output: the name, then owner and expiry when
+/// the channel has them.
+fn describe_channel(info: &ChannelInfo) -> String {
+    let mut details = Vec::new();
+    if let Some(owner) = &info.owner {
+        details.push(format!("owner: {owner}"));
+    }
+    if let Some(expires_at) = info.expires_at {
+        details.push(format!("expires: {}", format_unix_time(expires_at)));
+    }
+    if details.is_empty() {
+        info.channel_name.clone()
+    } else {
+        format!("{} ({})", info.channel_name, details.join(", "))
+    }
+}
+
+fn format_unix_time(secs: u64) -> String {
+    i64::try_from(secs)
+        .ok()
+        .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .unwrap_or_else(|| secs.to_string())
 }
 
 fn check_command_response(response: CommandResponse, success_msg: &str) -> Result<()> {
@@ -86,10 +149,14 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         ChannelManagerCommand::CreateChannel {
             channel,
             disable_mls,
+            owner_callback_name,
+            ttl_seconds,
         } => {
             let request = CreateChannelRequest {
                 channel_name: channel.clone(),
                 mls_enabled: !disable_mls,
+                owner_callback_name: owner_callback_name.clone(),
+                ttl_seconds: *ttl_seconds,
             };
             let response = rpc!(client, create_channel, request);
             check_command_response(response, &format!("Channel {channel} created successfully"))
@@ -106,10 +173,12 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         ChannelManagerCommand::AddParticipant {
             channel,
             participant,
+            grant_file,
         } => {
             let request = AddParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                grant: read_grant(grant_file.as_deref())?,
             };
             let response = rpc!(client, add_participant, request);
             check_command_response(
@@ -121,10 +190,12 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
         ChannelManagerCommand::DeleteParticipant {
             channel,
             participant,
+            grant_file,
         } => {
             let request = DeleteParticipantRequest {
                 channel_name: channel.clone(),
                 participant_name: participant.clone(),
+                grant: read_grant(grant_file.as_deref())?,
             };
             let response = rpc!(client, delete_participant, request);
             check_command_response(
@@ -143,9 +214,15 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
                         .unwrap_or_else(|| "unknown error".to_string())
                 );
             }
-            println!("Channels ({}):", response.channel_name.len());
-            for name in &response.channel_name {
-                println!("  - {name}");
+            // A server predating ChannelInfo fills only the plain name list.
+            let lines: Vec<String> = if response.channels.is_empty() {
+                response.channel_name.clone()
+            } else {
+                response.channels.iter().map(describe_channel).collect()
+            };
+            println!("Channels ({}):", lines.len());
+            for line in &lines {
+                println!("  - {line}");
             }
             Ok(())
         }
@@ -276,6 +353,7 @@ mod tests {
                 success: true,
                 error_msg: None,
                 channel_name: vec!["org/ns/chan1".to_string(), "org/ns/chan2".to_string()],
+                channels: vec![],
             }))
         }
 
@@ -390,6 +468,7 @@ mod tests {
                 success: false,
                 error_msg: Some("list denied".to_string()),
                 channel_name: vec![],
+                channels: vec![],
             }))
         }
 
@@ -438,6 +517,8 @@ mod tests {
             command: ChannelManagerCommand::CreateChannel {
                 channel: "org/ns/chan".to_string(),
                 disable_mls: false,
+                owner_callback_name: None,
+                ttl_seconds: None,
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -450,6 +531,8 @@ mod tests {
             command: ChannelManagerCommand::CreateChannel {
                 channel: "org/ns/chan".to_string(),
                 disable_mls: true,
+                owner_callback_name: None,
+                ttl_seconds: None,
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -473,6 +556,7 @@ mod tests {
             command: ChannelManagerCommand::AddParticipant {
                 channel: "org/ns/chan".to_string(),
                 participant: "org/ns/app".to_string(),
+                grant_file: None,
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -485,6 +569,7 @@ mod tests {
             command: ChannelManagerCommand::DeleteParticipant {
                 channel: "org/ns/chan".to_string(),
                 participant: "org/ns/app".to_string(),
+                grant_file: None,
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -519,6 +604,8 @@ mod tests {
             command: ChannelManagerCommand::CreateChannel {
                 channel: "c".to_string(),
                 disable_mls: false,
+                owner_callback_name: None,
+                ttl_seconds: None,
             },
         };
         assert!(run(&args, &make_opts(&addr)).await.is_err());
@@ -542,6 +629,7 @@ mod tests {
             command: ChannelManagerCommand::AddParticipant {
                 channel: "c".to_string(),
                 participant: "p".to_string(),
+                grant_file: None,
             },
         };
         assert!(run(&args, &make_opts(&addr)).await.is_err());
@@ -554,6 +642,7 @@ mod tests {
             command: ChannelManagerCommand::DeleteParticipant {
                 channel: "c".to_string(),
                 participant: "p".to_string(),
+                grant_file: None,
             },
         };
         assert!(run(&args, &make_opts(&addr)).await.is_err());
@@ -588,6 +677,8 @@ mod tests {
             command: ChannelManagerCommand::CreateChannel {
                 channel: "c".to_string(),
                 disable_mls: false,
+                owner_callback_name: None,
+                ttl_seconds: None,
             },
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
@@ -613,6 +704,7 @@ mod tests {
             command: ChannelManagerCommand::AddParticipant {
                 channel: "c".to_string(),
                 participant: "p".to_string(),
+                grant_file: None,
             },
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
@@ -626,6 +718,7 @@ mod tests {
             command: ChannelManagerCommand::DeleteParticipant {
                 channel: "c".to_string(),
                 participant: "p".to_string(),
+                grant_file: None,
             },
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
@@ -652,5 +745,49 @@ mod tests {
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
         assert!(err.to_string().contains("list denied"));
+    }
+
+    #[test]
+    fn describes_a_channel_with_owner_and_expiry() {
+        let info = ChannelInfo {
+            channel_name: "org/ns/chan".to_string(),
+            owner: Some("did:key:z6Mkowner".to_string()),
+            expires_at: Some(1_800_000_000),
+        };
+        assert_eq!(
+            describe_channel(&info),
+            "org/ns/chan (owner: did:key:z6Mkowner, expires: 2027-01-15T08:00:00Z)"
+        );
+    }
+
+    #[test]
+    fn describes_a_channel_without_owner_or_expiry_by_name_alone() {
+        let info = ChannelInfo {
+            channel_name: "org/ns/chan".to_string(),
+            owner: None,
+            expires_at: None,
+        };
+        assert_eq!(describe_channel(&info), "org/ns/chan");
+    }
+
+    #[test]
+    fn reads_a_grant_file() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), b"{\"signed\":\"grant\"}").unwrap();
+        assert_eq!(
+            read_grant(Some(file.path())).unwrap(),
+            Some(b"{\"signed\":\"grant\"}".to_vec())
+        );
+    }
+
+    #[test]
+    fn no_grant_file_means_no_grant() {
+        assert_eq!(read_grant(None).unwrap(), None);
+    }
+
+    #[test]
+    fn a_missing_grant_file_is_an_error() {
+        let err = read_grant(Some(Path::new("/nonexistent/grant.json"))).unwrap_err();
+        assert!(err.to_string().contains("failed to read grant file"));
     }
 }
