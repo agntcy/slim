@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::{collections::HashMap, num::NonZeroUsize, time::Duration};
+use std::{
+    collections::HashMap,
+    num::NonZeroUsize,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use display_error_chain::ErrorChainExt;
 use parking_lot::Mutex;
@@ -23,6 +28,7 @@ use slim_datapath::{
 };
 
 // Local crate
+use crate::peer_identity::PeerIdentity;
 use crate::{
     MessageDirection, SessionError,
     common::{OutboundMessage, SessionMessage, SessionOutput},
@@ -34,11 +40,15 @@ use crate::{
     traits::{MessageHandler, ProcessingState},
 };
 
+/// Verifies a message's identity token and, when `e2e_integrity_required`
+/// and it is a control message, the header signature made with the key the
+/// token names. Returns the token's claims in that case, since only then are
+/// they bound to this message.
 pub(crate) async fn verify_identity<V>(
     msg: &Message,
     verifier: &V,
     e2e_integrity_required: bool,
-) -> Result<(), SessionError>
+) -> Result<Option<Value>, SessionError>
 where
     V: Verifier + Send + Sync,
 {
@@ -76,8 +86,9 @@ where
             tracing::error!("verify_identity: verify_header_aad failed: {:?}", e);
         }
         verify_res?;
+        return Ok(Some(claims_json));
     }
-    Ok(())
+    Ok(None)
 }
 
 pub(crate) fn sign_control_messages<P>(
@@ -163,6 +174,9 @@ pub struct SessionController {
 
     /// handle for the processing loop
     handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+
+    /// who set up the session, once the processing loop has verified them
+    peer_identity: Arc<OnceLock<PeerIdentity>>,
 }
 
 impl SessionController {
@@ -207,8 +221,16 @@ impl SessionController {
             session_type = ?config.session_type
         );
 
+        let peer_identity = Arc::new(OnceLock::new());
         let handle = crate::runtime::spawn(
-            Self::processing_loop(inner, rx, cancellation_token.clone(), settings).instrument(span),
+            Self::processing_loop_with(
+                inner,
+                rx,
+                cancellation_token.clone(),
+                settings,
+                peer_identity.clone(),
+            )
+            .instrument(span),
         );
 
         Self {
@@ -219,6 +241,7 @@ impl SessionController {
             tx_controller: tx,
             cancellation_token,
             handle: Mutex::new(Some(handle)),
+            peer_identity,
         }
     }
 
@@ -283,6 +306,7 @@ impl SessionController {
         msg: &Message,
         settings: &SessionSettings<P, V, M>,
         seen_control_message_ids: &mut LruCache<ProtoName, LruCache<u32, ()>>,
+        peer_identity: &OnceLock<PeerIdentity>,
     ) -> Result<(), SessionError>
     where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
@@ -290,9 +314,14 @@ impl SessionController {
         M: crate::subscription_manager::SubscriptionOps,
     {
         let msg_type = msg.get_session_message_type();
+        let mls = settings.config.mls_settings.is_some();
 
-        // Require E2E verification only when MLS is enabled.
-        let e2e_required = msg_type.is_command_message() && settings.config.mls_settings.is_some();
+        // The JoinRequest that sets up the session is always verified, like
+        // a DiscoveryRequest: its MLS settings are what enable verification
+        // otherwise, so leaving them out must not skip it. Other control
+        // messages are verified when MLS is enabled.
+        let joining = msg_type == ProtoSessionMessageType::JoinRequest;
+        let e2e_required = msg_type.is_command_message() && (mls || joining);
 
         // Return if e2e_required in `false`
         if !e2e_required {
@@ -300,8 +329,19 @@ impl SessionController {
         }
 
         // 1. Verify E2E header signature and token
-        crate::session_controller::verify_identity(msg, &settings.identity_verifier, e2e_required)
-            .await?;
+        let claims =
+            crate::session_controller::verify_identity(msg, &settings.identity_verifier, true)
+                .await?;
+
+        // Remember who set up the session. Only with MLS: without it, later
+        // data messages aren't authenticated, so they couldn't be attributed
+        // to this peer.
+        if joining
+            && mls
+            && let Some(identity) = claims.as_ref().and_then(PeerIdentity::from_claims)
+        {
+            let _ = peer_identity.set(identity);
+        }
 
         // 2. Replay check for signed control messages (keyed by session message_id).
         if msg_type.is_command_message() {
@@ -327,11 +367,30 @@ impl SessionController {
         Ok(())
     }
 
+    /// [`Self::processing_loop_with`], with nowhere to report the peer's
+    /// identity.
+    #[cfg(test)]
     async fn processing_loop<P, V, M>(
+        inner: impl MessageHandler + 'static,
+        rx: sync::mpsc::Receiver<SessionMessage>,
+        cancellation_token: CancellationToken,
+        settings: SessionSettings<P, V, M>,
+    ) where
+        P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
+        V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
+        M: crate::subscription_manager::SubscriptionOps,
+    {
+        Self::processing_loop_with(inner, rx, cancellation_token, settings, Arc::default()).await
+    }
+
+    /// Processes the session's messages, recording in `peer_identity` who
+    /// set up the session once their JoinRequest is verified.
+    async fn processing_loop_with<P, V, M>(
         mut inner: impl MessageHandler + 'static,
         mut rx: sync::mpsc::Receiver<SessionMessage>,
         cancellation_token: CancellationToken,
         settings: SessionSettings<P, V, M>,
+        peer_identity: Arc<OnceLock<PeerIdentity>>,
     ) where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
@@ -360,7 +419,7 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
-                            && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await {
+                            && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids, &peer_identity).await {
                                 debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
                                 continue;
                             }
@@ -407,7 +466,7 @@ impl SessionController {
                                 direction: MessageDirection::North,
                                 ..
                             } = &session_message
-                               && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids).await
+                               && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids, &peer_identity).await
                             {
                                         debug!(
                                             error = %e.chain(),
@@ -534,6 +593,14 @@ impl SessionController {
 
     pub fn session_type(&self) -> ProtoSessionType {
         self.config.session_type
+    }
+
+    /// Who set up this session, verified from the identity token on their
+    /// JoinRequest and the signature over it. `None` on the side that set
+    /// it up, until the peer's JoinRequest is processed, and for sessions
+    /// without MLS, whose later messages can't be attributed to the peer.
+    pub fn peer_identity(&self) -> Option<PeerIdentity> {
+        self.peer_identity.get().cloned()
     }
 
     pub fn metadata(&self) -> HashMap<String, String> {
@@ -2854,6 +2921,82 @@ mod tests {
             *self.shutdown_called.lock().await = true;
             Ok(())
         }
+    }
+
+    /// A JoinRequest from `org/ns/peer` carrying `peer`'s token, its header
+    /// signed with `signer`'s key (or not signed at all).
+    fn join_request(peer: &SharedSecret, signer: Option<&SharedSecret>) -> Message {
+        let mut msg = Message::builder()
+            .source(ProtoName::from_strings(["org", "ns", "peer"]).with_id(7))
+            .destination(ProtoName::from_strings(["org", "ns", "test"]).with_id(1))
+            .identity(peer.get_token().unwrap())
+            .forward_to(0)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::JoinRequest)
+            .session_id(1)
+            .message_id(100)
+            .payload(
+                CommandPayload::builder()
+                    .join_request(Some(3), Some(Duration::from_secs(1)), None, None, None)
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+        if let Some(signer) = signer {
+            sign_outbound_control_message(&mut msg, signer).unwrap();
+        }
+        msg
+    }
+
+    async fn check_join_request(
+        msg: &Message,
+        mls: bool,
+    ) -> (Result<(), SessionError>, Option<PeerIdentity>) {
+        let mut settings = create_test_settings(None);
+        if mls {
+            settings.config.mls_settings = Some(MlsSettings::default());
+        }
+        let mut seen = LruCache::new(NonZeroUsize::new(8).unwrap());
+        let peer_identity = OnceLock::new();
+        let result =
+            SessionController::verify_and_check_replay(msg, &settings, &mut seen, &peer_identity)
+                .await;
+        (result, peer_identity.get().cloned())
+    }
+
+    #[tokio::test]
+    async fn an_unsigned_join_request_is_rejected_even_without_mls() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        for mls in [false, true] {
+            let (result, identity) = check_join_request(&join_request(&peer, None), mls).await;
+            assert!(result.is_err(), "accepted with mls={mls}");
+            assert_eq!(identity, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_join_request_signed_with_another_key_is_rejected() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let impostor = SharedSecret::new("impostor", SHARED_SECRET).unwrap();
+        let (result, identity) =
+            check_join_request(&join_request(&peer, Some(&impostor)), false).await;
+        assert!(result.is_err());
+        assert_eq!(identity, None);
+    }
+
+    #[tokio::test]
+    async fn a_verified_join_request_records_the_peer_only_with_mls() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let msg = join_request(&peer, Some(&peer));
+
+        let (result, identity) = check_join_request(&msg, false).await;
+        assert!(result.is_ok(), "rejected: {:?}", result.err());
+        assert_eq!(identity, None);
+
+        let (result, identity) = check_join_request(&msg, true).await;
+        assert!(result.is_ok(), "rejected: {:?}", result.err());
+        let identity = identity.expect("peer identity not recorded");
+        assert_eq!(identity.subject(), peer.get_id().unwrap());
     }
 
     /// Helper to create test SessionSettings

@@ -1120,7 +1120,10 @@ async fn start_owner_endpoint(
     name: &str,
     owner: Arc<Owner>,
     approved: Vec<String>,
-) -> (Arc<Server>, Arc<tokio::sync::Mutex<Vec<ApprovalRequest>>>) {
+) -> (
+    Arc<Server>,
+    Arc<tokio::sync::Mutex<Vec<(ApprovalRequest, Option<String>)>>>,
+) {
     let (service, conn_id) = create_service_and_connect(slim_port, "owner-service").await;
     // Answering requests means receiving and sending data.
     let (app, notifications) =
@@ -1139,7 +1142,7 @@ async fn start_owner_endpoint(
     server.register_unary_unary(
         APPROVAL_SERVICE,
         APPROVAL_METHOD,
-        move |bytes: Vec<u8>, _ctx: Context| {
+        move |bytes: Vec<u8>, ctx: Context| {
             let (owner, approved, recorder) = (owner.clone(), approved.clone(), recorder.clone());
             async move {
                 let request = ApprovalRequest::decode(bytes.as_slice())
@@ -1153,7 +1156,9 @@ async fn start_owner_endpoint(
                 } else {
                     Decision::Denied("not on the guest list".to_string())
                 };
-                recorder.lock().await.push(request);
+                // Who is asking, as verified -- not the `requester` claimed
+                // in the request.
+                recorder.lock().await.push((request, ctx.peer_subject()));
                 Ok(ApprovalResponse {
                     decision: Some(decision),
                 }
@@ -1235,7 +1240,7 @@ async fn test_owner_approves_and_denies_over_slimrpc() {
     let requests = received.lock().await;
     let asked: Vec<_> = requests
         .iter()
-        .map(|r| {
+        .map(|(r, _)| {
             (
                 r.channel_name.as_str(),
                 r.participant_name.as_str(),
@@ -1250,6 +1255,17 @@ async fn test_owner_approves_and_denies_over_slimrpc() {
             (channel, refused, Some("org/ns/requester")),
         ]
     );
+
+    // The owner can tell the requests really come from the channel manager's
+    // approval app: its verified subject is that app's shared-secret id (plus
+    // the per-instance suffix shared-secret ids get).
+    for (_, caller) in requests.iter() {
+        let caller = caller.as_deref().expect("no verified caller identity");
+        assert!(
+            caller.starts_with("org/ns/channel-manager-approval_"),
+            "unexpected caller {caller}"
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
