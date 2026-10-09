@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.16](https://github.com/agntcy/slim/compare/slim-session-v0.7.15...slim-session-v0.7.16) - 2026-10-09
+
+### Fixed
+
+- *(session,rpc)* expose the caller's verified identity to slim-rpc handlers ([#2204](https://github.com/agntcy/slim/pull/2204))
+
 ## [0.7.15](https://github.com/agntcy/slim/compare/slim-session-v0.7.14...slim-session-v0.7.15) - 2026-10-09
 
 ### Other
