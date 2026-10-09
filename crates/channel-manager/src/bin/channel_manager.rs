@@ -218,7 +218,11 @@ async fn create_channels_from_config(
 /// Builds and initializes the configured identity provider and verifier for
 /// a SLIM app named `name`.
 async fn identity(config: &Config, name: &str) -> anyhow::Result<(AuthProvider, AuthVerifier)> {
-    let (core_provider, core_verifier) = config.manager.auth.to_identity_configs(name);
+    let (core_provider, core_verifier) = config
+        .manager
+        .auth
+        .to_identity_configs(name)
+        .context("invalid auth configuration")?;
 
     let mut provider = core_provider
         .build_auth_provider()
@@ -254,6 +258,17 @@ async fn main() -> anyhow::Result<()> {
     // Load configuration
     let config = Config::load(&args.config_file)?;
     info!(config_file = %args.config_file.display(), "Configuration loaded");
+
+    // Peers that check identities against an allow-list (e.g. SHADI agents)
+    // need this to admit the channel manager.
+    if let Some(did_key) = config
+        .manager
+        .auth
+        .did_key()
+        .context("invalid auth configuration")?
+    {
+        info!(%did_key, "Channel manager identity");
+    }
 
     // Initialize crypto provider (required before any TLS operations)
     slim_config::tls::provider::initialize_crypto_provider();
