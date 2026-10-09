@@ -49,6 +49,8 @@ Deployments embedding the Channel Manager can plug in a different verifier for o
 
 To ask the owner, the Channel Manager sends an `ApprovalRequest` over SLIM, using SlimRPC, to the owner's callback name: service `channel_manager.proto.v1.ChannelOwnerApproval`, method `RequestApproval`. The owner's endpoint replies with an `ApprovalResponse` carrying either a grant or a denial. Both messages are defined in the Channel Manager's protobuf definitions.
 
+The request comes from the SLIM name `<local-name>-approval`, which the Channel Manager registers with the same credentials as its `local-name`.
+
 Because the owner's endpoint connects to SLIM outbound, it needs no inbound ports. An owner who doesn't reply within 60 seconds, or can't be reached, has denied the request. A grant the owner returns is checked exactly like one passed with `--grant-file`.
 
 ## Expiry
