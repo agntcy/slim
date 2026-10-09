@@ -151,6 +151,7 @@ nav:
               - slim/components/channel-manager/index.md
               - Installation Guide: slim/components/channel-manager/install.md
               - Configuration Reference: slim/components/channel-manager/config.md
+              - Ownership, Grants and Expiry: slim/components/channel-manager/ownership.md
           - SLIM CLI:
               - slim/components/cli/index.md
               - Installation: slim/components/cli/install.md
