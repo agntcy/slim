@@ -246,6 +246,7 @@ async fn test_channel_manager_via_cmctl() {
         .create_channel(CreateChannelRequest {
             channel_name: "org/ns/ch1".to_string(),
             mls_enabled: true,
+            owner_callback_name: None,
         })
         .await
         .expect("create-channel failed")
@@ -315,6 +316,7 @@ async fn test_channel_manager_via_cmctl() {
         .create_channel(CreateChannelRequest {
             channel_name: "invalid".to_string(),
             mls_enabled: true,
+            owner_callback_name: None,
         })
         .await
         .expect("create-channel invalid request failed")
@@ -374,6 +376,7 @@ async fn test_channel_manager_via_cmctl() {
         .create_channel(CreateChannelRequest {
             channel_name: "org/ns/ch1".to_string(),
             mls_enabled: true,
+            owner_callback_name: None,
         })
         .await
         .expect("duplicate create-channel request failed")
@@ -554,6 +557,7 @@ async fn test_add_participant_uses_default_gateway_with_separate_services() {
         .create_channel(CreateChannelRequest {
             channel_name: "org/ns/default-gateway-channel".to_string(),
             mls_enabled: true,
+            owner_callback_name: None,
         })
         .await
         .expect("create-channel failed")

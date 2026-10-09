@@ -14,16 +14,21 @@ use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
+use crate::approval::{ApprovalDecision, OwnerApprover, SlimOwnerApprover};
 use crate::caller_identity::CallerIdentity;
 use crate::grant::{DidKeyEd25519Verifier, GrantAction, GrantVerifier};
-use crate::ownership::ChannelOwnership;
+use crate::ownership::{ChannelOwner, ChannelOwnership};
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
-    AddParticipantRequest, ChannelInfo, CommandResponse, CreateChannelRequest,
+    AddParticipantRequest, ApprovalRequest, ChannelInfo, CommandResponse, CreateChannelRequest,
     DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse,
-    ListParticipantsRequest, ListParticipantsResponse,
+    ListParticipantsRequest, ListParticipantsResponse, ParticipantAction,
 };
 use crate::sessions::SessionsList;
+
+/// How long a channel owner gets to answer an approval request by default.
+/// A human typically answers it, so this errs long.
+const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A participant change being authorized.
 struct ParticipantChange<'a> {
@@ -32,56 +37,118 @@ struct ParticipantChange<'a> {
     action: GrantAction,
 }
 
-/// Enforces the grant contract for a mutating participant-change RPC.
-///
-/// A channel with no owner on record needs no grant -- unchanged,
-/// pre-ownership behavior. The owner needs no grant for their own channel.
-/// Anyone else must present one that verifies and names this exact channel,
-/// participant and action, and hasn't expired.
-///
-/// A free function (not a method) so it's testable without constructing a
-/// full `ChannelManagerServer`, which needs a real `App`.
-async fn enforce_grant(
-    ownership: &ChannelOwnership,
-    grant_verifier: &dyn GrantVerifier,
-    change: &ParticipantChange<'_>,
-    caller: &Option<CallerIdentity>,
-    grant: &Option<Vec<u8>>,
-) -> Result<(), String> {
-    let Some(owner) = ownership.get_owner(change.channel).await else {
-        return Ok(());
-    };
-    if caller.as_ref().is_some_and(|c| c.subject == owner) {
-        return Ok(());
+/// The approval protocol's name for a grant action.
+fn approval_action(action: GrantAction) -> ParticipantAction {
+    match action {
+        GrantAction::Add => ParticipantAction::Add,
+        GrantAction::Delete => ParticipantAction::Delete,
+    }
+}
+
+/// What authorizing a participant change needs from the server -- borrowed,
+/// so the policy is testable without a full `ChannelManagerServer` (which
+/// needs a real `App`).
+struct GrantPolicy<'a> {
+    ownership: &'a ChannelOwnership,
+    verifier: &'a dyn GrantVerifier,
+    approver: &'a dyn OwnerApprover,
+    approval_timeout: Duration,
+}
+
+impl GrantPolicy<'_> {
+    /// Enforces the grant contract for a mutating participant-change RPC.
+    ///
+    /// A channel with no owner on record needs no grant -- unchanged,
+    /// pre-ownership behavior. The owner needs no grant for their own
+    /// channel. Anyone else needs one: presented on the request, or -- when
+    /// none is and the owner left a callback name -- obtained by asking the
+    /// owner, with no answer within `approval_timeout` counting as a denial.
+    /// Either way, the grant must verify and name this exact channel and
+    /// participant and not be expired.
+    async fn enforce(
+        &self,
+        change: &ParticipantChange<'_>,
+        caller: &Option<CallerIdentity>,
+        grant: &Option<Vec<u8>>,
+    ) -> Result<(), String> {
+        let Some(owner) = self.ownership.get_owner(change.channel).await else {
+            return Ok(());
+        };
+        if caller.as_ref().is_some_and(|c| c.subject == owner.subject) {
+            return Ok(());
+        }
+
+        match grant {
+            Some(grant) => self.verify(&owner.subject, change, grant),
+            None => {
+                let grant = self.ask_owner(&owner, change, caller).await?;
+                self.verify(&owner.subject, change, &grant)
+            }
+        }
     }
 
-    let Some(grant_bytes) = grant else {
-        return Err(format!(
-            "channel {} requires a grant from its owner",
-            change.channel
-        ));
-    };
+    async fn ask_owner(
+        &self,
+        owner: &ChannelOwner,
+        change: &ParticipantChange<'_>,
+        caller: &Option<CallerIdentity>,
+    ) -> Result<Vec<u8>, String> {
+        let Some(callback_name) = &owner.callback_name else {
+            return Err(format!(
+                "channel {} requires a grant from its owner",
+                change.channel
+            ));
+        };
+        let request = ApprovalRequest {
+            channel_name: change.channel.to_string(),
+            participant_name: change.participant.to_string(),
+            action: approval_action(change.action) as i32,
+            requester: caller.as_ref().map(|c| c.subject.clone()),
+        };
 
-    let parsed = grant_verifier
-        .verify(&owner, grant_bytes)
-        .map_err(|e| format!("invalid grant: {e}"))?;
-
-    if parsed.channel != change.channel
-        || parsed.invitee != change.participant
-        || parsed.action != change.action
-    {
-        return Err("grant does not authorize this change".to_string());
+        let answer = tokio::time::timeout(
+            self.approval_timeout,
+            self.approver.request_approval(callback_name, request),
+        )
+        .await;
+        match answer {
+            Err(_) => Err("channel owner did not answer the approval request in time".to_string()),
+            Ok(Err(e)) => Err(format!("could not ask the channel owner for approval: {e}")),
+            Ok(Ok(ApprovalDecision::Denied(reason))) => {
+                Err(format!("channel owner denied the request: {reason}"))
+            }
+            Ok(Ok(ApprovalDecision::Granted(grant))) => Ok(grant),
+        }
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    if parsed.not_after < now {
-        return Err("grant has expired".to_string());
-    }
+    fn verify(
+        &self,
+        owner_subject: &str,
+        change: &ParticipantChange<'_>,
+        grant: &[u8],
+    ) -> Result<(), String> {
+        let parsed = self
+            .verifier
+            .verify(owner_subject, grant)
+            .map_err(|e| format!("invalid grant: {e}"))?;
 
-    Ok(())
+        if parsed.channel != change.channel
+            || parsed.invitee != change.participant
+            || parsed.action != change.action
+        {
+            return Err("grant does not authorize this change".to_string());
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if parsed.not_after < now {
+            return Err("grant has expired".to_string());
+        }
+
+        Ok(())
+    }
 }
 
 /// gRPC server for the Channel Manager service
@@ -90,6 +157,8 @@ pub struct ChannelManagerServer {
     sessions: Arc<SessionsList>,
     ownership: ChannelOwnership,
     grant_verifier: Arc<dyn GrantVerifier>,
+    owner_approver: Arc<dyn OwnerApprover>,
+    approval_timeout: Duration,
     /// When true, channels are owned by the config file and mutating APIs are disabled.
     config_mode: bool,
 }
@@ -106,7 +175,10 @@ impl ChannelManagerServer {
     ///
     /// Grants presented by non-owners are verified with
     /// [`DidKeyEd25519Verifier`]; use [`Self::with_grant_verifier`] to swap in
-    /// a different grant format or key scheme.
+    /// a different grant format or key scheme. Owners are asked for approval
+    /// over SLIM with [`SlimOwnerApprover`] (on `conn_id`), given
+    /// [`DEFAULT_APPROVAL_TIMEOUT`] to answer; see
+    /// [`Self::with_owner_approver`] and [`Self::with_approval_timeout`].
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
@@ -118,10 +190,12 @@ impl ChannelManagerServer {
         }
 
         Self {
+            owner_approver: Arc::new(SlimOwnerApprover::new(app.clone(), Some(conn_id))),
             app,
             sessions,
             ownership: ChannelOwnership::new(),
             grant_verifier: Arc::new(DidKeyEd25519Verifier),
+            approval_timeout: DEFAULT_APPROVAL_TIMEOUT,
             config_mode,
         }
     }
@@ -129,6 +203,20 @@ impl ChannelManagerServer {
     /// Replaces the default grant verifier (see `crate::grant::GrantVerifier`).
     pub fn with_grant_verifier(mut self, grant_verifier: Arc<dyn GrantVerifier>) -> Self {
         self.grant_verifier = grant_verifier;
+        self
+    }
+
+    /// Replaces the default owner approver (see
+    /// `crate::approval::OwnerApprover`).
+    pub fn with_owner_approver(mut self, owner_approver: Arc<dyn OwnerApprover>) -> Self {
+        self.owner_approver = owner_approver;
+        self
+    }
+
+    /// Sets how long a channel owner gets to answer an approval request
+    /// before it counts as a denial.
+    pub fn with_approval_timeout(mut self, approval_timeout: Duration) -> Self {
+        self.approval_timeout = approval_timeout;
         self
     }
 
@@ -198,6 +286,14 @@ impl ChannelManagerServer {
             }
         };
 
+        // Reject a malformed callback name now rather than at the first
+        // approval request, when the owner is no longer around to fix it.
+        if let Some(callback_name) = &req.owner_callback_name
+            && let Err(e) = ProtoName::parse_name(callback_name)
+        {
+            return self.error_response(format!("invalid owner callback name: {e}"));
+        }
+
         // Create a new session for the channel
         let session_config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
@@ -250,7 +346,13 @@ impl ChannelManagerServer {
         // on record rather than failing the request.
         if let Some(c) = &caller {
             self.ownership
-                .set_owner(channel_name.clone(), c.subject.clone())
+                .set_owner(
+                    channel_name.clone(),
+                    ChannelOwner {
+                        subject: c.subject.clone(),
+                        callback_name: req.owner_callback_name.clone(),
+                    },
+                )
                 .await;
         }
 
@@ -278,22 +380,23 @@ impl ChannelManagerServer {
         self.success_response()
     }
 
-    /// See `enforce_grant`.
+    /// See `GrantPolicy::enforce`.
     async fn check_grant(
         &self,
         change: &ParticipantChange<'_>,
         caller: &Option<CallerIdentity>,
         grant: &Option<Vec<u8>>,
     ) -> Result<(), CommandResponse> {
-        enforce_grant(
-            &self.ownership,
-            self.grant_verifier.as_ref(),
-            change,
-            caller,
-            grant,
-        )
-        .await
-        .map_err(|msg| self.error_response(msg))
+        let policy = GrantPolicy {
+            ownership: &self.ownership,
+            verifier: self.grant_verifier.as_ref(),
+            approver: self.owner_approver.as_ref(),
+            approval_timeout: self.approval_timeout,
+        };
+        policy
+            .enforce(change, caller, grant)
+            .await
+            .map_err(|msg| self.error_response(msg))
     }
 
     async fn handle_add_participant(
@@ -423,7 +526,11 @@ impl ChannelManagerServer {
         for channel_name in &channel_names {
             channels.push(ChannelInfo {
                 channel_name: channel_name.clone(),
-                owner: self.ownership.get_owner(channel_name).await,
+                owner: self
+                    .ownership
+                    .get_owner(channel_name)
+                    .await
+                    .map(|o| o.subject),
             });
         }
 
@@ -724,6 +831,7 @@ mod tests {
         let request = CreateChannelRequest {
             channel_name: "org/namespace/channel".to_string(),
             mls_enabled: true,
+            owner_callback_name: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert!(request.mls_enabled);
@@ -734,6 +842,7 @@ mod tests {
         let request = CreateChannelRequest {
             channel_name: "org/namespace/channel".to_string(),
             mls_enabled: false,
+            owner_callback_name: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert!(!request.mls_enabled);
@@ -817,8 +926,9 @@ mod tests {
         );
     }
 
-    // ── enforce_grant ─────────────────────────────────────────────────
+    // ── GrantPolicy ───────────────────────────────────────────────────
 
+    use crate::approval::ApprovalError;
     use aws_lc_rs::rand::SystemRandom;
     use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
 
@@ -835,9 +945,19 @@ mod tests {
         (key_pair, did_key)
     }
 
+    /// Signs an "add" grant.
+    fn sign_grant(
+        key_pair: &Ed25519KeyPair,
+        channel: &str,
+        invitee: &str,
+        not_after: u64,
+    ) -> Vec<u8> {
+        sign_grant_for(key_pair, channel, invitee, "add", not_after)
+    }
+
     /// Builds the default verifier's wire format by hand, independently of
     /// `crate::grant`'s own helpers, so these tests also pin that format.
-    fn sign_grant(
+    fn sign_grant_for(
         key_pair: &Ed25519KeyPair,
         channel: &str,
         invitee: &str,
@@ -871,117 +991,334 @@ mod tests {
     const FAR_FUTURE: u64 = 9_999_999_999;
     const CHANNEL: &str = "org/ns/ch1";
     const AGENT: &str = "org/ns/agent1";
+    const CALLBACK: &str = "org/ns/owner-shadi";
 
-    fn change(action: GrantAction) -> ParticipantChange<'static> {
-        ParticipantChange {
-            channel: CHANNEL,
-            participant: AGENT,
-            action,
+    /// Answers every approval request with `answer` -- or never, if `None` --
+    /// recording each (callback name, request) it was asked.
+    struct FakeApprover {
+        answer: Option<Result<ApprovalDecision, ApprovalError>>,
+        received: parking_lot::Mutex<Vec<(String, ApprovalRequest)>>,
+    }
+
+    impl FakeApprover {
+        fn answering(answer: Result<ApprovalDecision, ApprovalError>) -> Self {
+            Self {
+                answer: Some(answer),
+                received: Default::default(),
+            }
+        }
+
+        fn silent() -> Self {
+            Self {
+                answer: None,
+                received: Default::default(),
+            }
+        }
+
+        fn calls(&self) -> Vec<(String, ApprovalRequest)> {
+            self.received.lock().clone()
         }
     }
 
-    /// A channel owned by a fresh key.
-    async fn owned_channel() -> (ChannelOwnership, Ed25519KeyPair, String) {
-        let ownership = ChannelOwnership::new();
-        let (key, owner) = new_owner();
-        ownership
-            .set_owner(CHANNEL.to_string(), owner.clone())
-            .await;
-        (ownership, key, owner)
+    #[async_trait::async_trait]
+    impl OwnerApprover for FakeApprover {
+        async fn request_approval(
+            &self,
+            callback_name: &str,
+            request: ApprovalRequest,
+        ) -> Result<ApprovalDecision, ApprovalError> {
+            self.received
+                .lock()
+                .push((callback_name.to_string(), request));
+            match &self.answer {
+                Some(answer) => answer.clone(),
+                None => std::future::pending().await,
+            }
+        }
     }
 
-    async fn enforce(
-        ownership: &ChannelOwnership,
-        action: GrantAction,
-        caller: &Option<CallerIdentity>,
-        grant: Option<Vec<u8>>,
-    ) -> Result<(), String> {
-        enforce_grant(
+    fn policy<'a>(ownership: &'a ChannelOwnership, approver: &'a FakeApprover) -> GrantPolicy<'a> {
+        GrantPolicy {
             ownership,
-            &DidKeyEd25519Verifier,
-            &change(action),
-            caller,
-            &grant,
-        )
-        .await
+            verifier: &DidKeyEd25519Verifier,
+            approver,
+            approval_timeout: Duration::from_millis(100),
+        }
     }
 
-    #[tokio::test]
-    async fn enforce_grant_allows_an_ownerless_channel_without_a_grant() {
+    fn add() -> ParticipantChange<'static> {
+        ParticipantChange {
+            channel: CHANNEL,
+            participant: AGENT,
+            action: GrantAction::Add,
+        }
+    }
+
+    /// A channel owned by a fresh key, optionally reachable at `CALLBACK`.
+    async fn owned_channel(callback: bool) -> (ChannelOwnership, Ed25519KeyPair, String) {
         let ownership = ChannelOwnership::new();
-        let result = enforce(&ownership, GrantAction::Add, &None, None).await;
-        assert!(result.is_ok());
+        let (key, subject) = new_owner();
+        ownership
+            .set_owner(
+                CHANNEL.to_string(),
+                ChannelOwner {
+                    subject: subject.clone(),
+                    callback_name: callback.then(|| CALLBACK.to_string()),
+                },
+            )
+            .await;
+        (ownership, key, subject)
     }
 
     #[tokio::test]
-    async fn enforce_grant_allows_the_owner_without_a_grant() {
-        let (ownership, _key, owner) = owned_channel().await;
-        let caller = Some(CallerIdentity { subject: owner });
-        let result = enforce(&ownership, GrantAction::Add, &caller, None).await;
+    async fn allows_an_ownerless_channel_without_a_grant() {
+        let ownership = ChannelOwnership::new();
+        let approver = FakeApprover::silent();
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &None)
+            .await;
         assert!(result.is_ok());
+        assert!(approver.calls().is_empty());
     }
 
     #[tokio::test]
-    async fn enforce_grant_denies_a_non_owner_with_no_grant() {
-        let (ownership, _key, _) = owned_channel().await;
-        let result = enforce(&ownership, GrantAction::Add, &None, None).await;
+    async fn allows_the_owner_without_a_grant() {
+        let (ownership, _key, subject) = owned_channel(true).await;
+        let approver = FakeApprover::silent();
+        let caller = Some(CallerIdentity { subject });
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &caller, &None)
+            .await;
+        assert!(result.is_ok());
+        assert!(approver.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn denies_a_non_owner_with_no_grant_and_no_callback() {
+        let (ownership, _key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &None)
+            .await;
         assert!(result.unwrap_err().contains("requires a grant"));
+        assert!(approver.calls().is_empty());
     }
 
     #[tokio::test]
-    async fn enforce_grant_allows_a_non_owner_with_a_valid_grant() {
-        let (ownership, key, _) = owned_channel().await;
-        let grant = sign_grant(&key, CHANNEL, AGENT, "add", FAR_FUTURE);
-        let result = enforce(&ownership, GrantAction::Add, &None, Some(grant)).await;
+    async fn allows_a_non_owner_with_a_valid_presented_grant() {
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &grant)
+            .await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn enforce_grant_allows_a_delete_with_a_delete_grant() {
-        let (ownership, key, _) = owned_channel().await;
-        let grant = sign_grant(&key, CHANNEL, AGENT, "delete", FAR_FUTURE);
-        let result = enforce(&ownership, GrantAction::Delete, &None, Some(grant)).await;
+    async fn a_presented_grant_is_used_without_asking_the_owner() {
+        let (ownership, key, _) = owned_channel(true).await;
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &grant)
+            .await;
         assert!(result.is_ok());
+        assert!(approver.calls().is_empty());
     }
 
     #[tokio::test]
-    async fn enforce_grant_denies_an_add_grant_presented_for_a_delete() {
-        let (ownership, key, _) = owned_channel().await;
-        let grant = sign_grant(&key, CHANNEL, AGENT, "add", FAR_FUTURE);
-        let result = enforce(&ownership, GrantAction::Delete, &None, Some(grant)).await;
-        assert!(result.unwrap_err().contains("does not authorize"));
-    }
-
-    #[tokio::test]
-    async fn enforce_grant_denies_a_grant_signed_by_someone_other_than_the_owner() {
-        let (ownership, _, _) = owned_channel().await;
-        let (impostor_key, _) = new_owner();
-        let grant = sign_grant(&impostor_key, CHANNEL, AGENT, "add", FAR_FUTURE);
-        let result = enforce(&ownership, GrantAction::Add, &None, Some(grant)).await;
+    async fn denies_a_presented_grant_signed_by_someone_other_than_the_owner() {
+        let (ownership, _, _) = owned_channel(false).await;
+        let (impostor, _) = new_owner();
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&impostor, CHANNEL, AGENT, FAR_FUTURE));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &grant)
+            .await;
         assert!(result.unwrap_err().contains("invalid grant"));
     }
 
     #[tokio::test]
-    async fn enforce_grant_denies_a_grant_for_a_different_channel() {
-        let (ownership, key, _) = owned_channel().await;
-        let grant = sign_grant(&key, "org/ns/other-channel", AGENT, "add", FAR_FUTURE);
-        let result = enforce(&ownership, GrantAction::Add, &None, Some(grant)).await;
+    async fn denies_a_presented_grant_for_a_different_channel() {
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&key, "org/ns/other-channel", AGENT, FAR_FUTURE));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &grant)
+            .await;
         assert!(result.unwrap_err().contains("does not authorize"));
     }
 
     #[tokio::test]
-    async fn enforce_grant_denies_a_grant_for_a_different_invitee() {
-        let (ownership, key, _) = owned_channel().await;
-        let grant = sign_grant(&key, CHANNEL, "org/ns/someone-else", "add", FAR_FUTURE);
-        let result = enforce(&ownership, GrantAction::Add, &None, Some(grant)).await;
+    async fn denies_a_presented_grant_for_a_different_invitee() {
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&key, CHANNEL, "org/ns/someone-else", FAR_FUTURE));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &grant)
+            .await;
         assert!(result.unwrap_err().contains("does not authorize"));
     }
 
     #[tokio::test]
-    async fn enforce_grant_denies_an_expired_grant() {
-        let (ownership, key, _) = owned_channel().await;
-        let grant = sign_grant(&key, CHANNEL, AGENT, "add", 1);
-        let result = enforce(&ownership, GrantAction::Add, &None, Some(grant)).await;
+    async fn denies_an_expired_presented_grant() {
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, 1));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &grant)
+            .await;
         assert!(result.unwrap_err().contains("expired"));
+    }
+
+    #[tokio::test]
+    async fn asks_the_owner_and_allows_with_the_grant_they_return() {
+        let (ownership, key, _) = owned_channel(true).await;
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
+            &key, CHANNEL, AGENT, FAR_FUTURE,
+        ))));
+        let caller = Some(CallerIdentity {
+            subject: "did:key:z6Mkrequester".to_string(),
+        });
+
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &caller, &None)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            approver.calls(),
+            vec![(
+                CALLBACK.to_string(),
+                ApprovalRequest {
+                    channel_name: CHANNEL.to_string(),
+                    participant_name: AGENT.to_string(),
+                    action: ParticipantAction::Add as i32,
+                    requester: Some("did:key:z6Mkrequester".to_string()),
+                }
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn tells_the_owner_which_action_is_being_requested() {
+        let (ownership, key, _) = owned_channel(true).await;
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant_for(
+            &key, CHANNEL, AGENT, "delete", FAR_FUTURE,
+        ))));
+        let delete = ParticipantChange {
+            action: GrantAction::Delete,
+            ..add()
+        };
+
+        let result = policy(&ownership, &approver)
+            .enforce(&delete, &None, &None)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            approver.calls()[0].1.action,
+            ParticipantAction::Delete as i32
+        );
+    }
+
+    #[tokio::test]
+    async fn denies_an_add_grant_presented_for_a_delete() {
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+        let delete = ParticipantChange {
+            action: GrantAction::Delete,
+            ..add()
+        };
+
+        let result = policy(&ownership, &approver)
+            .enforce(&delete, &None, &grant)
+            .await;
+
+        assert!(result.unwrap_err().contains("does not authorize"));
+    }
+
+    #[tokio::test]
+    async fn denies_a_returned_grant_for_a_different_action() {
+        let (ownership, key, _) = owned_channel(true).await;
+        // Asked to approve a delete, the owner returns a grant to add.
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
+            &key, CHANNEL, AGENT, FAR_FUTURE,
+        ))));
+        let delete = ParticipantChange {
+            action: GrantAction::Delete,
+            ..add()
+        };
+
+        let result = policy(&ownership, &approver)
+            .enforce(&delete, &None, &None)
+            .await;
+
+        assert!(result.unwrap_err().contains("does not authorize"));
+    }
+
+    #[tokio::test]
+    async fn denies_when_the_owner_declines() {
+        let (ownership, _, _) = owned_channel(true).await;
+        let approver =
+            FakeApprover::answering(Ok(ApprovalDecision::Denied("not this agent".to_string())));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &None)
+            .await;
+        let err = result.unwrap_err();
+        assert!(err.contains("denied the request"));
+        assert!(err.contains("not this agent"));
+    }
+
+    #[tokio::test]
+    async fn denies_when_the_owner_does_not_answer_in_time() {
+        let (ownership, _, _) = owned_channel(true).await;
+        let approver = FakeApprover::silent();
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &None)
+            .await;
+        assert!(result.unwrap_err().contains("in time"));
+        assert_eq!(approver.calls().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn denies_when_the_owner_cannot_be_reached() {
+        let (ownership, _, _) = owned_channel(true).await;
+        let approver =
+            FakeApprover::answering(Err(ApprovalError::Transport("no route".to_string())));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &None)
+            .await;
+        assert!(result.unwrap_err().contains("could not ask"));
+    }
+
+    #[tokio::test]
+    async fn verifies_a_grant_returned_by_the_owner_like_a_presented_one() {
+        let (ownership, _, _) = owned_channel(true).await;
+        let (impostor, _) = new_owner();
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
+            &impostor, CHANNEL, AGENT, FAR_FUTURE,
+        ))));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &None)
+            .await;
+        assert!(result.unwrap_err().contains("invalid grant"));
+    }
+
+    #[tokio::test]
+    async fn denies_a_returned_grant_for_a_different_invitee() {
+        let (ownership, key, _) = owned_channel(true).await;
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
+            &key,
+            CHANNEL,
+            "org/ns/someone-else",
+            FAR_FUTURE,
+        ))));
+        let result = policy(&ownership, &approver)
+            .enforce(&add(), &None, &None)
+            .await;
+        assert!(result.unwrap_err().contains("does not authorize"));
     }
 }
