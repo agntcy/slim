@@ -46,6 +46,13 @@
       "description": ["Add ci label to PRs which bump GitHub Actions, and group them in a single PR."]
     },
     {
+      "groupName": "OpenTelemetry",
+      "groupSlug": "opentelemetry",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["/^opentelemetry/", "tracing-opentelemetry"],
+      "description": ["Bump the OpenTelemetry crates and tracing-opentelemetry together: each tracing-opentelemetry release targets one opentelemetry version, and mixing versions doesn't compile."]
+    },
+    {
       "matchManagers": ["cargo"],
       "matchPackageNames": ["uniffi"],
       "allowedVersions": "<0.32",
