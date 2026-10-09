@@ -151,8 +151,16 @@ async fn start_channel_manager(
 
     // Create sessions list and gRPC server
     let sessions = Arc::new(SessionsList::new());
-    let server = ChannelManagerServer::new(app.clone(), conn_id, sessions.clone(), false);
-    let svc = ChannelManagerServiceServer::new(server);
+    let server = Arc::new(ChannelManagerServer::new(
+        app.clone(),
+        conn_id,
+        sessions.clone(),
+        false,
+    ));
+    // Fast, so TTL tests don't wait long; channels without a TTL are
+    // unaffected. Lives as long as the test's runtime.
+    server.spawn_reaper(Duration::from_millis(100));
+    let svc = ChannelManagerServiceServer::from_arc(server);
 
     // Start gRPC server using ServerConfig
     let server_config = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
@@ -247,6 +255,7 @@ async fn test_channel_manager_via_cmctl() {
             channel_name: "org/ns/ch1".to_string(),
             mls_enabled: true,
             owner_callback_name: None,
+            ttl_seconds: None,
         })
         .await
         .expect("create-channel failed")
@@ -317,6 +326,7 @@ async fn test_channel_manager_via_cmctl() {
             channel_name: "invalid".to_string(),
             mls_enabled: true,
             owner_callback_name: None,
+            ttl_seconds: None,
         })
         .await
         .expect("create-channel invalid request failed")
@@ -377,6 +387,7 @@ async fn test_channel_manager_via_cmctl() {
             channel_name: "org/ns/ch1".to_string(),
             mls_enabled: true,
             owner_callback_name: None,
+            ttl_seconds: None,
         })
         .await
         .expect("duplicate create-channel request failed")
@@ -558,6 +569,7 @@ async fn test_add_participant_uses_default_gateway_with_separate_services() {
             channel_name: "org/ns/default-gateway-channel".to_string(),
             mls_enabled: true,
             owner_callback_name: None,
+            ttl_seconds: None,
         })
         .await
         .expect("create-channel failed")
@@ -598,4 +610,85 @@ async fn test_add_participant_uses_default_gateway_with_separate_services() {
     }
 
     drop(participant_app);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_channel_expires_after_its_ttl() {
+    let slim_port = reserve_local_port();
+    let cm_port = reserve_local_port();
+
+    let _slim_handle = start_slim_node(slim_port);
+    wait_for_port("127.0.0.1", slim_port, Duration::from_secs(60), "SLIM node").await;
+    let (service, conn_id) = create_service_and_connect(slim_port, "ttl-service").await;
+    let (_cm_app, _cm_sessions) = start_channel_manager(&service, conn_id, cm_port).await;
+    wait_for_port(
+        "127.0.0.1",
+        cm_port,
+        Duration::from_secs(60),
+        "channel-manager",
+    )
+    .await;
+    let mut client = create_cm_client(cm_port).await;
+
+    let create = |name: &str, ttl_seconds: Option<u64>| CreateChannelRequest {
+        channel_name: name.to_string(),
+        mls_enabled: false,
+        owner_callback_name: None,
+        ttl_seconds,
+    };
+
+    // A zero TTL is rejected rather than creating an already-expired channel.
+    let resp = client
+        .create_channel(create("org/ns/zero-ttl", Some(0)))
+        .await
+        .expect("create-channel request failed")
+        .into_inner();
+    assert!(!resp.success);
+    assert!(resp.error_msg.unwrap().contains("positive"));
+
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    for (name, ttl) in [("org/ns/ephemeral", Some(2)), ("org/ns/permanent", None)] {
+        let resp = client
+            .create_channel(create(name, ttl))
+            .await
+            .expect("create-channel request failed")
+            .into_inner();
+        assert!(resp.success, "create {name} failed: {:?}", resp.error_msg);
+    }
+
+    // The TTL shows up as an absolute expiry time; no TTL, no expiry.
+    let channels = client
+        .list_channels(ListChannelsRequest {})
+        .await
+        .expect("list-channels failed")
+        .into_inner()
+        .channels;
+    let expires_at = |name: &str| {
+        channels
+            .iter()
+            .find(|c| c.channel_name == name)
+            .unwrap_or_else(|| panic!("{name} not listed"))
+            .expires_at
+    };
+    let ephemeral_expiry = expires_at("org/ns/ephemeral").expect("ephemeral has no expiry");
+    assert!((created_at + 2..=created_at + 3).contains(&ephemeral_expiry));
+    assert_eq!(expires_at("org/ns/permanent"), None);
+
+    // Past the TTL (second-granular, plus the reaper's interval), the
+    // channel is gone; the one without a TTL is untouched.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let names = client
+        .list_channels(ListChannelsRequest {})
+        .await
+        .expect("list-channels failed")
+        .into_inner()
+        .channel_name;
+    assert!(
+        !names.contains(&"org/ns/ephemeral".to_string()),
+        "expired channel still listed: {names:?}"
+    );
+    assert!(names.contains(&"org/ns/permanent".to_string()));
 }

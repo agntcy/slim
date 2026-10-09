@@ -170,7 +170,7 @@ Channels can also be created and participants managed at runtime using `slimctl 
 
 ### `persistence`
 
-Optional. When present, channels survive a restart: the session layer keeps MLS group state and session records in an encrypted SQLite database under `path`, and the Channel Manager restores them on startup. Each channel's owner and the grants already used against it are restored too, from a second encrypted database in the same directory, protected by the same passphrase.
+Optional. When present, channels survive a restart: the session layer keeps MLS group state and session records in an encrypted SQLite database under `path`, and the Channel Manager restores them on startup. Each channel's owner, its expiry time (for channels created with a TTL), and the grants already used against it are restored too, from a second encrypted database in the same directory, protected by the same passphrase. A channel whose TTL passed while the Channel Manager was down is deleted right after startup.
 
 - `path` — directory for the encrypted databases
 - `encryption-passphrase` — passphrase the encryption key is derived from; required unless `insecure: true`

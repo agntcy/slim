@@ -12,6 +12,10 @@ message CreateChannelRequest {
   // request without presenting a grant. Without one, such a request is
   // denied outright. See ApprovalRequest.
   optional string owner_callback_name = 3;
+  // Seconds until the channel expires and is deleted, along with its
+  // participants' membership and MLS state. Must be positive when set.
+  // Unset: the channel lives until deleted explicitly.
+  optional uint64 ttl_seconds = 4;
 }
 
 message DeleteChannelRequest {
@@ -52,6 +56,10 @@ message CommandResponse {
 message ChannelInfo {
   string channel_name = 1;
   optional string owner = 2;
+  // Unix seconds at which the channel expires; unset if it has no TTL.
+  // Expired channels are deleted within the reaper's interval, so a
+  // channel may still be listed briefly past this time.
+  optional uint64 expires_at = 3;
 }
 
 message ListChannelsResponse {

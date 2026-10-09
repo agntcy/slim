@@ -11,6 +11,11 @@ pub struct CreateChannelRequest {
     /// denied outright. See ApprovalRequest.
     #[prost(string, optional, tag = "3")]
     pub owner_callback_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// Seconds until the channel expires and is deleted, along with its
+    /// participants' membership and MLS state. Must be positive when set.
+    /// Unset: the channel lives until deleted explicitly.
+    #[prost(uint64, optional, tag = "4")]
+    pub ttl_seconds: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteChannelRequest {
@@ -63,6 +68,11 @@ pub struct ChannelInfo {
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "2")]
     pub owner: ::core::option::Option<::prost::alloc::string::String>,
+    /// Unix seconds at which the channel expires; unset if it has no TTL.
+    /// Expired channels are deleted within the reaper's interval, so a
+    /// channel may still be listed briefly past this time.
+    #[prost(uint64, optional, tag = "3")]
+    pub expires_at: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListChannelsResponse {

@@ -20,8 +20,8 @@
 //!
 //! ## Persistence and replicas
 //!
-//! Channel ownership and consumed grant nonces persist exactly when sessions
-//! do. With a `persistence:` section they are kept in a second encrypted
+//! Channel ownership, channel expiry and consumed grant nonces persist
+//! exactly when sessions do. With a `persistence:` section they are kept in a second encrypted
 //! store next to the session store (same directory and passphrase), and the
 //! channel manager refuses to start if it can't load them -- a restored
 //! channel without its owner would accept participant changes from anyone.
