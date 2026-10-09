@@ -5293,6 +5293,14 @@
 <span class="w">    </span><span class="c1"># type: spire</span>
 <span class="w">    </span><span class="c1"># socket_path: &quot;unix:/tmp/spire-agent/public/api.sock&quot;</span>
 
+<span class="w">    </span><span class="c1"># Self-issued JWT identity (did:key): signs EdDSA tokens with an Ed25519</span>
+<span class="w">    </span><span class="c1"># key and accepts peers whose tokens verify against a JWKS.</span>
+<span class="w">    </span><span class="c1"># type: jwt</span>
+<span class="w">    </span><span class="c1"># private_key:</span>
+<span class="w">    </span><span class="c1">#   file: &quot;/path/to/cm-ed25519.pem&quot;     # PKCS#8 PEM</span>
+<span class="w">    </span><span class="c1"># trusted_keys:</span>
+<span class="w">    </span><span class="c1">#   file: &quot;/path/to/members.jwks.json&quot;  # public keys of trusted peers</span>
+
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># channels: list of channels to create automatically on startup.</span>
 <span class="w">  </span><span class="c1"># The Channel Manager creates each channel and invites all listed</span>
@@ -5379,6 +5387,11 @@
 <td><code>spire</code></td>
 <td><code>socket_path</code></td>
 <td>SPIRE Workload API socket. Recommended for production deployments.</td>
+</tr>
+<tr>
+<td><code>jwt</code></td>
+<td><code>private_key</code>, <code>trusted_keys</code></td>
+<td>Ed25519 private key (PKCS#8 PEM) and a JWKS of trusted peers' public keys, each as <code>file:</code> or inline <code>data:</code>. The Channel Manager signs as the key's <code>did:key</code> and logs it at startup, for peers' allow-lists.</td>
 </tr>
 </tbody>
 </table>
