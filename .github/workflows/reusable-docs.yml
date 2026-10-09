@@ -5,8 +5,10 @@
 # (uv, task, lychee) and calls task entries from docs/Taskfile.yml. All build,
 # lint, and deploy logic lives in the Taskfile; this only wires it to CI.
 #
+# Deploy-only (called by docs-deploy.yml). PR checks live in docs-ci.yaml: this
+# job needs contents: write, and a read-only caller can't call it at all.
+#
 # Behavior by `mode`:
-#   ci             -> task docs:ci                     (build + lint)
 #   deploy-dev     -> build + lint, then docs:deploy:dev (`dev` version) + docs:deploy:root-files
 #   deploy-release -> docs:deploy:release VERSION=<v> + docs:deploy:root-files
 
@@ -16,7 +18,7 @@ on:
   workflow_call:
     inputs:
       mode:
-        description: "ci | deploy-dev | deploy-release"
+        description: "deploy-dev | deploy-release"
         required: true
         type: string
       version:
@@ -25,10 +27,10 @@ on:
         type: string
         default: ""
 
-# The effective token permission is the intersection of this declaration and the
-# caller's job permissions. Top level stays read-only per least-privilege
-# best practice; the job below declares the write permission it actually needs
-# (deploy-release, which needs contents: write for mike --push).
+# Top level stays read-only per least-privilege best practice; the job below
+# declares the write permission it actually needs (mike --push). A called
+# workflow can't be granted more than its caller allows, so the caller must
+# grant contents: write too.
 permissions:
   contents: read
 
@@ -38,9 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # GITHUB_TOKEN permissions are controlled by the caller:
-    #   docs-ci.yaml  -> contents: read (lint/build only)
-    #   docs-deploy.yml deploy job -> contents: write (mike --push, root files)
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -57,7 +56,7 @@ jobs:
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
 
       - name: Install lychee (link checker)
-        if: inputs.mode == 'ci' || inputs.mode == 'deploy-dev'
+        if: inputs.mode == 'deploy-dev'
         shell: bash
         run: |
           curl -sSfL https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz \
@@ -66,7 +65,7 @@ jobs:
           lychee --version
 
       - name: CI checks (build + lint)
-        if: inputs.mode == 'ci' || inputs.mode == 'deploy-dev'
+        if: inputs.mode == 'deploy-dev'
         shell: bash
         run: task docs:ci
 

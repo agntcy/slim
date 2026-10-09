@@ -10,8 +10,15 @@
 // TODO(wasm32): channel-manager wraps tonic gRPC + the native session layer.
 #![cfg(not(target_arch = "wasm32"))]
 
+pub mod approval;
+pub mod caller_identity;
 pub mod config;
+pub mod expiry;
+pub mod grant;
+pub mod nonce;
+pub mod ownership;
 pub mod service;
 pub mod sessions;
+pub mod store;
 
 pub use agntcy_slim_proto::channel_manager::proto::v1 as proto;

@@ -14,6 +14,7 @@ use agntcy_slim_channel_manager::config::Config;
 use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelManagerServiceServer;
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
+use agntcy_slim_channel_manager::store::StateStore;
 
 use anyhow::Context;
 use clap::Parser;
@@ -26,6 +27,10 @@ use slim_service::app::App;
 use slim_session::{Direction, SessionConfig, session_config::MlsSettings};
 use slim_tracing::TracingConfiguration;
 use tracing::{error, info, warn};
+
+/// How often channels whose TTL has passed are deleted -- a channel may
+/// outlive its TTL by up to this much.
+const REAPER_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Channel Manager - manages SLIM channels and participants
 #[derive(Parser)]
@@ -350,8 +355,27 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create gRPC server
-    let server = ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
-    let svc = ChannelManagerServiceServer::new(server);
+    let mut server =
+        ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
+
+    // Ownership and grant replay state persist exactly when sessions do: a
+    // restored channel without its owner would accept changes from anyone.
+    // Refuse to start rather than run that way.
+    if let Some(p) = &config.manager.persistence {
+        let key = p
+            .encryption_passphrase
+            .clone()
+            .map(MlsEncryptionKey::Passphrase);
+        let store = StateStore::open(&p.path, &config.manager.local_name, key)
+            .context("failed to open channel-manager state store")?;
+        server = server
+            .with_state_store(store)
+            .await
+            .context("failed to load channel ownership and grant state")?;
+    }
+    let server = Arc::new(server);
+    let reaper = server.spawn_reaper(REAPER_INTERVAL);
+    let svc = ChannelManagerServiceServer::from_arc(server);
 
     info!(
         endpoint = %config.manager.api_server.endpoint,
@@ -375,6 +399,8 @@ async fn main() -> anyhow::Result<()> {
             info!("Shutdown signal received");
         }
     }
+
+    reaper.abort();
 
     // Cleanup: either delete sessions from SLIM or just go offline, depending on config.
     info!("Shutting down...");
