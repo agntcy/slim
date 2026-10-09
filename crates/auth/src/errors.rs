@@ -22,6 +22,8 @@ pub enum AuthError {
     JwtMissingKeyAlgorithm,
     #[error("no private key available for signing")]
     JwtMissingPrivateKey,
+    #[error("invalid Ed25519 key: {0}")]
+    InvalidEd25519Key(String),
     #[error("missing decoding key or autoresolve is disabled")]
     JwtMissingDecodingKeyOrKeyResolver,
     #[error("missing 'iss' in JWT claims")]

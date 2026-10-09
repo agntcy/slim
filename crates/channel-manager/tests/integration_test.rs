@@ -25,8 +25,11 @@ use rcgen::{
     KeyUsagePurpose, SanType,
 };
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_auth::did_key::ed25519_did_key;
 use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_auth::utils::bytes_to_pem;
+use slim_config::auth::AuthConfig;
 use slim_config::auth::jwt::{Claims, Config as JwtConfig, JwtKey};
 use slim_config::client::{
     AuthenticationConfig as ClientAuthenticationConfig, ClientConfig, TransportChannel,
@@ -1327,14 +1330,27 @@ impl ChannelManagerProcess {
     /// a [`jwt_api`] on `cm_port` and keeping its state in `state_dir`, and
     /// waits for the API to come up.
     async fn start(slim_port: u16, cm_port: u16, state_dir: &std::path::Path) -> Self {
+        let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
+        Self::start_with(slim_port, cm_port, state_dir, jwt_api(cm_port), auth).await
+    }
+
+    /// Like [`Self::start`], with the given API server and SLIM app identity
+    /// (the config's `auth` section).
+    async fn start_with(
+        slim_port: u16,
+        cm_port: u16,
+        state_dir: &std::path::Path,
+        api: ServerConfig,
+        auth: serde_json::Value,
+    ) -> Self {
         let slim_connection = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{slim_port}"))
             .with_tls_setting(TlsClientConfig::insecure());
         let config = serde_json::json!({
             "channel-manager": {
                 "slim-connection": slim_connection,
-                "api-server": jwt_api(cm_port),
+                "api-server": api,
                 "local-name": "org/ns/channel-manager",
-                "auth": { "type": "shared_secret", "secret": SHARED_SECRET },
+                "auth": auth,
                 "persistence": {
                     "path": state_dir,
                     "encryption-passphrase": "integration-test-passphrase",
@@ -1454,4 +1470,172 @@ async fn test_ownership_and_used_grants_survive_a_restart() {
         "granted add after restart failed: {:?}",
         resp.error_msg
     );
+}
+
+// --- A did:key (JWT) identity for the channel manager's SLIM apps ---
+
+/// An Ed25519 identity, generated when the test starts: its PKCS#8 PEM, its
+/// `did:key`, and its public key as a JWK.
+struct Ed25519Identity {
+    pem: String,
+    did: String,
+    jwk: serde_json::Value,
+}
+
+impl Ed25519Identity {
+    fn new() -> Self {
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+        let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let public = key_pair.public_key().as_ref();
+        let did = ed25519_did_key(public);
+        let jwk = serde_json::json!({
+            "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "use": "sig", "kid": did,
+            "x": base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, public),
+        });
+        let pem = bytes_to_pem(
+            pkcs8.as_ref(),
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----\n",
+        );
+        Ed25519Identity { pem, did, jwk }
+    }
+
+    fn signing_key(&self) -> JwtKey {
+        JwtKey::Encoding(Key {
+            algorithm: Algorithm::EdDSA,
+            format: KeyFormat::Pem,
+            key: KeyData::Data(self.pem.clone()),
+        })
+    }
+}
+
+fn jwks(identities: &[&Ed25519Identity]) -> String {
+    serde_json::json!({ "keys": identities.iter().map(|i| i.jwk.clone()).collect::<Vec<_>>() })
+        .to_string()
+}
+
+/// A participant app with a `jwt` identity, trusting the keys in `trusted`.
+async fn start_jwt_receiver(
+    service: &Arc<Service>,
+    local_name: &str,
+    identity: &Ed25519Identity,
+    trusted: String,
+    conn_id: u64,
+) -> App<AuthProvider, AuthVerifier> {
+    let auth = AuthConfig::Jwt {
+        private_key: KeyData::Data(identity.pem.clone()),
+        trusted_keys: KeyData::Data(trusted),
+    };
+    let (provider, verifier) = auth.to_identity_configs(local_name).unwrap();
+    let mut provider = provider.build_auth_provider().unwrap();
+    let mut verifier = verifier.build_auth_verifier().unwrap();
+    provider.initialize().await.unwrap();
+    verifier.initialize().await.unwrap();
+
+    let name = ProtoName::parse_name(local_name).unwrap();
+    let (app, _rx) = service
+        .create_app_with_direction(&name, provider, verifier, Direction::None)
+        .unwrap();
+    app.subscribe(&name, Some(conn_id)).await.unwrap();
+    app
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_channel_manager_with_a_jwt_did_key_identity() {
+    let (slim_port, _node, service, conn_id) = start_node("jwt-identity-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+
+    let cm = Ed25519Identity::new();
+    let member = Ed25519Identity::new();
+    let outsider = Ed25519Identity::new();
+    let owner = Ed25519Identity::new();
+
+    // Key files, as an operator would provide them.
+    let key_path = state_dir.path().join("cm-ed25519.pem");
+    let jwks_path = state_dir.path().join("members.jwks.json");
+    std::fs::write(&key_path, &cm.pem).unwrap();
+    std::fs::write(&jwks_path, jwks(&[&cm, &member])).unwrap();
+    let auth = serde_json::json!({
+        "type": "jwt",
+        "private_key": { "file": key_path },
+        "trusted_keys": { "file": jwks_path },
+    });
+
+    // The API verifies owner tokens signed with Ed25519 against a JWKS too.
+    let cm_port = reserve_local_port();
+    let api = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
+        .with_tls_settings(TlsServerConfig::insecure())
+        .with_auth(ServerAuthenticationConfig::Jwt(JwtConfig::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            JwtKey::Decoding(Key {
+                algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Jwks,
+                key: KeyData::Data(jwks(&[&owner])),
+            }),
+        )));
+    let process =
+        ChannelManagerProcess::start_with(slim_port, cm_port, state_dir.path(), api, auth).await;
+
+    // Operators read the channel manager's did:key from its startup log.
+    let log = std::fs::read_to_string(&process.log).unwrap();
+    assert!(log.contains(&cm.did), "did:key {} not logged", cm.did);
+
+    // The participants trust everyone, so only the channel manager's JWKS
+    // decides who it can invite.
+    let everyone = || jwks(&[&cm, &member, &outsider]);
+    let _member =
+        start_jwt_receiver(&service, "org/ns/jwt-member", &member, everyone(), conn_id).await;
+    let _outsider = start_jwt_receiver(
+        &service,
+        "org/ns/jwt-outsider",
+        &outsider,
+        everyone(),
+        conn_id,
+    )
+    .await;
+
+    let caller = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{cm_port}"))
+        .with_tls_setting(TlsClientConfig::insecure())
+        .with_auth(ClientAuthenticationConfig::Jwt(JwtConfig::new(
+            Claims::new(None, Some(owner.did.clone()), Some(owner.did.clone()), None),
+            Duration::from_secs(3600),
+            owner.signing_key(),
+        )));
+    let mut as_owner = create_cm_client_with(caller).await;
+
+    let channel = "org/ns/jwt-channel";
+    let resp = as_owner
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+    let channels = as_owner
+        .list_channels(ListChannelsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .channels;
+    let listed = channels
+        .iter()
+        .find(|c| c.channel_name == channel)
+        .expect("channel not listed");
+    assert_eq!(listed.owner.as_deref(), Some(owner.did.as_str()));
+
+    // A participant whose key the channel manager trusts joins.
+    let resp = as_owner
+        .add_participant(add_request(channel, "org/ns/jwt-member", None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "member add failed: {:?}", resp.error_msg);
+
+    // One whose key isn't in its JWKS doesn't.
+    let resp = as_owner
+        .add_participant(add_request(channel, "org/ns/jwt-outsider", None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!resp.success, "an untrusted participant joined");
 }

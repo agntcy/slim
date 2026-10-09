@@ -50,6 +50,7 @@ spiffe = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 aws-lc-rs = { workspace = true }
+bs58 = { workspace = true }
 cel = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
