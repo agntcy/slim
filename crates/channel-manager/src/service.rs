@@ -15,11 +15,12 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::caller_identity::CallerIdentity;
+use crate::ownership::ChannelOwnership;
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
-    AddParticipantRequest, CommandResponse, CreateChannelRequest, DeleteChannelRequest,
-    DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse, ListParticipantsRequest,
-    ListParticipantsResponse,
+    AddParticipantRequest, ChannelInfo, CommandResponse, CreateChannelRequest,
+    DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListChannelsResponse,
+    ListParticipantsRequest, ListParticipantsResponse,
 };
 use crate::sessions::SessionsList;
 
@@ -27,6 +28,7 @@ use crate::sessions::SessionsList;
 pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
     sessions: Arc<SessionsList>,
+    ownership: ChannelOwnership,
     /// When true, channels are owned by the config file and mutating APIs are disabled.
     config_mode: bool,
 }
@@ -53,6 +55,7 @@ impl ChannelManagerServer {
         Self {
             app,
             sessions,
+            ownership: ChannelOwnership::new(),
             config_mode,
         }
     }
@@ -170,6 +173,15 @@ impl ChannelManagerServer {
             return self.error_response(format!("channel {channel_name} already exists"));
         }
 
+        // The creator becomes the owner. No caller identity means no auth
+        // middleware is configured, so the channel is created with no owner
+        // on record rather than failing the request.
+        if let Some(c) = &caller {
+            self.ownership
+                .set_owner(channel_name.clone(), c.subject.clone())
+                .await;
+        }
+
         info!(caller = ?caller, "Created channel {channel_name}");
         self.success_response()
     }
@@ -188,6 +200,7 @@ impl ChannelManagerServer {
             error!("Failed to delete channel {channel_name}: {e}");
             return self.error_response(format!("{e}"));
         }
+        self.ownership.remove_owner(channel_name).await;
 
         info!(caller = ?caller, "Deleted channel {channel_name}");
         self.success_response()
@@ -283,13 +296,22 @@ impl ChannelManagerServer {
     }
 
     async fn handle_list_channels(&self, caller: Option<CallerIdentity>) -> ListChannelsResponse {
-        let channels = self.sessions.list_channel_names().await;
-        info!(caller = ?caller, "Listing channels, count: {}", channels.len());
+        let channel_names = self.sessions.list_channel_names().await;
+        info!(caller = ?caller, "Listing channels, count: {}", channel_names.len());
+
+        let mut channels = Vec::with_capacity(channel_names.len());
+        for channel_name in &channel_names {
+            channels.push(ChannelInfo {
+                channel_name: channel_name.clone(),
+                owner: self.ownership.get_owner(channel_name).await,
+            });
+        }
 
         ListChannelsResponse {
             success: true,
             error_msg: None,
-            channel_name: channels,
+            channel_name: channel_names,
+            channels,
         }
     }
 
@@ -421,6 +443,7 @@ mod tests {
             success: true,
             error_msg: None,
             channel_name: vec![],
+            channels: vec![],
         };
         assert!(response.success, "response should indicate success");
         assert!(
@@ -444,6 +467,7 @@ mod tests {
             success: true,
             error_msg: None,
             channel_name: channels.clone(),
+            channels: vec![],
         };
         assert!(response.success);
         assert_eq!(response.channel_name.len(), 3);
@@ -456,6 +480,7 @@ mod tests {
             success: false,
             error_msg: Some("internal server error".to_string()),
             channel_name: vec![],
+            channels: vec![],
         };
         assert!(!response.success, "response should indicate failure");
         assert_eq!(

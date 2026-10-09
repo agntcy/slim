@@ -39,14 +39,28 @@ pub struct CommandResponse {
     #[prost(string, optional, tag = "3")]
     pub error_msg: ::core::option::Option<::prost::alloc::string::String>,
 }
+/// A channel and its owner. `owner` is unset for a channel with no owner on
+/// record -- e.g. a config-mode channel, which has no creator-as-caller to
+/// default an owner from.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ChannelInfo {
+    #[prost(string, tag = "1")]
+    pub channel_name: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub owner: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListChannelsResponse {
     #[prost(bool, tag = "1")]
     pub success: bool,
     #[prost(string, optional, tag = "2")]
     pub error_msg: ::core::option::Option<::prost::alloc::string::String>,
+    /// Deprecated: channel names only, kept for existing callers. New callers
+    /// should use `channels` below, which also carries each channel's owner.
     #[prost(string, repeated, tag = "3")]
     pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "4")]
+    pub channels: ::prost::alloc::vec::Vec<ChannelInfo>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListParticipantsResponse {

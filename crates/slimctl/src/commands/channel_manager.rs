@@ -276,6 +276,7 @@ mod tests {
                 success: true,
                 error_msg: None,
                 channel_name: vec!["org/ns/chan1".to_string(), "org/ns/chan2".to_string()],
+                channels: vec![],
             }))
         }
 
@@ -390,6 +391,7 @@ mod tests {
                 success: false,
                 error_msg: Some("list denied".to_string()),
                 channel_name: vec![],
+                channels: vec![],
             }))
         }
 
