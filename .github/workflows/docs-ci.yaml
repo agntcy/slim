@@ -1,7 +1,11 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 #
-# Docs PR checks: build + lint via the reusable docs pipeline (mode: ci).
+# Docs PR checks: build + lint (task docs:ci).
+#
+# Not routed through reusable-docs.yml: its job declares contents: write for
+# deploys, and a called workflow can't be granted more than this read-only
+# caller allows -- GitHub refuses to start the run at all.
 
 name: Documentation CI
 
@@ -9,12 +13,35 @@ on:
   pull_request:
     paths:
       - 'docs/**'
+      - '.github/workflows/docs-ci.yaml'
 
 permissions:
   contents: read
 
 jobs:
   ci:
-    uses: ./.github/workflows/reusable-docs.yml
-    with:
-      mode: ci
+    name: Docs (ci)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Setup task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+
+      - name: Install lychee (link checker)
+        shell: bash
+        run: |
+          curl -sSfL https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xzv
+          sudo mv lychee-x86_64-unknown-linux-gnu/lychee /usr/local/bin/lychee
+          lychee --version
+
+      - name: CI checks (build + lint)
+        shell: bash
+        run: task docs:ci

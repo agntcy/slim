@@ -68,6 +68,7 @@ async-trait = "0.1.88"
 aws-lc-rs = { version = "1.16", features = ["bindgen"] }
 base64 = "0.23"
 bincode = "2.0.1"
+bs58 = "0.5"
 bytes = "1.9.0"
 cel = "0.14.1"
 cfg-if = "1.0"
@@ -170,6 +171,7 @@ prost-types = "0.14"
 protoc-bin-vendored = "3.1.0"
 rand = "0.10.0"
 rand_core = "0.10"
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
 regex = "1.11.1"
 regorus = "0.12.0"
 
@@ -234,6 +236,7 @@ wiremock = "0.6"
 x25519-dalek = { version = "2", default-features = false, features = [
     "static_secrets",
 ] }
+x509-parser = "0.18"
 zeroize = "1.9"
 
 [workspace.package]

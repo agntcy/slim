@@ -5,18 +5,36 @@ pub struct CreateChannelRequest {
     pub channel_name: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub mls_enabled: bool,
+    /// SLIM name (org/namespace/app) at which the creator -- who becomes the
+    /// channel's owner -- can be asked to approve participant changes others
+    /// request without presenting a grant. Without one, such a request is
+    /// denied outright. See ApprovalRequest.
+    #[prost(string, optional, tag = "3")]
+    pub owner_callback_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// Seconds until the channel expires and is deleted, along with its
+    /// participants' membership and MLS state. Must be positive when set.
+    /// Unset: the channel lives until deleted explicitly.
+    #[prost(uint64, optional, tag = "4")]
+    pub ttl_seconds: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteChannelRequest {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
 }
+/// `grant` is required when the channel has an owner on record and the
+/// caller isn't that owner: a signed grant from the owner authorizing this
+/// exact change. Its format is whichever GrantVerifier the server was built
+/// with expects -- opaque bytes here. Unset (or any other case) means no
+/// grant is being presented.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddParticipantRequest {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub grant: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteParticipantRequest {
@@ -24,6 +42,8 @@ pub struct DeleteParticipantRequest {
     pub channel_name: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
     pub participant_name: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", optional, tag = "3")]
+    pub grant: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListChannelsRequest {}
@@ -39,14 +59,33 @@ pub struct CommandResponse {
     #[prost(string, optional, tag = "3")]
     pub error_msg: ::core::option::Option<::prost::alloc::string::String>,
 }
+/// A channel and its owner. `owner` is unset for a channel with no owner on
+/// record -- e.g. a config-mode channel, which has no creator-as-caller to
+/// default an owner from.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ChannelInfo {
+    #[prost(string, tag = "1")]
+    pub channel_name: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub owner: ::core::option::Option<::prost::alloc::string::String>,
+    /// Unix seconds at which the channel expires; unset if it has no TTL.
+    /// Expired channels are deleted within the reaper's interval, so a
+    /// channel may still be listed briefly past this time.
+    #[prost(uint64, optional, tag = "3")]
+    pub expires_at: ::core::option::Option<u64>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListChannelsResponse {
     #[prost(bool, tag = "1")]
     pub success: bool,
     #[prost(string, optional, tag = "2")]
     pub error_msg: ::core::option::Option<::prost::alloc::string::String>,
+    /// Deprecated: channel names only, kept for existing callers. New callers
+    /// should use `channels` below, which also carries each channel's owner.
     #[prost(string, repeated, tag = "3")]
     pub channel_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "4")]
+    pub channels: ::prost::alloc::vec::Vec<ChannelInfo>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ListParticipantsResponse {
@@ -56,6 +95,67 @@ pub struct ListParticipantsResponse {
     pub error_msg: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "3")]
     pub participant_name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ApprovalRequest {
+    #[prost(string, tag = "1")]
+    pub channel_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub participant_name: ::prost::alloc::string::String,
+    #[prost(enumeration = "ParticipantAction", tag = "3")]
+    pub action: i32,
+    /// Verified identity of whoever requested the change, if the channel
+    /// manager has one.
+    #[prost(string, optional, tag = "4")]
+    pub requester: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ApprovalResponse {
+    #[prost(oneof = "approval_response::Decision", tags = "1, 2")]
+    pub decision: ::core::option::Option<approval_response::Decision>,
+}
+/// Nested message and enum types in `ApprovalResponse`.
+pub mod approval_response {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Decision {
+        /// A grant signed by the owner authorizing exactly the requested change,
+        /// in whatever format the channel manager's grant verifier expects. It is
+        /// verified exactly like a grant presented on the original request.
+        #[prost(bytes, tag = "1")]
+        Grant(::prost::alloc::vec::Vec<u8>),
+        /// The owner declined, with a human-readable reason.
+        #[prost(string, tag = "2")]
+        Denied(::prost::alloc::string::String),
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ParticipantAction {
+    Unspecified = 0,
+    Add = 1,
+    Delete = 2,
+}
+impl ParticipantAction {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "PARTICIPANT_ACTION_UNSPECIFIED",
+            Self::Add => "PARTICIPANT_ACTION_ADD",
+            Self::Delete => "PARTICIPANT_ACTION_DELETE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PARTICIPANT_ACTION_UNSPECIFIED" => Some(Self::Unspecified),
+            "PARTICIPANT_ACTION_ADD" => Some(Self::Add),
+            "PARTICIPANT_ACTION_DELETE" => Some(Self::Delete),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 #[cfg(not(target_arch = "wasm32"))]

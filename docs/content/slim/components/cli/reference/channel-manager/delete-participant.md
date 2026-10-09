@@ -7,8 +7,10 @@ Remove a participant from a channel. When MLS is enabled, the Channel Manager di
 ## Usage
 
 ```
-slimctl channel-manager delete-participant <CHANNEL> <PARTICIPANT>
+slimctl channel-manager delete-participant <CHANNEL> <PARTICIPANT> [OPTIONS]
 ```
+
+On a channel with an owner, anyone other than the owner needs the owner's authorization: a grant passed with `--grant-file`, or, without one, the owner's approval, which the Channel Manager requests if the owner gave a callback name. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
 
 ## Examples
 
@@ -16,12 +18,19 @@ slimctl channel-manager delete-participant <CHANNEL> <PARTICIPANT>
 slimctl channel-manager delete-participant agntcy/team/general agntcy/agents/assistant-1
 ```
 
+With a grant from the channel's owner, read from a file or from standard input:
+
+```bash
+slimctl channel-manager delete-participant agntcy/team/general agntcy/agents/assistant-1 --grant-file grant.json
+```
+
 ## Options
 
-| Argument | Required | Description |
-|----------|----------|-------------|
+| Argument / Flag | Required | Description |
+|-----------------|----------|-------------|
 | `<CHANNEL>` | **Yes** | Channel name in `org/namespace/channel` format |
 | `<PARTICIPANT>` | **Yes** | Participant application name in `org/namespace/app` format |
+| `--grant-file <PATH>` | No | File holding a grant signed by the channel's owner authorizing this change, with action `delete`; `-` reads standard input |
 
 ## Inherited Options
 
