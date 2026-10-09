@@ -204,6 +204,9 @@ impl ChannelManagerServer {
     /// over SLIM with [`SlimOwnerApprover`] (on `conn_id`), given
     /// [`DEFAULT_APPROVAL_TIMEOUT`] to answer; see
     /// [`Self::with_owner_approver`] and [`Self::with_approval_timeout`].
+    /// The default approver sends from `app`, which a moderator app with
+    /// `Direction::None` can't do: pass one built on a separate,
+    /// bidirectional app, as the `channel-manager` binary does.
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
