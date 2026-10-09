@@ -17,6 +17,7 @@ use tracing::{debug, error, info, warn};
 use crate::approval::{ApprovalDecision, OwnerApprover, SlimOwnerApprover};
 use crate::caller_identity::CallerIdentity;
 use crate::grant::{DidKeyEd25519Verifier, GrantAction, GrantVerifier};
+use crate::nonce::NonceStore;
 use crate::ownership::{ChannelOwner, ChannelOwnership};
 use crate::proto::channel_manager_service_server::ChannelManagerService;
 use crate::proto::{
@@ -50,6 +51,7 @@ fn approval_action(action: GrantAction) -> ParticipantAction {
 /// needs a real `App`).
 struct GrantPolicy<'a> {
     ownership: &'a ChannelOwnership,
+    nonces: &'a NonceStore,
     verifier: &'a dyn GrantVerifier,
     approver: &'a dyn OwnerApprover,
     approval_timeout: Duration,
@@ -63,8 +65,9 @@ impl GrantPolicy<'_> {
     /// channel. Anyone else needs one: presented on the request, or -- when
     /// none is and the owner left a callback name -- obtained by asking the
     /// owner, with no answer within `approval_timeout` counting as a denial.
-    /// Either way, the grant must verify and name this exact channel and
-    /// participant and not be expired.
+    /// Either way, the grant must verify, name this exact channel,
+    /// participant and action, not be expired, and not have been used
+    /// before.
     async fn enforce(
         &self,
         change: &ParticipantChange<'_>,
@@ -147,6 +150,14 @@ impl GrantPolicy<'_> {
             return Err("grant has expired".to_string());
         }
 
+        // Last, so a grant rejected for any other reason isn't burned.
+        if !self
+            .nonces
+            .consume(&parsed.channel, &parsed.nonce, parsed.not_after, now)
+        {
+            return Err("grant has already been used".to_string());
+        }
+
         Ok(())
     }
 }
@@ -156,6 +167,7 @@ pub struct ChannelManagerServer {
     app: Arc<App<AuthProvider, AuthVerifier>>,
     sessions: Arc<SessionsList>,
     ownership: ChannelOwnership,
+    nonces: NonceStore,
     grant_verifier: Arc<dyn GrantVerifier>,
     owner_approver: Arc<dyn OwnerApprover>,
     approval_timeout: Duration,
@@ -194,6 +206,7 @@ impl ChannelManagerServer {
             app,
             sessions,
             ownership: ChannelOwnership::new(),
+            nonces: NonceStore::new(),
             grant_verifier: Arc::new(DidKeyEd25519Verifier),
             approval_timeout: DEFAULT_APPROVAL_TIMEOUT,
             config_mode,
@@ -389,6 +402,7 @@ impl ChannelManagerServer {
     ) -> Result<(), CommandResponse> {
         let policy = GrantPolicy {
             ownership: &self.ownership,
+            nonces: &self.nonces,
             verifier: self.grant_verifier.as_ref(),
             approver: self.owner_approver.as_ref(),
             approval_timeout: self.approval_timeout,
@@ -1037,9 +1051,14 @@ mod tests {
         }
     }
 
-    fn policy<'a>(ownership: &'a ChannelOwnership, approver: &'a FakeApprover) -> GrantPolicy<'a> {
+    fn policy<'a>(
+        ownership: &'a ChannelOwnership,
+        nonces: &'a NonceStore,
+        approver: &'a FakeApprover,
+    ) -> GrantPolicy<'a> {
         GrantPolicy {
             ownership,
+            nonces,
             verifier: &DidKeyEd25519Verifier,
             approver,
             approval_timeout: Duration::from_millis(100),
@@ -1072,9 +1091,10 @@ mod tests {
 
     #[tokio::test]
     async fn allows_an_ownerless_channel_without_a_grant() {
+        let nonces = NonceStore::new();
         let ownership = ChannelOwnership::new();
         let approver = FakeApprover::silent();
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &None)
             .await;
         assert!(result.is_ok());
@@ -1083,10 +1103,11 @@ mod tests {
 
     #[tokio::test]
     async fn allows_the_owner_without_a_grant() {
+        let nonces = NonceStore::new();
         let (ownership, _key, subject) = owned_channel(true).await;
         let approver = FakeApprover::silent();
         let caller = Some(CallerIdentity { subject });
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &caller, &None)
             .await;
         assert!(result.is_ok());
@@ -1095,9 +1116,10 @@ mod tests {
 
     #[tokio::test]
     async fn denies_a_non_owner_with_no_grant_and_no_callback() {
+        let nonces = NonceStore::new();
         let (ownership, _key, _) = owned_channel(false).await;
         let approver = FakeApprover::silent();
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &None)
             .await;
         assert!(result.unwrap_err().contains("requires a grant"));
@@ -1106,10 +1128,11 @@ mod tests {
 
     #[tokio::test]
     async fn allows_a_non_owner_with_a_valid_presented_grant() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(false).await;
         let approver = FakeApprover::silent();
         let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &grant)
             .await;
         assert!(result.is_ok());
@@ -1117,10 +1140,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_presented_grant_is_used_without_asking_the_owner() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(true).await;
         let approver = FakeApprover::silent();
         let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &grant)
             .await;
         assert!(result.is_ok());
@@ -1129,11 +1153,12 @@ mod tests {
 
     #[tokio::test]
     async fn denies_a_presented_grant_signed_by_someone_other_than_the_owner() {
+        let nonces = NonceStore::new();
         let (ownership, _, _) = owned_channel(false).await;
         let (impostor, _) = new_owner();
         let approver = FakeApprover::silent();
         let grant = Some(sign_grant(&impostor, CHANNEL, AGENT, FAR_FUTURE));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &grant)
             .await;
         assert!(result.unwrap_err().contains("invalid grant"));
@@ -1141,10 +1166,11 @@ mod tests {
 
     #[tokio::test]
     async fn denies_a_presented_grant_for_a_different_channel() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(false).await;
         let approver = FakeApprover::silent();
         let grant = Some(sign_grant(&key, "org/ns/other-channel", AGENT, FAR_FUTURE));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &grant)
             .await;
         assert!(result.unwrap_err().contains("does not authorize"));
@@ -1152,10 +1178,11 @@ mod tests {
 
     #[tokio::test]
     async fn denies_a_presented_grant_for_a_different_invitee() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(false).await;
         let approver = FakeApprover::silent();
         let grant = Some(sign_grant(&key, CHANNEL, "org/ns/someone-else", FAR_FUTURE));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &grant)
             .await;
         assert!(result.unwrap_err().contains("does not authorize"));
@@ -1163,10 +1190,11 @@ mod tests {
 
     #[tokio::test]
     async fn denies_an_expired_presented_grant() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(false).await;
         let approver = FakeApprover::silent();
         let grant = Some(sign_grant(&key, CHANNEL, AGENT, 1));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &grant)
             .await;
         assert!(result.unwrap_err().contains("expired"));
@@ -1174,6 +1202,7 @@ mod tests {
 
     #[tokio::test]
     async fn asks_the_owner_and_allows_with_the_grant_they_return() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(true).await;
         let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
             &key, CHANNEL, AGENT, FAR_FUTURE,
@@ -1182,7 +1211,7 @@ mod tests {
             subject: "did:key:z6Mkrequester".to_string(),
         });
 
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &caller, &None)
             .await;
 
@@ -1203,6 +1232,7 @@ mod tests {
 
     #[tokio::test]
     async fn tells_the_owner_which_action_is_being_requested() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(true).await;
         let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant_for(
             &key, CHANNEL, AGENT, "delete", FAR_FUTURE,
@@ -1212,7 +1242,7 @@ mod tests {
             ..add()
         };
 
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&delete, &None, &None)
             .await;
 
@@ -1225,6 +1255,7 @@ mod tests {
 
     #[tokio::test]
     async fn denies_an_add_grant_presented_for_a_delete() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(false).await;
         let approver = FakeApprover::silent();
         let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
@@ -1233,7 +1264,7 @@ mod tests {
             ..add()
         };
 
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&delete, &None, &grant)
             .await;
 
@@ -1242,6 +1273,7 @@ mod tests {
 
     #[tokio::test]
     async fn denies_a_returned_grant_for_a_different_action() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(true).await;
         // Asked to approve a delete, the owner returns a grant to add.
         let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
@@ -1252,7 +1284,7 @@ mod tests {
             ..add()
         };
 
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&delete, &None, &None)
             .await;
 
@@ -1261,10 +1293,11 @@ mod tests {
 
     #[tokio::test]
     async fn denies_when_the_owner_declines() {
+        let nonces = NonceStore::new();
         let (ownership, _, _) = owned_channel(true).await;
         let approver =
             FakeApprover::answering(Ok(ApprovalDecision::Denied("not this agent".to_string())));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &None)
             .await;
         let err = result.unwrap_err();
@@ -1274,9 +1307,10 @@ mod tests {
 
     #[tokio::test]
     async fn denies_when_the_owner_does_not_answer_in_time() {
+        let nonces = NonceStore::new();
         let (ownership, _, _) = owned_channel(true).await;
         let approver = FakeApprover::silent();
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &None)
             .await;
         assert!(result.unwrap_err().contains("in time"));
@@ -1285,10 +1319,11 @@ mod tests {
 
     #[tokio::test]
     async fn denies_when_the_owner_cannot_be_reached() {
+        let nonces = NonceStore::new();
         let (ownership, _, _) = owned_channel(true).await;
         let approver =
             FakeApprover::answering(Err(ApprovalError::Transport("no route".to_string())));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &None)
             .await;
         assert!(result.unwrap_err().contains("could not ask"));
@@ -1296,12 +1331,13 @@ mod tests {
 
     #[tokio::test]
     async fn verifies_a_grant_returned_by_the_owner_like_a_presented_one() {
+        let nonces = NonceStore::new();
         let (ownership, _, _) = owned_channel(true).await;
         let (impostor, _) = new_owner();
         let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
             &impostor, CHANNEL, AGENT, FAR_FUTURE,
         ))));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &None)
             .await;
         assert!(result.unwrap_err().contains("invalid grant"));
@@ -1309,6 +1345,7 @@ mod tests {
 
     #[tokio::test]
     async fn denies_a_returned_grant_for_a_different_invitee() {
+        let nonces = NonceStore::new();
         let (ownership, key, _) = owned_channel(true).await;
         let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(sign_grant(
             &key,
@@ -1316,9 +1353,52 @@ mod tests {
             "org/ns/someone-else",
             FAR_FUTURE,
         ))));
-        let result = policy(&ownership, &approver)
+        let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &None, &None)
             .await;
         assert!(result.unwrap_err().contains("does not authorize"));
+    }
+
+    #[tokio::test]
+    async fn refuses_a_presented_grant_used_twice() {
+        let nonces = NonceStore::new();
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let policy = policy(&ownership, &nonces, &approver);
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+
+        assert!(policy.enforce(&add(), &None, &grant).await.is_ok());
+        let replay = policy.enforce(&add(), &None, &grant).await;
+        assert!(replay.unwrap_err().contains("already been used"));
+    }
+
+    #[tokio::test]
+    async fn refuses_a_grant_the_owner_returned_when_replayed() {
+        let nonces = NonceStore::new();
+        let (ownership, key, _) = owned_channel(true).await;
+        let grant = sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE);
+        let approver = FakeApprover::answering(Ok(ApprovalDecision::Granted(grant.clone())));
+        let policy = policy(&ownership, &nonces, &approver);
+
+        assert!(policy.enforce(&add(), &None, &None).await.is_ok());
+        let replay = policy.enforce(&add(), &None, &Some(grant)).await;
+        assert!(replay.unwrap_err().contains("already been used"));
+    }
+
+    #[tokio::test]
+    async fn a_grant_rejected_for_another_reason_is_not_burned() {
+        let nonces = NonceStore::new();
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let policy = policy(&ownership, &nonces, &approver);
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+        let someone_else = ParticipantChange {
+            participant: "org/ns/someone-else",
+            ..add()
+        };
+
+        let wrong_invitee = policy.enforce(&someone_else, &None, &grant).await;
+        assert!(wrong_invitee.unwrap_err().contains("does not authorize"));
+        assert!(policy.enforce(&add(), &None, &grant).await.is_ok());
     }
 }
