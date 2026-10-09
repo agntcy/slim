@@ -689,7 +689,11 @@ impl Service {
             }
             let identity_name = format!("{}/{}", group, self.config.node_id);
             let registration_auth = auth_config.clone().with_identity_id(identity_name.clone());
-            let (provider_config, _) = registration_auth.to_identity_configs(&identity_name);
+            let (provider_config, _) = registration_auth
+                .to_identity_configs(&identity_name)
+                .map_err(|e| {
+                    ServiceError::InvalidConfig(format!("invalid auth configuration: {e}"))
+                })?;
             let mut provider = provider_config.build_auth_provider().map_err(|e| {
                 ServiceError::InvalidConfig(format!("failed to build auth provider: {e}"))
             })?;

@@ -68,6 +68,12 @@ pub enum ConfigAuthError {
     AuthSecretEmpty,
     #[error("auth.socket_path must be set for spire")]
     AuthSpireSocketPathMissing,
+    #[error("failed to read auth.private_key from {path}: {source}")]
+    AuthJwtPrivateKeyRead {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
 
     // Propagated auth library errors
     #[error("internal auth error")]

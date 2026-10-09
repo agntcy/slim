@@ -676,7 +676,7 @@ channel-manager:
             id: None,
             secret: "my-secret".to_string(),
         };
-        let (provider, verifier) = auth.to_identity_configs("org/ns/app");
+        let (provider, verifier) = auth.to_identity_configs("org/ns/app").unwrap();
 
         match &provider {
             IdentityProviderConfig::SharedSecret { id, data } => {
@@ -701,7 +701,7 @@ channel-manager:
             id: None,
             secret: "s".to_string(),
         };
-        let (provider, _) = auth.to_identity_configs("different/local/name");
+        let (provider, _) = auth.to_identity_configs("different/local/name").unwrap();
 
         match &provider {
             IdentityProviderConfig::SharedSecret { id, .. } => {
@@ -717,7 +717,7 @@ channel-manager:
             id: Some("custom/identity/id".to_string()),
             secret: "s".to_string(),
         };
-        let (provider, verifier) = auth.to_identity_configs("org/ns/app");
+        let (provider, verifier) = auth.to_identity_configs("org/ns/app").unwrap();
 
         match &provider {
             IdentityProviderConfig::SharedSecret { id, .. } => {

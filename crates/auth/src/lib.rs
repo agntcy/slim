@@ -15,6 +15,7 @@ pub mod utils;
 cfg_if::cfg_if! {
 if #[cfg(not(target_arch = "wasm32"))] {
 pub mod builder;
+pub mod did_key;
 pub mod file_watcher;
 pub mod jwt;
 pub mod jwt_middleware;
