@@ -74,6 +74,11 @@ channel-manager:
       #   type: file
       #   cert: "/path/to/server.pem"
       #   key:  "/path/to/server-key.pem"
+      # For mTLS, also require client certificates. A client certificate's
+      # SPIFFE ID then identifies the caller (see ownership.md):
+      # client_ca:
+      #   type: file
+      #   path: "/path/to/client-ca.pem"
 
   # ---------------------------------------------------------------------------
   # local-name: the SLIM name this Channel Manager registers as.

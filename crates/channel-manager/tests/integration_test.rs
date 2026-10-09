@@ -14,9 +14,13 @@ use agntcy_slim_channel_manager::proto::{
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
 
+use rcgen::{
+    BasicConstraints, CertificateParams, CertifiedIssuer, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+    KeyUsagePurpose, SanType,
+};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_config::client::ClientConfig;
+use slim_config::client::{ClientConfig, TransportChannel};
 use slim_config::component::ComponentBuilder;
 use slim_config::grpc::server::ServerConfig;
 use slim_config::tls::client::TlsClientConfig;
@@ -135,11 +139,24 @@ async fn create_app_with_shared_secret(
         .expect("failed to create app")
 }
 
-/// Start the channel-manager gRPC server in-process.
+/// Start the channel-manager gRPC server in-process, plaintext and without
+/// auth.
 async fn start_channel_manager(
     service: &Arc<Service>,
     conn_id: u64,
     cm_port: u16,
+) -> (Arc<App<AuthProvider, AuthVerifier>>, Arc<SessionsList>) {
+    let api = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
+        .with_tls_settings(TlsServerConfig::insecure());
+    start_channel_manager_with_api(service, conn_id, api).await
+}
+
+/// Start the channel-manager gRPC server in-process, serving its API with
+/// `api` (endpoint, TLS, auth).
+async fn start_channel_manager_with_api(
+    service: &Arc<Service>,
+    conn_id: u64,
+    api: ServerConfig,
 ) -> (Arc<App<AuthProvider, AuthVerifier>>, Arc<SessionsList>) {
     let (app, _rx) = create_app_with_shared_secret(service, "org/ns/channel-manager").await;
     let app = Arc::new(app);
@@ -162,12 +179,8 @@ async fn start_channel_manager(
     server.spawn_reaper(Duration::from_millis(100));
     let svc = ChannelManagerServiceServer::from_arc(server);
 
-    // Start gRPC server using ServerConfig
-    let server_config = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
-        .with_tls_settings(TlsServerConfig::insecure());
-
     tokio::spawn(async move {
-        let server_future = server_config
+        let server_future = api
             .to_server_future(&[svc])
             .await
             .expect("failed to create channel-manager gRPC server");
@@ -212,6 +225,76 @@ async fn create_cm_client(cm_port: u16) -> ChannelManagerServiceClient<tonic::tr
     ChannelManagerServiceClient::connect(format!("http://127.0.0.1:{cm_port}"))
         .await
         .expect("failed to connect to channel-manager gRPC API")
+}
+
+/// Create a gRPC client for the channel-manager API from a full client
+/// config (TLS, auth), the way `cmctl --client-config` does.
+async fn create_cm_client_with(
+    config: ClientConfig,
+) -> ChannelManagerServiceClient<
+    impl tonic::client::GrpcService<
+        tonic::body::Body,
+        Error: Into<tonic::codegen::StdError> + Send,
+        ResponseBody: tonic::codegen::Body<
+            Data = tonic::codegen::Bytes,
+            Error: Into<tonic::codegen::StdError> + Send,
+        > + Send
+                          + 'static,
+        Future: Send,
+    > + Send
+    + Clone
+    + 'static,
+> {
+    match config
+        .to_channel()
+        .await
+        .expect("failed to create channel-manager gRPC channel")
+    {
+        TransportChannel::Grpc(channel) => ChannelManagerServiceClient::new(channel),
+        TransportChannel::Websocket(_) => panic!("expected a gRPC channel"),
+    }
+}
+
+/// A throwaway PKI generated when a test starts, so no key material lives in
+/// the repository: a CA, and certificates it issues as PEM `(cert, key)`.
+struct TestPki {
+    ca: CertifiedIssuer<'static, KeyPair>,
+}
+
+impl TestPki {
+    fn new() -> Self {
+        let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+        let ca = CertifiedIssuer::self_signed(params, KeyPair::generate().unwrap()).unwrap();
+        TestPki { ca }
+    }
+
+    fn ca_pem(&self) -> String {
+        self.ca.pem()
+    }
+
+    fn issue(&self, san: SanType, usage: ExtendedKeyUsagePurpose) -> (String, String) {
+        let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.subject_alt_names = vec![san];
+        params.extended_key_usages = vec![usage];
+        let key = KeyPair::generate().unwrap();
+        let cert = params.signed_by(&key, &self.ca).unwrap();
+        (cert.pem(), key.serialize_pem())
+    }
+
+    /// A server certificate for 127.0.0.1.
+    fn server(&self) -> (String, String) {
+        let ip = SanType::IpAddress(std::net::Ipv4Addr::LOCALHOST.into());
+        self.issue(ip, ExtendedKeyUsagePurpose::ServerAuth)
+    }
+
+    /// A client certificate whose URI SAN is `spiffe_id`, as in an
+    /// X.509-SVID.
+    fn client(&self, spiffe_id: &str) -> (String, String) {
+        let uri = SanType::URI(spiffe_id.try_into().unwrap());
+        self.issue(uri, ExtendedKeyUsagePurpose::ClientAuth)
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -691,4 +774,104 @@ async fn test_channel_expires_after_its_ttl() {
         "expired channel still listed: {names:?}"
     );
     assert!(names.contains(&"org/ns/permanent".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_mtls_client_certificate_identifies_the_caller() {
+    let slim_port = reserve_local_port();
+    let cm_port = reserve_local_port();
+
+    let _slim_handle = start_slim_node(slim_port);
+    wait_for_port("127.0.0.1", slim_port, Duration::from_secs(60), "SLIM node").await;
+    let (service, conn_id) = create_service_and_connect(slim_port, "mtls-service").await;
+
+    // The API requires a client certificate chaining to the test CA, and no
+    // token: the caller's only identity is its certificate.
+    let pki = TestPki::new();
+    let (server_cert, server_key) = pki.server();
+    let api = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}")).with_tls_settings(
+        TlsServerConfig::new()
+            .with_insecure(false)
+            .with_cert_and_key_pem(&server_cert, &server_key)
+            .with_client_ca_pem(&pki.ca_pem()),
+    );
+    let (_cm_app, _cm_sessions) = start_channel_manager_with_api(&service, conn_id, api).await;
+    wait_for_port(
+        "127.0.0.1",
+        cm_port,
+        Duration::from_secs(60),
+        "channel-manager",
+    )
+    .await;
+
+    let client_as = |spiffe_id: &str| {
+        let (cert, key) = pki.client(spiffe_id);
+        ClientConfig::with_endpoint(&format!("https://127.0.0.1:{cm_port}")).with_tls_setting(
+            TlsClientConfig::new()
+                .with_insecure(false)
+                .with_ca_pem(&pki.ca_pem())
+                .with_cert_and_key_pem(&cert, &key),
+        )
+    };
+    let mut owner = create_cm_client_with(client_as("spiffe://example.org/owner")).await;
+    let mut agent = create_cm_client_with(client_as("spiffe://example.org/agent")).await;
+
+    let _participant = start_receiver(&service, "org/ns/mtls-participant", conn_id).await;
+
+    let channel = "org/ns/mtls-channel";
+    let resp = owner
+        .create_channel(CreateChannelRequest {
+            channel_name: channel.to_string(),
+            mls_enabled: false,
+            owner_callback_name: None,
+            ttl_seconds: None,
+        })
+        .await
+        .expect("create-channel request failed")
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+
+    // The creator's certificate SPIFFE ID is recorded as the owner.
+    let channels = owner
+        .list_channels(ListChannelsRequest {})
+        .await
+        .expect("list-channels failed")
+        .into_inner()
+        .channels;
+    let listed = channels
+        .iter()
+        .find(|c| c.channel_name == channel)
+        .expect("channel not listed");
+    assert_eq!(listed.owner.as_deref(), Some("spiffe://example.org/owner"));
+
+    let add = || AddParticipantRequest {
+        channel_name: channel.to_string(),
+        participant_name: "org/ns/mtls-participant".to_string(),
+        grant: None,
+    };
+
+    // A caller with a different certificate isn't the owner: no grant, no
+    // change.
+    let resp = agent
+        .add_participant(add())
+        .await
+        .expect("add-participant request failed")
+        .into_inner();
+    assert!(!resp.success);
+    assert!(
+        resp.error_msg
+            .as_deref()
+            .unwrap_or_default()
+            .contains("requires a grant"),
+        "unexpected error: {:?}",
+        resp.error_msg
+    );
+
+    // The owner needs no grant for their own channel.
+    let resp = owner
+        .add_participant(add())
+        .await
+        .expect("add-participant request failed")
+        .into_inner();
+    assert!(resp.success, "owner add failed: {:?}", resp.error_msg);
 }
