@@ -92,6 +92,10 @@ pub trait OwnerApprover: Send + Sync {
 
 /// Default [`OwnerApprover`]: a slim-rpc unary call to the owner's callback
 /// name.
+///
+/// The call is sent from `app`, which must be able to send and receive data
+/// messages. A moderator app created with `Direction::None`, as the channel
+/// manager's own is, can't: give this one an app of its own.
 pub struct SlimOwnerApprover {
     app: Arc<App<AuthProvider, AuthVerifier>>,
     connection_id: Option<u64>,

@@ -4,7 +4,12 @@ Channels created through the Channel Manager API can have an owner who controls 
 
 ## Owners
 
-When the Channel Manager's API server requires authentication (JWT, OIDC or SPIRE), whoever creates a channel becomes its owner, identified by the subject their credential verifies: the `sub` claim, or the SPIFFE ID for SPIRE. Without API authentication there is no caller to identify, so channels have no owner and anyone who can reach the API can change them.
+When the Channel Manager's API server authenticates callers, whoever creates a channel becomes its owner, identified by the subject their credential verifies:
+
+- with token authentication (JWT, OIDC or SPIRE), the token's `sub` claim;
+- with mTLS, the SPIFFE ID in the client certificate's URI SAN, as in an X.509-SVID.
+
+A token takes precedence over a client certificate. Without either there is no caller to identify, so channels have no owner and anyone who can reach the API can change them.
 
 `slimctl channel-manager list-channels` shows each channel's owner.
 
@@ -36,11 +41,15 @@ The default verifier expects the owner's subject to be a `did:key` encoding an E
 - `not_after` is in Unix seconds. `nonce` must be unique per grant. `role` is carried but not enforced.
 - `signature` is the standard, padded base64 encoding of an Ed25519 signature over the UTF-8 bytes of the literal `SLIM-CHANNEL-GRANT/1`, then `channel`, `invitee`, `action`, `role`, `not_after` (in decimal) and `nonce`, in that order, joined with a NUL byte. There is no trailing NUL.
 
+An owner identified by a SPIFFE ID changes their own channel directly, but the default verifier can't check grants for that channel, since their subject isn't a `did:key`.
+
 Deployments embedding the Channel Manager can plug in a different verifier for other grant formats or key schemes, for example one that resolves an agent's binding certificate to its human owner.
 
 ## Owner approval
 
 To ask the owner, the Channel Manager sends an `ApprovalRequest` over SLIM, using SlimRPC, to the owner's callback name: service `channel_manager.proto.v1.ChannelOwnerApproval`, method `RequestApproval`. The owner's endpoint replies with an `ApprovalResponse` carrying either a grant or a denial. Both messages are defined in the Channel Manager's protobuf definitions.
+
+The request comes from the SLIM name `<local-name>-approval`, which the Channel Manager registers with the same credentials as its `local-name`.
 
 Because the owner's endpoint connects to SLIM outbound, it needs no inbound ports. An owner who doesn't reply within 60 seconds, or can't be reached, has denied the request. A grant the owner returns is checked exactly like one passed with `--grant-file`.
 
