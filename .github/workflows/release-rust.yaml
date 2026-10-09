@@ -223,11 +223,8 @@ jobs:
       - name: Name per-archive provenance copies
         working-directory: artifacts
         env:
-          # bundle-path is relative to GITHUB_WORKSPACE, the default working
-          # directory for the attest step above (which set none of its own) --
-          # resolved via that env var rather than a relative "../", so it does
-          # not depend on this step's working-directory nesting depth.
-          BUNDLE: ${{ github.workspace }}/${{ steps.provenance.outputs.bundle-path }}
+          # bundle-path is already absolute (under RUNNER_TEMP).
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: |
           set -euo pipefail
           for archive in slimctl-*.tar.gz slimctl-*.zip; do
