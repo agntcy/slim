@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::{ProtoName, ProtoSessionType};
+use slim_persistence::PersistenceError;
 use slim_service::app::App;
 use slim_session::completion_handle::CompletionHandle;
 use slim_session::{SessionConfig, SessionError, session_config::MlsSettings};
@@ -26,10 +27,19 @@ use crate::proto::{
     ListParticipantsRequest, ListParticipantsResponse, ParticipantAction,
 };
 use crate::sessions::SessionsList;
+use crate::store::StateStore;
 
 /// How long a channel owner gets to answer an approval request by default.
 /// A human typically answers it, so this errs long.
 const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Current time in unix seconds.
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// A participant change being authorized.
 struct ParticipantChange<'a> {
@@ -142,19 +152,19 @@ impl GrantPolicy<'_> {
             return Err("grant does not authorize this change".to_string());
         }
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = unix_now();
         if parsed.not_after < now {
             return Err("grant has expired".to_string());
         }
 
-        // Last, so a grant rejected for any other reason isn't burned.
-        if !self
+        // Last, so a grant rejected for any other reason isn't burned. If
+        // its use can't be recorded durably, refuse it rather than accept a
+        // grant that would be replayable after a restart.
+        let first_use = self
             .nonces
             .consume(&parsed.channel, &parsed.nonce, parsed.not_after, now)
-        {
+            .map_err(|e| format!("could not record the grant's use: {e}"))?;
+        if !first_use {
             return Err("grant has already been used".to_string());
         }
 
@@ -231,6 +241,26 @@ impl ChannelManagerServer {
     pub fn with_approval_timeout(mut self, approval_timeout: Duration) -> Self {
         self.approval_timeout = approval_timeout;
         self
+    }
+
+    /// Persists channel ownership and consumed grant nonces in `store`, so
+    /// they survive a restart along with the sessions they govern. Without
+    /// it, a channel restored from session persistence would come back with
+    /// no owner -- and so with no grant required to change it.
+    ///
+    /// Call after the sessions list has been restored: owners are kept only
+    /// for channels it contains, and dropped (from the store too) for the
+    /// rest.
+    pub async fn with_state_store(mut self, store: StateStore) -> Result<Self, PersistenceError> {
+        let restored: std::collections::HashSet<String> = self
+            .sessions
+            .list_channel_names()
+            .await
+            .into_iter()
+            .collect();
+        self.ownership = ChannelOwnership::load(store.clone(), |c| restored.contains(c))?;
+        self.nonces = NonceStore::load(store, unix_now())?;
+        Ok(self)
     }
 
     /// Guard for mutating operations: returns an error response when the server
@@ -358,15 +388,20 @@ impl ChannelManagerServer {
         // middleware is configured, so the channel is created with no owner
         // on record rather than failing the request.
         if let Some(c) = &caller {
-            self.ownership
-                .set_owner(
-                    channel_name.clone(),
-                    ChannelOwner {
-                        subject: c.subject.clone(),
-                        callback_name: req.owner_callback_name.clone(),
-                    },
-                )
-                .await;
+            let owner = ChannelOwner {
+                subject: c.subject.clone(),
+                callback_name: req.owner_callback_name.clone(),
+            };
+            if let Err(e) = self.ownership.set_owner(channel_name.clone(), owner).await {
+                // A channel whose owner wasn't recorded durably would come
+                // back from a restart ownerless, and so ungated: undo it.
+                error!("Failed to record owner of channel {channel_name}: {e}");
+                if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
+                    error!("Failed to roll back channel {channel_name}: {e}");
+                }
+                return self
+                    .error_response(format!("failed to record owner of channel {channel_name}"));
+            }
         }
 
         info!(caller = ?caller, "Created channel {channel_name}");
@@ -387,7 +422,11 @@ impl ChannelManagerServer {
             error!("Failed to delete channel {channel_name}: {e}");
             return self.error_response(format!("{e}"));
         }
-        self.ownership.remove_owner(channel_name).await;
+        if let Err(e) = self.ownership.remove_owner(channel_name).await {
+            // Harmless: dropped at the next startup, since the channel won't
+            // be restored.
+            warn!("Failed to delete owner record of channel {channel_name}: {e}");
+        }
 
         info!(caller = ?caller, "Deleted channel {channel_name}");
         self.success_response()
@@ -1085,7 +1124,8 @@ mod tests {
                     callback_name: callback.then(|| CALLBACK.to_string()),
                 },
             )
-            .await;
+            .await
+            .unwrap();
         (ownership, key, subject)
     }
 

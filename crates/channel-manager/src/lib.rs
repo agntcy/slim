@@ -18,5 +18,6 @@ pub mod nonce;
 pub mod ownership;
 pub mod service;
 pub mod sessions;
+pub mod store;
 
 pub use agntcy_slim_proto::channel_manager::proto::v1 as proto;

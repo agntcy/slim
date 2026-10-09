@@ -18,6 +18,19 @@
 //!   truth. All sessions restored from the store are used as-is and the full
 //!   gRPC API is available for dynamic channel management.
 //!
+//! ## Persistence and replicas
+//!
+//! Channel ownership and consumed grant nonces persist exactly when sessions
+//! do. With a `persistence:` section they are kept in a second encrypted
+//! store next to the session store (same directory and passphrase), and the
+//! channel manager refuses to start if it can't load them -- a restored
+//! channel without its owner would accept participant changes from anyone.
+//! Without one, everything -- channels included -- is in memory and gone on
+//! restart, so nothing is left ungated.
+//!
+//! Run a **single replica** per store. Replicas don't share ownership or
+//! nonce state, so with two of them a grant could be used once on each.
+//!
 //! ## Secret injection
 //!
 //! String values support provider references using the `${provider:ref}` syntax,
@@ -92,7 +105,9 @@ pub struct Config {
 ///
 /// When present, session state survives restarts: the session layer stores MLS
 /// group state and session records in an encrypted SQLite database, and the
-/// channel manager restores all previously-known sessions on startup.
+/// channel manager restores all previously-known sessions on startup -- along
+/// with their owners and the grants already used against them, kept in its
+/// own encrypted database alongside. See the module docs on replicas.
 #[derive(Clone, Debug, Deserialize)]
 pub struct PersistenceConfig {
     /// Directory where the SQLite database will be written.
