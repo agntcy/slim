@@ -321,6 +321,53 @@ async fn test_unary_unary_rpc() {
 
 #[tokio::test]
 #[tracing_test::traced_test]
+async fn test_handler_sees_the_callers_verified_identity() {
+    let mut env = TestEnv::new("test-service-peer-identity").await;
+
+    let seen = Arc::new(Mutex::new(None));
+    let recorder = seen.clone();
+    env.server.register_unary_unary(
+        "TestService",
+        "WhoAmI",
+        move |request: TestRequest, ctx: Context| {
+            let recorder = recorder.clone();
+            async move {
+                *recorder.lock().await = Some((
+                    ctx.session().peer_identity().cloned(),
+                    ctx.peer_subject(),
+                    ctx.session().destination().clone(),
+                ));
+                Ok(TestResponse {
+                    result: request.message,
+                    count: 0,
+                })
+            }
+        },
+    );
+    env.start_server().await;
+
+    let _: TestResponse = env
+        .channel
+        .unary("TestService", "WhoAmI", TestRequest::default(), None, None)
+        .await
+        .expect("Unary call failed");
+
+    // A shared-secret token's subject is its id plus a per-instance suffix.
+    let (identity, subject, claimed_name) = seen.lock().await.take().expect("handler not called");
+    let identity = identity.expect("no verified peer identity");
+    assert!(
+        identity.subject().starts_with("client_"),
+        "unexpected subject {}",
+        identity.subject()
+    );
+    assert_eq!(subject.as_deref(), Some(identity.subject()));
+    assert_eq!(claimed_name.str_components(), ("org", "ns", "client"));
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
 async fn test_unary_unary_error_handling() {
     let mut env = TestEnv::new("test-service-error").await;
 

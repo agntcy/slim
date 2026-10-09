@@ -12,6 +12,7 @@ use std::{
 };
 
 use slim_datapath::api::ProtoName as Name;
+use slim_session::PeerIdentity;
 use slim_session::context::SessionContext as SlimSessionContext;
 
 use super::{DEADLINE_KEY, SessionTx, calculate_deadline};
@@ -70,6 +71,22 @@ impl Context {
     pub fn is_deadline_exceeded(&self) -> bool {
         SystemTime::now() > self.deadline
     }
+
+    /// The verified subject (`sub`) of the peer that set up the session;
+    /// see [`SessionContext::peer_identity`].
+    pub fn peer_subject(&self) -> Option<String> {
+        self.session
+            .peer_identity()
+            .map(|p| p.subject().to_string())
+    }
+
+    /// The verified issuer (`iss`) of the peer that set up the session, when
+    /// its token has one.
+    pub fn peer_issuer(&self) -> Option<String> {
+        self.session
+            .peer_identity()
+            .and_then(|p| p.issuer().map(str::to_string))
+    }
 }
 
 impl Context {
@@ -93,6 +110,7 @@ impl Context {
             source: Name::from_strings(["", "", ""]),
             destination: Name::from_strings(["", "", ""]),
             metadata: Metadata::new(),
+            peer_identity: None,
         })
     }
 
@@ -130,6 +148,7 @@ impl Context {
                 source,
                 destination,
                 metadata,
+                peer_identity: session.peer_identity(),
             },
             deadline,
         }
@@ -198,12 +217,15 @@ impl Context {
 pub struct SessionContext {
     /// Session ID
     session_id: String,
-    /// Source name (sender)
+    /// This side's name: in a handler, the server's own
     source: Name,
-    /// Destination name (receiver)
+    /// The other side's name: in a handler, the caller's claimed name, which
+    /// is not verified (see `peer_identity`)
     destination: Name,
     /// Session metadata
     pub(crate) metadata: Metadata,
+    /// Verified identity of the peer that set up the session
+    peer_identity: Option<PeerIdentity>,
 }
 
 impl SessionContext {
@@ -216,6 +238,7 @@ impl SessionContext {
                 source: controller.source().clone(),
                 destination: controller.dst().clone(),
                 metadata: controller.metadata(),
+                peer_identity: controller.peer_identity(),
             }
         } else {
             // Fallback if session is already closed
@@ -224,6 +247,7 @@ impl SessionContext {
                 source: Name::from_strings(["", "", ""]),
                 destination: Name::from_strings(["", "", ""]),
                 metadata: Metadata::new(),
+                peer_identity: None,
             }
         }
     }
@@ -246,6 +270,16 @@ impl SessionContext {
     /// Get the session metadata
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    /// Who set up the session: the subject and issuer of the identity token
+    /// on their JoinRequest, verified together with the signature over it.
+    /// In a handler, this is the caller, and the identity to authorize
+    /// against, unlike the claimed `destination` name. `None` when the
+    /// session doesn't use MLS, since its messages couldn't then be
+    /// attributed to the peer.
+    pub fn peer_identity(&self) -> Option<&PeerIdentity> {
+        self.peer_identity.as_ref()
     }
 }
 
@@ -297,6 +331,7 @@ mod tests {
             source: Name::from_strings(["org", "ns", "app"]),
             destination: Name::from_strings(["org", "ns", "dest"]),
             metadata: session_metadata,
+            peer_identity: None,
         };
 
         let mut ctx = Context::with_session(ctx_session);
@@ -313,6 +348,7 @@ mod tests {
             source: Name::from_strings(["org", "ns", "app"]),
             destination: Name::from_strings(["org", "ns", "dest"]),
             metadata: session_metadata,
+            peer_identity: None,
         };
 
         let mut ctx = Context::with_session(ctx_session);
