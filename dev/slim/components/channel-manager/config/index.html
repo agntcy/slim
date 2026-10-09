@@ -5268,6 +5268,11 @@
 <span class="w">      </span><span class="c1">#   type: file</span>
 <span class="w">      </span><span class="c1">#   cert: &quot;/path/to/server.pem&quot;</span>
 <span class="w">      </span><span class="c1">#   key:  &quot;/path/to/server-key.pem&quot;</span>
+<span class="w">      </span><span class="c1"># For mTLS, also require client certificates. A client certificate&#39;s</span>
+<span class="w">      </span><span class="c1"># SPIFFE ID then identifies the caller (see ownership.md):</span>
+<span class="w">      </span><span class="c1"># client_ca:</span>
+<span class="w">      </span><span class="c1">#   type: file</span>
+<span class="w">      </span><span class="c1">#   path: &quot;/path/to/client-ca.pem&quot;</span>
 
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># local-name: the SLIM name this Channel Manager registers as.</span>

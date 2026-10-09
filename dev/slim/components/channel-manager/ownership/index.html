@@ -5102,7 +5102,12 @@
 <h1 id="channel-ownership-grants-and-expiry">Channel Ownership, Grants and Expiry</h1>
 <p>Channels created through the Channel Manager API can have an owner who controls who joins, and a time to live after which they are deleted. None of this applies to channels declared in the config file (config mode): those have no owner and no expiry, and write operations are refused in config mode, as before.</p>
 <h2 id="owners">Owners</h2>
-<p>When the Channel Manager's API server requires authentication (JWT, OIDC or SPIRE), whoever creates a channel becomes its owner, identified by the subject their credential verifies: the <code>sub</code> claim, or the SPIFFE ID for SPIRE. Without API authentication there is no caller to identify, so channels have no owner and anyone who can reach the API can change them.</p>
+<p>When the Channel Manager's API server authenticates callers, whoever creates a channel becomes its owner, identified by the subject their credential verifies:</p>
+<ul>
+<li>with token authentication (JWT, OIDC or SPIRE), the token's <code>sub</code> claim;</li>
+<li>with mTLS, the SPIFFE ID in the client certificate's URI SAN, as in an X.509-SVID.</li>
+</ul>
+<p>A token takes precedence over a client certificate. Without either there is no caller to identify, so channels have no owner and anyone who can reach the API can change them.</p>
 <p><code>slimctl channel-manager list-channels</code> shows each channel's owner.</p>
 <h2 id="changing-participants-on-an-owned-channel">Changing participants on an owned channel</h2>
 <p>The owner adds and removes participants directly. Anyone else needs the owner's authorization, in one of two forms:</p>
@@ -5127,9 +5132,11 @@
 <li><code>not_after</code> is in Unix seconds. <code>nonce</code> must be unique per grant. <code>role</code> is carried but not enforced.</li>
 <li><code>signature</code> is the standard, padded base64 encoding of an Ed25519 signature over the UTF-8 bytes of the literal <code>SLIM-CHANNEL-GRANT/1</code>, then <code>channel</code>, <code>invitee</code>, <code>action</code>, <code>role</code>, <code>not_after</code> (in decimal) and <code>nonce</code>, in that order, joined with a NUL byte. There is no trailing NUL.</li>
 </ul>
+<p>An owner identified by a SPIFFE ID changes their own channel directly, but the default verifier can't check grants for that channel, since their subject isn't a <code>did:key</code>.</p>
 <p>Deployments embedding the Channel Manager can plug in a different verifier for other grant formats or key schemes, for example one that resolves an agent's binding certificate to its human owner.</p>
 <h2 id="owner-approval">Owner approval</h2>
 <p>To ask the owner, the Channel Manager sends an <code>ApprovalRequest</code> over SLIM, using SlimRPC, to the owner's callback name: service <code>channel_manager.proto.v1.ChannelOwnerApproval</code>, method <code>RequestApproval</code>. The owner's endpoint replies with an <code>ApprovalResponse</code> carrying either a grant or a denial. Both messages are defined in the Channel Manager's protobuf definitions.</p>
+<p>The request comes from the SLIM name <code>&lt;local-name&gt;-approval</code>, which the Channel Manager registers with the same credentials as its <code>local-name</code>.</p>
 <p>Because the owner's endpoint connects to SLIM outbound, it needs no inbound ports. An owner who doesn't reply within 60 seconds, or can't be reached, has denied the request. A grant the owner returns is checked exactly like one passed with <code>--grant-file</code>.</p>
 <h2 id="expiry">Expiry</h2>
 <p>A channel created with <code>--ttl-seconds</code> is deleted, along with its sessions' MLS state, within about 30 seconds after its time to live passes. <code>list-channels</code> shows when each channel expires.</p>
