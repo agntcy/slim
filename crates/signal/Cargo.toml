@@ -2,7 +2,7 @@
 name = "agntcy-slim-signal"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.1.28"
+version = "0.1.29"
 description = "Small library to handle OS signals."
 
 [lib]
