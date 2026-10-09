@@ -526,6 +526,7 @@ mod tests {
         let ChannelManagerCommand::CreateChannel {
             channel,
             disable_mls,
+            ..
         } = args.command
         else {
             panic!()
@@ -549,12 +550,60 @@ mod tests {
         let ChannelManagerCommand::CreateChannel {
             channel,
             disable_mls,
+            ..
         } = args.command
         else {
             panic!()
         };
         assert_eq!(channel, "my/ns/chan");
         assert!(disable_mls);
+    }
+
+    #[test]
+    fn parse_channel_manager_create_channel_with_owner_callback_and_ttl() {
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "create-channel",
+            "my/ns/chan",
+            "--owner-callback-name",
+            "my/ns/owner",
+            "--ttl-seconds",
+            "3600",
+        ]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::CreateChannel {
+            owner_callback_name,
+            ttl_seconds,
+            ..
+        } = args.command
+        else {
+            panic!()
+        };
+        assert_eq!(owner_callback_name.as_deref(), Some("my/ns/owner"));
+        assert_eq!(ttl_seconds, Some(3600));
+    }
+
+    #[test]
+    fn parse_channel_manager_add_participant_with_grant_file() {
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "add-participant",
+            "my/ns/chan",
+            "org/ns/app",
+            "--grant-file",
+            "grant.json",
+        ]);
+        let Commands::ChannelManager(args) = cli.command else {
+            panic!()
+        };
+        let ChannelManagerCommand::AddParticipant { grant_file, .. } = args.command else {
+            panic!()
+        };
+        assert_eq!(grant_file, Some(std::path::PathBuf::from("grant.json")));
     }
 
     #[test]
@@ -584,6 +633,7 @@ mod tests {
         let ChannelManagerCommand::AddParticipant {
             channel,
             participant,
+            ..
         } = args.command
         else {
             panic!()
@@ -607,6 +657,7 @@ mod tests {
         let ChannelManagerCommand::DeleteParticipant {
             channel,
             participant,
+            ..
         } = args.command
         else {
             panic!()

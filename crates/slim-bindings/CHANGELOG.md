@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2](https://github.com/agntcy/slim/compare/slim-bindings-v3.0.1...slim-bindings-v3.0.2) - 2026-09-30
+
+### Other
+
+- updated the following local packages: agntcy-slim-auth, agntcy-slim-config, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-controller, agntcy-slim-service, agntcy-slim
+
+## [3.0.1](https://github.com/agntcy/slim/compare/slim-bindings-v3.0.0...slim-bindings-v3.0.1) - 2026-09-30
+
+### Other
+
+- update Cargo.toml dependencies
+
+## [3.0.0](https://github.com/agntcy/slim/compare/slim-bindings-v2.3.3...slim-bindings-v3.0.0) - 2026-09-29
+
+### Added
+
+- *(datapath)* implement default gateway as a fallback when route is… ([#2080](https://github.com/agntcy/slim/pull/2080))
+
+### Other
+
+- remove redundant caller routes for default gateway ([#2097](https://github.com/agntcy/slim/pull/2097))
+
 ## [2.3.3](https://github.com/agntcy/slim/compare/slim-bindings-v2.3.0...slim-bindings-v2.3.3) - 2026-09-17
 
 ### Other

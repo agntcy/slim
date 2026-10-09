@@ -120,6 +120,9 @@ jobs:
     name: Build SLIM docker image
     uses: ./.github/workflows/reusable-docker-build-push.yaml
     needs: [changes]
+    permissions:
+      contents: read
+      packages: write
     # Run only on pushes to main, not on PRs, and only when the workspace
     # actually changed -- the `on:` filter used to imply the latter.
     if: >-
@@ -127,4 +130,9 @@ jobs:
       && needs.changes.outputs.workspace == 'true'
     with:
       bake-targets: slim
-      image-tag: ${{ github.sha }}
+      # A moving tag, pushed on every merge. This is what keeps the release
+      # push path honest: it is the same login-build-push-verify path a tag
+      # release takes, so a broken grant or credential fails here, on the
+      # merge that caused it, instead of weeks later during a release.
+      image-tag: main
+      push: true

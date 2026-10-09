@@ -1,6 +1,6 @@
 # slimctl channel-manager create-channel
 
-Create a new group channel.
+Create a new group channel. When the Channel Manager's API requires authentication, you become the channel's owner: see [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
 
 **Aliases:** `cc`
 
@@ -24,12 +24,21 @@ Create a channel without MLS encryption:
 slimctl channel-manager create-channel agntcy/team/broadcast --disable-mls
 ```
 
+Create a task channel that is deleted after an hour, and that asks you to approve participant changes others request:
+
+```bash
+slimctl channel-manager create-channel agntcy/tasks/review-42 \
+  --ttl-seconds 3600 --owner-callback-name agntcy/people/alice
+```
+
 ## Options
 
 | Argument / Flag | Default | Required | Description |
 |-----------------|---------|----------|-------------|
 | `<CHANNEL>` | — | **Yes** | Channel name in `org/namespace/channel` format |
 | `--disable-mls` | `false` | No | Disable MLS end-to-end encryption for this channel (MLS is enabled by default) |
+| `--owner-callback-name <NAME>` | — | No | SLIM name (`org/namespace/app`) at which you, as the owner, are asked to approve participant changes others request without a grant |
+| `--ttl-seconds <SECONDS>` | — | No | Delete the channel automatically this many seconds after creation |
 
 ## Inherited Options
 

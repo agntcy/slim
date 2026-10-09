@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2](https://github.com/agntcy/slim/compare/slim-service-v0.13.1...slim-service-v0.13.2) - 2026-09-30
+
+### Other
+
+- updated the following local packages: agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-mls, agntcy-slim-session, agntcy-slim-controller
+
+## [0.13.1](https://github.com/agntcy/slim/compare/slim-service-v0.13.0...slim-service-v0.13.1) - 2026-09-30
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-mls, agntcy-slim-session, agntcy-slim-controller
+
+## [0.13.0](https://github.com/agntcy/slim/compare/slim-service-v0.12.11...slim-service-v0.13.0) - 2026-09-29
+
+### Added
+
+- *(datapath)* implement default gateway as a fallback when route is… ([#2080](https://github.com/agntcy/slim/pull/2080))
+
 ## [0.12.11](https://github.com/agntcy/slim/compare/slim-service-v0.12.10...slim-service-v0.12.11) - 2026-09-01
 
 ### Other

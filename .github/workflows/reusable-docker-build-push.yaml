@@ -25,18 +25,37 @@ on:
         type: string
         description: "Image repo to use."
         default: "ghcr.io/agntcy/slim"
-    secrets:
-      github-token:
-        description: "github token"
+      ref:
         required: false
+        type: string
+        description: "Git ref to build. Defaults to the ref that triggered the caller."
+        default: ""
+      push:
+        required: false
+        type: boolean
+        description: "Log in to the registry and push the images."
+        default: false
+      latest:
+        required: false
+        type: boolean
+        description: "Also tag the images as latest (only with push)."
+        default: false
 
-permissions:
-  contents: read
+# Grants live on the job below, next to the steps that need them. A top-level
+# block here is the whole list for a reusable workflow: every scope it leaves
+# out becomes `none`, however much the caller grants. That is how #2032 -- which
+# added `contents: read` here and nothing else -- dropped `packages: write` and
+# broke the slim-v3.0.0 and slim-v3.0.1 image pushes. Keep this empty, and keep
+# the real grants on the job.
+permissions: {}
 
 jobs:
   build-and-push:
     name: Build and Push
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code
@@ -44,17 +63,21 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ inputs.ref }}
 
       - name: Disk cleanup
         uses: ./.github/actions/cleanup-disk
 
       - name: Login to GitHub Container Registry
-        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
+        if: ${{ inputs.push }}
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
-          username: ${{github.actor}}
-          password: ${{secrets.github-token}}
+          username: ${{ github.actor }}
+          # A reusable workflow gets GITHUB_TOKEN with the grants of the job
+          # that called it, so there is nothing to hand over: `packages: write`
+          # on the caller's job is what makes this token able to push.
+          password: ${{ github.token }}
 
       - name: Check available disk space
         run: df -h
@@ -87,9 +110,10 @@ jobs:
         with:
           tags: |
             type=raw,value=${{ inputs.image-tag }}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
+            type=raw,value=latest,enable=${{ inputs.push && inputs.latest }}
 
       - name: Build and push
+        id: bake
         uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         with:
           source: .
@@ -97,10 +121,28 @@ jobs:
             ${{ inputs.bake-file }}
             ${{ steps.metadata.outputs.bake-file }}
           targets: ${{ inputs.bake-targets }}
-          push: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags') }}
+          push: ${{ inputs.push }}
           provenance: false
           set: |
             *.cache-from=type=gha
             *.cache-to=type=gha,mode=min
         env:
           IMAGE_REPO: ${{ inputs.image-repo }}
+
+      # Read every pushed tag back from the registry, so a release cannot end
+      # green without the images actually being pullable.
+      - name: Verify pushed images
+        if: ${{ inputs.push }}
+        env:
+          BAKE_METADATA: ${{ steps.bake.outputs.metadata }}
+        run: |
+          set -euo pipefail
+          mapfile -t images < <(jq -r '.[] | objects | ."image.name" // empty | split(",")[]' <<<"$BAKE_METADATA")
+          if [ "${#images[@]}" -eq 0 ]; then
+            echo "::error::bake reported no pushed images"
+            exit 1
+          fi
+          for image in "${images[@]}"; do
+            echo "Checking ${image}"
+            docker buildx imagetools inspect "$image" >/dev/null
+          done
