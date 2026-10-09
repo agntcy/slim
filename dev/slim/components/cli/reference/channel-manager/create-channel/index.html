@@ -1205,6 +1205,8 @@
       
         
       
+        
+      
     
     
     
@@ -1300,6 +1302,34 @@
     
   
     Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../channel-manager/ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ownership, Grants and Expiry
   
 
     
@@ -5066,7 +5096,7 @@
 
 
 <h1 id="slimctl-channel-manager-create-channel">slimctl channel-manager create-channel</h1>
-<p>Create a new group channel.</p>
+<p>Create a new group channel. When the Channel Manager's API requires authentication, you become the channel's owner: see <a href="../../../../channel-manager/ownership/">Channel Ownership, Grants and Expiry</a>.</p>
 <p><strong>Aliases:</strong> <code>cc</code></p>
 <h2 id="usage">Usage</h2>
 <div class="highlight"><pre><span></span><code>slimctl channel-manager create-channel &lt;CHANNEL&gt; [OPTIONS]
@@ -5077,6 +5107,10 @@
 </code></pre></div>
 <p>Create a channel without MLS encryption:</p>
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>create-channel<span class="w"> </span>agntcy/team/broadcast<span class="w"> </span>--disable-mls
+</code></pre></div>
+<p>Create a task channel that is deleted after an hour, and that asks you to approve participant changes others request:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>create-channel<span class="w"> </span>agntcy/tasks/review-42<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--ttl-seconds<span class="w"> </span><span class="m">3600</span><span class="w"> </span>--owner-callback-name<span class="w"> </span>agntcy/people/alice
 </code></pre></div>
 <h2 id="options">Options</h2>
 <table>
@@ -5100,6 +5134,18 @@
 <td><code>false</code></td>
 <td>No</td>
 <td>Disable MLS end-to-end encryption for this channel (MLS is enabled by default)</td>
+</tr>
+<tr>
+<td><code>--owner-callback-name &lt;NAME&gt;</code></td>
+<td>—</td>
+<td>No</td>
+<td>SLIM name (<code>org/namespace/app</code>) at which you, as the owner, are asked to approve participant changes others request without a grant</td>
+</tr>
+<tr>
+<td><code>--ttl-seconds &lt;SECONDS&gt;</code></td>
+<td>—</td>
+<td>No</td>
+<td>Delete the channel automatically this many seconds after creation</td>
 </tr>
 </tbody>
 </table>

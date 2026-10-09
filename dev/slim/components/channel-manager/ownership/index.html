@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://agntcy.github.io/slim/latest/slim/components/sdk/slimrpc/">
+        <link rel="canonical" href="https://agntcy.github.io/slim/latest/slim/components/channel-manager/ownership/">
       
       
-        <link rel="prev" href="../react-native/">
+        <link rel="prev" href="../config/">
       
       
-        <link rel="next" href="compiler/">
+        <link rel="next" href="../../cli/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>SLIMRPC - SLIM</title>
+        <title>Ownership, Grants and Expiry - SLIM</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#slimrpc" class="md-skip">
+        <a href="#channel-ownership-grants-and-expiry" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              SLIMRPC
+              Ownership, Grants and Expiry
             
           </span>
         </div>
@@ -1192,6 +1192,8 @@
                 
   
   
+    
+  
   
   
     
@@ -1214,15 +1216,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4_4" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../channel-manager/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -1246,7 +1248,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_4_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_4_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2_4_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1266,7 +1268,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../channel-manager/install/" class="md-nav__link">
+      <a href="../install/" class="md-nav__link">
         
   
   
@@ -1294,7 +1296,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../channel-manager/config/" class="md-nav__link">
+      <a href="../config/" class="md-nav__link">
         
   
   
@@ -1319,10 +1321,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../channel-manager/ownership/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ownership, Grants and Expiry
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1338,6 +1367,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#owners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Owners
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#changing-participants-on-an-owned-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing participants on an owned channel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#grant-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Grant format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#owner-approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Owner approval
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expiry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expiry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restarts-and-replicas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restarts and replicas
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -3498,8 +3613,6 @@
                 
   
   
-    
-  
   
   
     
@@ -3536,15 +3649,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4_6" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../sdk/" class="md-nav__link ">
               
   
   
@@ -3568,7 +3681,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_4_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_2_4_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2_4_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3588,7 +3701,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../install/" class="md-nav__link">
+      <a href="../../sdk/install/" class="md-nav__link">
         
   
   
@@ -3616,7 +3729,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../python/" class="md-nav__link">
+      <a href="../../sdk/python/" class="md-nav__link">
         
   
   
@@ -3644,7 +3757,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../go/" class="md-nav__link">
+      <a href="../../sdk/go/" class="md-nav__link">
         
   
   
@@ -3672,7 +3785,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dotnet/" class="md-nav__link">
+      <a href="../../sdk/dotnet/" class="md-nav__link">
         
   
   
@@ -3700,7 +3813,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../java/" class="md-nav__link">
+      <a href="../../sdk/java/" class="md-nav__link">
         
   
   
@@ -3728,7 +3841,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../kotlin/" class="md-nav__link">
+      <a href="../../sdk/kotlin/" class="md-nav__link">
         
   
   
@@ -3756,7 +3869,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../node/" class="md-nav__link">
+      <a href="../../sdk/node/" class="md-nav__link">
         
   
   
@@ -3784,7 +3897,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../react-native/" class="md-nav__link">
+      <a href="../../sdk/react-native/" class="md-nav__link">
         
   
   
@@ -3809,8 +3922,6 @@
                 
   
   
-    
-  
   
   
     
@@ -3829,15 +3940,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4_6_10" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4_6_10" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../../sdk/slimrpc/" class="md-nav__link ">
               
   
   
@@ -3855,13 +3966,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_2_4_6_10" id="__nav_2_4_6_10_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_2_4_6_10" id="__nav_2_4_6_10_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_2_4_6_10_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_2_4_6_10_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2_4_6_10">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3881,7 +3992,7 @@
   
   
     <li class="md-nav__item">
-      <a href="compiler/" class="md-nav__link">
+      <a href="../../sdk/slimrpc/compiler/" class="md-nav__link">
         
   
   
@@ -3954,7 +4065,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../tutorials/" class="md-nav__link ">
+            <a href="../../sdk/tutorials/" class="md-nav__link ">
               
   
   
@@ -3998,7 +4109,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/tutorial-connect/" class="md-nav__link">
+      <a href="../../sdk/tutorials/tutorial-connect/" class="md-nav__link">
         
   
   
@@ -4026,7 +4137,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/tutorial-app/" class="md-nav__link">
+      <a href="../../sdk/tutorials/tutorial-app/" class="md-nav__link">
         
   
   
@@ -4054,7 +4165,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/tutorial-session/" class="md-nav__link">
+      <a href="../../sdk/tutorials/tutorial-session/" class="md-nav__link">
         
   
   
@@ -4082,7 +4193,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/tutorial-receive/" class="md-nav__link">
+      <a href="../../sdk/tutorials/tutorial-receive/" class="md-nav__link">
         
   
   
@@ -4110,7 +4221,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/tutorial-persistence/" class="md-nav__link">
+      <a href="../../sdk/tutorials/tutorial-persistence/" class="md-nav__link">
         
   
   
@@ -4138,7 +4249,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/slimrpc/tutorial-serve/" class="md-nav__link">
+      <a href="../../sdk/tutorials/slimrpc/tutorial-serve/" class="md-nav__link">
         
   
   
@@ -4166,7 +4277,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/slimrpc/tutorial-client/" class="md-nav__link">
+      <a href="../../sdk/tutorials/slimrpc/tutorial-client/" class="md-nav__link">
         
   
   
@@ -4194,7 +4305,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/slimrpc/tutorial-multicast/" class="md-nav__link">
+      <a href="../../sdk/tutorials/slimrpc/tutorial-multicast/" class="md-nav__link">
         
   
   
@@ -4806,10 +4917,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-slimrpc" class="md-nav__link">
+  <a href="#owners" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why SLIMRPC?
+        Owners
       
     </span>
   </a>
@@ -4817,10 +4928,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#slim-naming" class="md-nav__link">
+  <a href="#changing-participants-on-an-owned-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SLIM Naming
+        Changing participants on an owned channel
       
     </span>
   </a>
@@ -4828,60 +4939,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#grant-format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How It Works
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="How It Works">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#single-session-many-calls" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Single Session, Many Calls
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#rpc-id-and-multiplexing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        RPC ID and Multiplexing
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#lazy-session-creation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Lazy Session Creation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#multicast-rpc" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Multicast RPC
+        Grant format
       
     </span>
   </a>
@@ -4889,10 +4950,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#supported-languages" class="md-nav__link">
+  <a href="#owner-approval" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Supported Languages
+        Owner approval
       
     </span>
   </a>
@@ -4900,10 +4961,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tutorials" class="md-nav__link">
+  <a href="#expiry" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Tutorials
+        Expiry
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restarts-and-replicas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Restarts and replicas
       
     </span>
   </a>
@@ -4992,25 +5064,7 @@
         <a href="../" class="md-path__link">
           
   <span class="md-ellipsis">
-    SLIM SDK
-  </span>
-
-        </a>
-      </li>
-    
-  
-
-      
-        
-  
-  
-    
-    
-      <li class="md-path__item">
-        <a href="./" class="md-path__link">
-          
-  <span class="md-ellipsis">
-    SLIMRPC
+    SLIM Channel Manager
   </span>
 
         </a>
@@ -5029,7 +5083,7 @@
 
 
   
-    <a href="https://github.com/agntcy/slim/edit/main/docs/content/slim/components/sdk/slimrpc/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/agntcy/slim/edit/main/docs/content/slim/components/channel-manager/ownership.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -5038,117 +5092,49 @@
     
       
     
-    <a href="https://github.com/agntcy/slim/raw/main/docs/content/slim/components/sdk/slimrpc/index.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/agntcy/slim/raw/main/docs/content/slim/components/channel-manager/ownership.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="slimrpc">SLIMRPC</h1>
-<p>SLIMRPC is Protocol Buffers RPC over SLIM. It is analogous to gRPC (which runs over HTTP/2), but uses the SLIM session layer as the transport. You define services in <code>.proto</code> files, generate language bindings with the <a href="compiler/">SLIMRPC compiler</a>, and interact with the generated stubs much like standard gRPC — while gaining SLIM's built-in security, reliable delivery, and end-to-end encryption.</p>
-<h2 id="why-slimrpc">Why SLIMRPC?</h2>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>gRPC</th>
-<th>SLIMRPC</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Transport</strong></td>
-<td>HTTP/2</td>
-<td>SLIM sessions</td>
-</tr>
-<tr>
-<td><strong>Service discovery</strong></td>
-<td>External (DNS, load balancer)</td>
-<td>Built into SLIM</td>
-</tr>
-<tr>
-<td><strong>End-to-end encryption</strong></td>
-<td>TLS (channel only)</td>
-<td>MLS (application layer)</td>
-</tr>
-<tr>
-<td><strong>Multi-cloud / multi-cluster</strong></td>
-<td>Requires ingress / API gateway</td>
-<td>Native SLIM routing</td>
-</tr>
-<tr>
-<td><strong>Streaming patterns</strong></td>
-<td>Unary, server-stream, client-stream, bidi</td>
-<td>Same</td>
-</tr>
-</tbody>
-</table>
-<h2 id="slim-naming">SLIM Naming</h2>
-<p>The server subscribes to a single SLIM name — its base identity. The service name and method are not encoded in the SLIM name; they travel as message metadata on each call.</p>
-<p>For example, a server with SLIM name <code>myorg/default/my-service</code> handles every method of every service registered on it. The <code>service</code> and <code>method</code> metadata fields tell the server which handler to invoke:</p>
-<table>
-<thead>
-<tr>
-<th>Metadata key</th>
-<th>Example value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>service</code></td>
-<td><code>example_service.Test</code></td>
-</tr>
-<tr>
-<td><code>method</code></td>
-<td><code>ExampleUnaryUnary</code></td>
-</tr>
-<tr>
-<td><code>rpc-id</code></td>
-<td><code>d3f1a2b4-...</code> (UUID-v4)</td>
-</tr>
-<tr>
-<td><code>slimrpc-dir</code></td>
-<td><code>req</code></td>
-</tr>
-</tbody>
-</table>
-<h2 id="how-it-works">How It Works</h2>
-<h3 id="single-session-many-calls">Single Session, Many Calls</h3>
-<p>The SLIMRPC channel maintains <strong>one persistent SLIM session</strong> to the remote server. All concurrent RPC calls share that session — there is no per-method session negotiation.</p>
-<div class="highlight"><pre><span></span><code>Client                               Server
-  │                                     │
-  │── session establishment ───────────►│
-  │                                     │
-  │── [rpc-id=A, service=…, method=…] ─►│  ← first message of call A
-  │── [rpc-id=B, service=…, method=…] ─►│  ← first message of call B (concurrent)
-  │◄─ [rpc-id=A] ───────────────────────│  ← response to call A
-  │── [rpc-id=A] ──────────────────────►│  ← streaming continuation of call A
-  │◄─ [rpc-id=B] ───────────────────────│  ← response to call B
-</code></pre></div>
-<h3 id="rpc-id-and-multiplexing">RPC ID and Multiplexing</h3>
-<p>Every call gets a unique <strong>RPC ID</strong> (UUID-v4) included in the first message. Subsequent messages in a streaming call carry only the <code>rpc-id</code> — the service and method are not repeated.</p>
-<p>On the server, a per-session demultiplexer:</p>
-<ol>
-<li>Reads each message from the shared session</li>
-<li>Extracts the <code>rpc-id</code></li>
-<li>If a handler exists for that <code>rpc-id</code> (an in-progress streaming call), forwards the message to it</li>
-<li>If no handler exists, reads <code>service</code> and <code>method</code> to dispatch a new handler task</li>
-</ol>
-<p>This allows many concurrent RPC calls — unary or streaming — to share a single SLIM session with no head-of-line blocking between calls.</p>
-<h3 id="lazy-session-creation">Lazy Session Creation</h3>
-<p>The channel creates the SLIM session on the first RPC call and reuses it for all subsequent calls. If the session dies, the channel recreates it transparently on the next call.</p>
-<h2 id="multicast-rpc">Multicast RPC</h2>
-<p>A group channel fans out a single RPC call to multiple servers simultaneously. Create the channel with <code>Channel.new_group_with_connection</code> (or the language-specific equivalent), passing a list of server names. Responses arrive as an async stream of <code>(context, response)</code> pairs, one per server.</p>
-<p>This is useful for broadcasting configuration, querying multiple services, or scatter-gather patterns.</p>
-<h2 id="supported-languages">Supported Languages</h2>
-<p>SLIMRPC code generation is supported for Python, Go, Java, Kotlin, and .NET (C#). See the <a href="compiler/">Compiler</a> page for installation and usage. For .NET runtime details and the <code>Agntcy.Slim.SlimRpc</code> namespace, see the <a href="../dotnet/">.NET SDK guide</a>.</p>
-<h2 id="tutorials">Tutorials</h2>
+<h1 id="channel-ownership-grants-and-expiry">Channel Ownership, Grants and Expiry</h1>
+<p>Channels created through the Channel Manager API can have an owner who controls who joins, and a time to live after which they are deleted. None of this applies to channels declared in the config file (config mode): those have no owner and no expiry, and write operations are refused in config mode, as before.</p>
+<h2 id="owners">Owners</h2>
+<p>When the Channel Manager's API server requires authentication (JWT, OIDC or SPIRE), whoever creates a channel becomes its owner, identified by the subject their credential verifies: the <code>sub</code> claim, or the SPIFFE ID for SPIRE. Without API authentication there is no caller to identify, so channels have no owner and anyone who can reach the API can change them.</p>
+<p><code>slimctl channel-manager list-channels</code> shows each channel's owner.</p>
+<h2 id="changing-participants-on-an-owned-channel">Changing participants on an owned channel</h2>
+<p>The owner adds and removes participants directly. Anyone else needs the owner's authorization, in one of two forms:</p>
 <ul>
-<li><a href="../tutorials/slimrpc/tutorial-serve/">Serving a SLIMRPC Server</a> — define a proto, generate stubs, implement handlers, and serve</li>
-<li><a href="../tutorials/slimrpc/tutorial-client/">Using a SLIMRPC Server</a> — create a channel and call all four streaming patterns</li>
-<li><a href="../tutorials/slimrpc/tutorial-multicast/">Multicast SLIMRPC</a> — fan out a single call to multiple servers and collect their responses</li>
+<li><strong>A grant</strong>: a statement signed by the owner authorizing one specific change, passed with <code>--grant-file</code>.</li>
+<li><strong>Approval on request</strong>: if the request carries no grant and the owner gave <code>--owner-callback-name</code> when creating the channel, the Channel Manager asks the owner, as described below.</li>
 </ul>
+<p>A grant must name the channel, the participant and the action (<code>add</code> or <code>delete</code>) of the request it is used for, must not be expired, and is accepted only once. On a channel with no owner, participants are added and removed without a grant.</p>
+<h2 id="grant-format">Grant format</h2>
+<p>The default verifier expects the owner's subject to be a <code>did:key</code> encoding an Ed25519 public key, and a grant to be this JSON document:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agntcy/team/general&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;invitee&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agntcy/agents/assistant-1&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;add&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;role&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;member&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;not_after&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1767225600</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;nonce&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;4f9c2e7a1b&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;signature&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;base64&gt;&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>not_after</code> is in Unix seconds. <code>nonce</code> must be unique per grant. <code>role</code> is carried but not enforced.</li>
+<li><code>signature</code> is the standard, padded base64 encoding of an Ed25519 signature over the UTF-8 bytes of the literal <code>SLIM-CHANNEL-GRANT/1</code>, then <code>channel</code>, <code>invitee</code>, <code>action</code>, <code>role</code>, <code>not_after</code> (in decimal) and <code>nonce</code>, in that order, joined with a NUL byte. There is no trailing NUL.</li>
+</ul>
+<p>Deployments embedding the Channel Manager can plug in a different verifier for other grant formats or key schemes, for example one that resolves an agent's binding certificate to its human owner.</p>
+<h2 id="owner-approval">Owner approval</h2>
+<p>To ask the owner, the Channel Manager sends an <code>ApprovalRequest</code> over SLIM, using SlimRPC, to the owner's callback name: service <code>channel_manager.proto.v1.ChannelOwnerApproval</code>, method <code>RequestApproval</code>. The owner's endpoint replies with an <code>ApprovalResponse</code> carrying either a grant or a denial. Both messages are defined in the Channel Manager's protobuf definitions.</p>
+<p>Because the owner's endpoint connects to SLIM outbound, it needs no inbound ports. An owner who doesn't reply within 60 seconds, or can't be reached, has denied the request. A grant the owner returns is checked exactly like one passed with <code>--grant-file</code>.</p>
+<h2 id="expiry">Expiry</h2>
+<p>A channel created with <code>--ttl-seconds</code> is deleted, along with its sessions' MLS state, within about 30 seconds after its time to live passes. <code>list-channels</code> shows when each channel expires.</p>
+<h2 id="restarts-and-replicas">Restarts and replicas</h2>
+<p>With <a href="../config/#persistence">persistence</a> configured, owners, expiry times and already-used grants survive a restart along with the channels. Run a single Channel Manager replica per state directory: replicas don't share this state.</p>
 
 
 
@@ -5186,7 +5172,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../react-native/" class="md-footer__link md-footer__link--prev" aria-label="Previous: React Native SDK">
+          <a href="../config/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Configuration Reference">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -5196,20 +5182,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                React Native SDK
+                Configuration Reference
               </div>
             </div>
           </a>
         
         
           
-          <a href="compiler/" class="md-footer__link md-footer__link--next" aria-label="Next: Compiler">
+          <a href="../../cli/" class="md-footer__link md-footer__link--next" aria-label="Next: SLIM CLI">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Compiler
+                SLIM CLI
               </div>
             </div>
             <div class="md-footer__button md-icon">

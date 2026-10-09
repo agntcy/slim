@@ -1205,6 +1205,8 @@
       
         
       
+        
+      
     
     
     
@@ -1300,6 +1302,34 @@
     
   
     Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../channel-manager/ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ownership, Grants and Expiry
   
 
     
@@ -5069,16 +5099,20 @@
 <p>Remove a participant from a channel. When MLS is enabled, the Channel Manager distributes updated key material to remaining members.</p>
 <p><strong>Aliases:</strong> <code>dp</code></p>
 <h2 id="usage">Usage</h2>
-<div class="highlight"><pre><span></span><code>slimctl channel-manager delete-participant &lt;CHANNEL&gt; &lt;PARTICIPANT&gt;
+<div class="highlight"><pre><span></span><code>slimctl channel-manager delete-participant &lt;CHANNEL&gt; &lt;PARTICIPANT&gt; [OPTIONS]
 </code></pre></div>
+<p>On a channel with an owner, anyone other than the owner needs the owner's authorization: a grant passed with <code>--grant-file</code>, or, without one, the owner's approval, which the Channel Manager requests if the owner gave a callback name. See <a href="../../../../channel-manager/ownership/">Channel Ownership, Grants and Expiry</a>.</p>
 <h2 id="examples">Examples</h2>
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-participant<span class="w"> </span>agntcy/team/general<span class="w"> </span>agntcy/agents/assistant-1
+</code></pre></div>
+<p>With a grant from the channel's owner, read from a file or from standard input:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-participant<span class="w"> </span>agntcy/team/general<span class="w"> </span>agntcy/agents/assistant-1<span class="w"> </span>--grant-file<span class="w"> </span>grant.json
 </code></pre></div>
 <h2 id="options">Options</h2>
 <table>
 <thead>
 <tr>
-<th>Argument</th>
+<th>Argument / Flag</th>
 <th>Required</th>
 <th>Description</th>
 </tr>
@@ -5093,6 +5127,11 @@
 <td><code>&lt;PARTICIPANT&gt;</code></td>
 <td><strong>Yes</strong></td>
 <td>Participant application name in <code>org/namespace/app</code> format</td>
+</tr>
+<tr>
+<td><code>--grant-file &lt;PATH&gt;</code></td>
+<td>No</td>
+<td>File holding a grant signed by the channel's owner authorizing this change, with action <code>delete</code>; <code>-</code> reads standard input</td>
 </tr>
 </tbody>
 </table>

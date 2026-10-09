@@ -1205,6 +1205,8 @@
       
         
       
+        
+      
     
     
     
@@ -1300,6 +1302,34 @@
     
   
     Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../../channel-manager/ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ownership, Grants and Expiry
   
 
     
@@ -5066,13 +5096,17 @@
 
 
 <h1 id="slimctl-channel-manager-list-channels">slimctl channel-manager list-channels</h1>
-<p>List all channels managed by this Channel Manager instance.</p>
+<p>List all channels managed by this Channel Manager instance, with each channel's owner and expiry time when it has them (see <a href="../../../../channel-manager/ownership/">Channel Ownership, Grants and Expiry</a>).</p>
 <p><strong>Aliases:</strong> <code>lc</code></p>
 <h2 id="usage">Usage</h2>
 <div class="highlight"><pre><span></span><code>slimctl channel-manager list-channels
 </code></pre></div>
 <h2 id="examples">Examples</h2>
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>list-channels
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>Channels (2):
+  - agntcy/tasks/review-42 (owner: did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK, expires: 2026-10-08T18:00:00Z)
+  - agntcy/team/broadcast
 </code></pre></div>
 <h2 id="options">Options</h2>
 <p>No options.</p>

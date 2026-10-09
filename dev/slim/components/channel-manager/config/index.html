@@ -14,7 +14,7 @@
         <link rel="prev" href="../install/">
       
       
-        <link rel="next" href="../../cli/">
+        <link rel="next" href="../ownership/">
       
       
         
@@ -1207,6 +1207,8 @@
       
         
       
+        
+      
     
     
     
@@ -1442,6 +1444,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        persistence
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1462,6 +1475,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ownership, Grants and Expiry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -5014,6 +5055,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        persistence
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5333,9 +5385,24 @@
 <li><code>mls-enabled</code> — whether to enable MLS end-to-end encryption for the channel (defaults to <code>true</code>)</li>
 </ul>
 <p>Channels can also be created and participants managed at runtime using <code>slimctl channel-manager</code> commands after the service is running.</p>
+<h3 id="persistence"><code>persistence</code></h3>
+<p>Optional. When present, channels survive a restart: the session layer keeps MLS group state and session records in an encrypted SQLite database under <code>path</code>, and the Channel Manager restores them on startup. Each channel's owner, its expiry time (for channels created with a TTL), and the grants already used against it are restored too, from a second encrypted database in the same directory, protected by the same passphrase. A channel whose TTL passed while the Channel Manager was down is deleted right after startup.</p>
+<ul>
+<li><code>path</code> — directory for the encrypted databases</li>
+<li><code>encryption-passphrase</code> — passphrase the encryption key is derived from; required unless <code>insecure: true</code></li>
+<li><code>insecure</code> — allow running without a passphrase; the key is then derived from the public <code>local-name</code> and protects against tampering only, not disclosure</li>
+<li><code>delete-sessions-on-shutdown</code> — <code>true</code> (default) deletes all channels on a clean shutdown; <code>false</code> keeps them for the next start</li>
+</ul>
+<p>Without this section everything, channels included, is kept in memory and lost on restart.</p>
+<p>The Channel Manager refuses to start if <code>persistence</code> is configured but channel ownership can't be loaded: a restored channel without its owner would accept participant changes from anyone.</p>
+<div class="admonition warning">
+<p class="admonition-title">Run a single replica per state directory</p>
+<p>Replicas don't share ownership or used-grant state. With two Channel Managers on the same channels, a single-use grant could be accepted once by each.</p>
+</div>
 <h2 id="related">Related</h2>
 <ul>
 <li><a href="../install/">Installation Guide</a> — Build and run the Channel Manager</li>
+<li><a href="../ownership/">Channel Ownership, Grants and Expiry</a> — Owners, grants and time to live for channels created through the API</li>
 <li><a href="../../../architecture/sessions/group/">Groups</a> — The group communication model and moderator role</li>
 <li><a href="../../../architecture/authentication/">Authentication</a> — TLS, mTLS, JWT, and SPIRE authentication options</li>
 </ul>
@@ -5393,13 +5460,13 @@
         
         
           
-          <a href="../../cli/" class="md-footer__link md-footer__link--next" aria-label="Next: SLIM CLI">
+          <a href="../ownership/" class="md-footer__link md-footer__link--next" aria-label="Next: Ownership, Grants and Expiry">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                SLIM CLI
+                Ownership, Grants and Expiry
               </div>
             </div>
             <div class="md-footer__button md-icon">
