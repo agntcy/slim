@@ -63,10 +63,15 @@ def main() -> int:
     versions = local_versions()
     pending = {n for n in names if versions[n] not in published_versions(n)}
     if pending:
-        print("Not on crates.io yet, taken from the workspace:", ", ".join(sorted(pending)))
+        print(
+            "Not on crates.io yet, taken from the workspace:",
+            ", ".join(sorted(pending)),
+        )
 
     package = ["cargo", "package", "--no-verify", "--allow-dirty"]
-    subprocess.run(package + [a for n in names for a in ("-p", n)], cwd=ROOT, check=True)
+    subprocess.run(
+        package + [a for n in names for a in ("-p", n)], cwd=ROOT, check=True
+    )
 
     failed = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -78,7 +83,9 @@ def main() -> int:
 
         for n in names:
             manifest = unpacked[n] / "Cargo.toml"
-            patches = [f'{p} = {{ path = "{unpacked[p]}" }}' for p in sorted(pending) if p != n]
+            patches = [
+                f'{p} = {{ path = "{unpacked[p]}" }}' for p in sorted(pending) if p != n
+            ]
             if patches:
                 with manifest.open("a") as f:
                     f.write("\n[patch.crates-io]\n" + "\n".join(patches) + "\n")
@@ -91,12 +98,16 @@ def main() -> int:
             )
             if result.returncode != 0:
                 failed.append(n)
-                print(f"::error::{n} {versions[n]} doesn't resolve its dependencies from crates.io")
+                print(
+                    f"::error::{n} {versions[n]} doesn't resolve its dependencies from crates.io"
+                )
                 print(result.stderr)
 
     if failed:
         return 1
-    print(f"All {len(names)} published crates resolve their dependencies from crates.io.")
+    print(
+        f"All {len(names)} published crates resolve their dependencies from crates.io."
+    )
     return 0
 
 
