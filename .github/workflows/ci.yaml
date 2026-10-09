@@ -90,6 +90,50 @@ jobs:
       rust-test-wasm: ${{ needs.changes.outputs.workspace == 'true' }}
       rust-test-wasm-browser: false
 
+  # release-plz runs on main after merge (release-rust.yaml) and has failed
+  # there when cargo-semver-checks couldn't resolve a crate's dependencies from
+  # crates.io (a yanked version). This catches that before merge, in minutes
+  # rather than the half hour a full semver check takes: it does the resolution
+  # alone, then the rest of `release-plz update` with semver checks off.
+  # Skipped on push: on main, release-rust.yaml runs the real thing.
+  release-plz-update:
+    name: release-plz update
+    needs: [changes]
+    if: ${{ github.event_name != 'push' && needs.changes.outputs.workspace == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          # release-plz reads the history since each package's last release tag.
+          fetch-depth: 0
+
+      # Nothing here compiles, so rustup installing the toolchain from
+      # rust-toolchain.toml is all the setup needed.
+      - name: Check published crates resolve from crates.io
+        run: python3 .github/scripts/check_release_deps.py
+
+      # Keep in step with the version the release-plz/action pinned in
+      # release-rust.yaml installs.
+      - name: Install release-plz
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
+        with:
+          tool: release-plz@0.3.169
+
+      - name: Run release-plz update
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # release-plz refuses a detached HEAD and wants an upstream.
+          git switch -c release-plz-check
+          git branch --set-upstream-to=origin/main
+          sed 's/^\[workspace\]$/[workspace]\nsemver_check = false/' .release-plz.toml \
+            > "$RUNNER_TEMP/release-plz.toml"
+          release-plz update --config "$RUNNER_TEMP/release-plz.toml"
+          git --no-pager diff --stat
+
   windows-build:
     name: Build (Windows)
     needs: [changes]
