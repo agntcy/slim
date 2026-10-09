@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0](https://github.com/agntcy/slim/compare/slimctl-v3.0.1...slimctl-v3.1.0) - 2026-10-09
+
+### Added
+
+- *(slimctl,cmctl)* expose channel ownership, grants and TTL ([#2185](https://github.com/agntcy/slim/pull/2185))
+- *(channel-manager)* expire channels created with a TTL ([#2184](https://github.com/agntcy/slim/pull/2184))
+- *(channel-manager)* ask the channel owner when no grant is presented ([#2181](https://github.com/agntcy/slim/pull/2181))
+- *(channel-manager)* signed-grant contract for AddParticipant/DeleteParticipant ([#2180](https://github.com/agntcy/slim/pull/2180))
+- *(channel-manager)* channel ownership (owner principal per channel) ([#2178](https://github.com/agntcy/slim/pull/2178))
+
+### Other
+
+- release ([#2153](https://github.com/agntcy/slim/pull/2153))
+
 ## [3.0.2](https://github.com/agntcy/slim/compare/slimctl-v3.0.1...slimctl-v3.0.2) - 2026-09-30
 
 ### Other
