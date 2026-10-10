@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1](https://github.com/agntcy/slim/compare/slim-proto-v0.7.0...slim-proto-v0.7.1) - 2026-10-09
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config
+
+## [0.7.0](https://github.com/agntcy/slim/compare/slim-proto-v0.6.5...slim-proto-v0.7.0) - 2026-10-09
+
+### Added
+
+- *(channel-manager)* expire channels created with a TTL ([#2184](https://github.com/agntcy/slim/pull/2184))
+- *(channel-manager)* ask the channel owner when no grant is presented ([#2181](https://github.com/agntcy/slim/pull/2181))
+- *(channel-manager)* signed-grant contract for AddParticipant/DeleteParticipant ([#2180](https://github.com/agntcy/slim/pull/2180))
+- *(channel-manager)* channel ownership (owner principal per channel) ([#2178](https://github.com/agntcy/slim/pull/2178))
+
 ## [0.6.5](https://github.com/agntcy/slim/compare/slim-proto-v0.6.4...slim-proto-v0.6.5) - 2026-09-30
 
 ### Other

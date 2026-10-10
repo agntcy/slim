@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0](https://github.com/agntcy/slim/compare/slim-v3.1.0...slim-v3.2.0) - 2026-10-09
+
+### Other
+
+- update Cargo.lock dependencies
+
+## [3.1.0](https://github.com/agntcy/slim/compare/slim-v3.0.1...slim-v3.1.0) - 2026-10-09
+
+### Other
+
+- release ([#2153](https://github.com/agntcy/slim/pull/2153))
+
 ## [3.0.2](https://github.com/agntcy/slim/compare/slim-v3.0.1...slim-v3.0.2) - 2026-09-30
 
 ### Other

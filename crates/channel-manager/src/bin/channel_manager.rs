@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use agntcy_slim_channel_manager::approval::SlimOwnerApprover;
 use agntcy_slim_channel_manager::config::Config;
 use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelManagerServiceServer;
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
@@ -214,6 +215,34 @@ async fn create_channels_from_config(
     Ok(())
 }
 
+/// Builds and initializes the configured identity provider and verifier for
+/// a SLIM app named `name`.
+async fn identity(config: &Config, name: &str) -> anyhow::Result<(AuthProvider, AuthVerifier)> {
+    let (core_provider, core_verifier) = config
+        .manager
+        .auth
+        .to_identity_configs(name)
+        .context("invalid auth configuration")?;
+
+    let mut provider = core_provider
+        .build_auth_provider()
+        .context("failed to build auth provider")?;
+    let mut verifier = core_verifier
+        .build_auth_verifier()
+        .context("failed to build auth verifier")?;
+
+    // Initialize auth (required before use)
+    provider
+        .initialize()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to initialize identity provider: {e}"))?;
+    verifier
+        .initialize()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to initialize identity verifier: {e}"))?;
+    Ok((provider, verifier))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize logging with channel-manager modules included
@@ -229,6 +258,17 @@ async fn main() -> anyhow::Result<()> {
     // Load configuration
     let config = Config::load(&args.config_file)?;
     info!(config_file = %args.config_file.display(), "Configuration loaded");
+
+    // Peers that check identities against an allow-list (e.g. SHADI agents)
+    // need this to admit the channel manager.
+    if let Some(did_key) = config
+        .manager
+        .auth
+        .did_key()
+        .context("invalid auth configuration")?
+    {
+        info!(%did_key, "Channel manager identity");
+    }
 
     // Initialize crypto provider (required before any TLS operations)
     slim_config::tls::provider::initialize_crypto_provider();
@@ -253,27 +293,7 @@ async fn main() -> anyhow::Result<()> {
     // Create the SLIM app with configured authentication
     let app_name = ProtoName::parse_name(&config.manager.local_name)
         .map_err(|e| anyhow::anyhow!("invalid local-name: {e}"))?;
-    let (core_provider, core_verifier) = config
-        .manager
-        .auth
-        .to_identity_configs(&config.manager.local_name);
-
-    let mut provider = core_provider
-        .build_auth_provider()
-        .context("failed to build auth provider")?;
-    let mut verifier = core_verifier
-        .build_auth_verifier()
-        .context("failed to build auth verifier")?;
-
-    // Initialize auth (required before use)
-    provider
-        .initialize()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to initialize identity provider: {e}"))?;
-    verifier
-        .initialize()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to initialize identity verifier: {e}"))?;
+    let (provider, verifier) = identity(&config, &config.manager.local_name).await?;
 
     let persistence = config
         .manager
@@ -354,9 +374,30 @@ async fn main() -> anyhow::Result<()> {
         return Err(e);
     }
 
+    // Owner approval is a request/response call, which the moderator app
+    // above can't make: as the groups expect of a moderator, it neither
+    // sends nor receives data. Give it an app of its own.
+    let approval_name = format!("{}-approval", config.manager.local_name);
+    let (provider, verifier) = identity(&config, &approval_name).await?;
+    let (approval_app, _approval_notifications) = service.create_app_with_direction(
+        &ProtoName::parse_name(&approval_name)
+            .map_err(|e| anyhow::anyhow!("invalid approval app name: {e}"))?,
+        provider,
+        verifier,
+        Direction::Bidirectional,
+    )?;
+    approval_app
+        .subscribe(approval_app.app_name(), Some(conn_id))
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to subscribe approval app: {e}"))?;
+
     // Create gRPC server
     let mut server =
-        ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode);
+        ChannelManagerServer::new(arc_app.clone(), conn_id, sessions.clone(), config_mode)
+            .with_owner_approver(Arc::new(SlimOwnerApprover::new(
+                Arc::new(approval_app),
+                Some(conn_id),
+            )));
 
     // Ownership and grant replay state persist exactly when sessions do: a
     // restored channel without its owner would accept changes from anyone.

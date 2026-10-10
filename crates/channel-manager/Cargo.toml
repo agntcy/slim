@@ -40,13 +40,16 @@ serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
+tonic-tls = { workspace = true }
 tracing = { workspace = true }
+x509-parser = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-testing = { workspace = true }
+rcgen = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }

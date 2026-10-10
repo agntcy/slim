@@ -41,24 +41,24 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "crates/slim", version = "3.0.1" }
-agntcy-slim-auth = { path = "crates/auth", version = "0.16.3" }
-agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.0.1" }
-agntcy-slim-config = { path = "crates/config", version = "0.16.5" }
-agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.0.1" }
-agntcy-slim-controller = { path = "crates/controller", version = "0.13.4" }
-agntcy-slim-datapath = { path = "crates/datapath", version = "0.19.2" }
-agntcy-slim-mls = { path = "crates/mls", version = "0.4.2" }
+agntcy-slim = { path = "crates/slim", version = "3.2.0" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.17.0" }
+agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.2.0" }
+agntcy-slim-config = { path = "crates/config", version = "0.17.0" }
+agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.2.0" }
+agntcy-slim-controller = { path = "crates/controller", version = "0.13.6" }
+agntcy-slim-datapath = { path = "crates/datapath", version = "0.19.4" }
+agntcy-slim-mls = { path = "crates/mls", version = "0.4.4" }
 agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.0" }
-agntcy-slim-proto = { path = "crates/proto", version = "0.6.5" }
-agntcy-slim-rpc = { path = "crates/rpc", version = "3.0.1" }
-agntcy-slim-service = { path = "crates/service", version = "0.13.2", default-features = false }
-agntcy-slim-session = { path = "crates/session", version = "0.7.14" }
-agntcy-slim-signal = { path = "crates/signal", version = "0.1.28" }
+agntcy-slim-proto = { path = "crates/proto", version = "0.7.1" }
+agntcy-slim-rpc = { path = "crates/rpc", version = "3.2.0" }
+agntcy-slim-service = { path = "crates/service", version = "0.13.4", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.7.16" }
+agntcy-slim-signal = { path = "crates/signal", version = "0.1.30" }
 agntcy-slim-testing = { path = "crates/testing" }
-agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.24" }
-agntcy-slim-version = { path = "crates/version", version = "3.0.1" }
-agntcy-slimctl = { path = "crates/slimctl", version = "3.0.1" }
+agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.26" }
+agntcy-slim-version = { path = "crates/version", version = "3.2.0" }
+agntcy-slimctl = { path = "crates/slimctl", version = "3.2.0" }
 anyhow = "1.0.103"
 
 arc-swap = "1.9.1"
@@ -146,16 +146,16 @@ mls-rs-provider-sqlite = { version = "0.23", default-features = false, features 
 notify = "8.0.0"
 num_cpus = "1.16"
 once_cell = "1.21.0"
-opentelemetry = { version = "0.32.0", features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.32.0", features = [
+opentelemetry = { version = "0.33.0", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.33.0", features = [
     "metrics",
     "grpc-tonic",
 ] }
-opentelemetry-semantic-conventions = { version = "0.32.0", features = [
+opentelemetry-semantic-conventions = { version = "0.33.0", features = [
     "semconv_experimental",
 ] }
-opentelemetry-stdout = "0.32.0"
-opentelemetry_sdk = { version = "0.32.0", default-features = false, features = [
+opentelemetry-stdout = "0.33.0"
+opentelemetry_sdk = { version = "0.33.0", default-features = false, features = [
     "trace",
     "rt-tokio",
 ] }
@@ -171,6 +171,7 @@ prost-types = "0.14"
 protoc-bin-vendored = "3.1.0"
 rand = "0.10.0"
 rand_core = "0.10"
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
 regex = "1.11.1"
 regorus = "0.12.0"
 
@@ -218,7 +219,7 @@ tower-http = { version = "0.7", features = ["auth"] }
 tower-layer = "0.3.3"
 tower-service = "0.3.3"
 tracing = "0.1.41"
-tracing-opentelemetry = "0.33.0"
+tracing-opentelemetry = "0.34.0"
 tracing-subscriber = "0.3.19"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 trait-variant = "0.1"
@@ -235,10 +236,11 @@ wiremock = "0.6"
 x25519-dalek = { version = "2", default-features = false, features = [
     "static_secrets",
 ] }
+x509-parser = "0.18"
 zeroize = "1.9"
 
 [workspace.package]
-version = "3.0.1"
+version = "3.2.0"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"

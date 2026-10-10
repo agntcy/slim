@@ -74,6 +74,11 @@ channel-manager:
       #   type: file
       #   cert: "/path/to/server.pem"
       #   key:  "/path/to/server-key.pem"
+      # For mTLS, also require client certificates. A client certificate's
+      # SPIFFE ID then identifies the caller (see ownership.md):
+      # client_ca:
+      #   type: file
+      #   path: "/path/to/client-ca.pem"
 
   # ---------------------------------------------------------------------------
   # local-name: the SLIM name this Channel Manager registers as.
@@ -93,6 +98,14 @@ channel-manager:
     # SPIRE Workload API (recommended for production).
     # type: spire
     # socket_path: "unix:/tmp/spire-agent/public/api.sock"
+
+    # Self-issued JWT identity (did:key): signs EdDSA tokens with an Ed25519
+    # key and accepts peers whose tokens verify against a JWKS.
+    # type: jwt
+    # private_key:
+    #   file: "/path/to/cm-ed25519.pem"     # PKCS#8 PEM
+    # trusted_keys:
+    #   file: "/path/to/members.jwks.json"  # public keys of trusted peers
 
   # ---------------------------------------------------------------------------
   # channels: list of channels to create automatically on startup.
@@ -157,6 +170,7 @@ Authentication options for the Channel Manager's SLIM application identity:
 |------|-------|-------------|
 | `shared_secret` | `secret` | Symmetric key. Sufficient for development and trusted networks. |
 | `spire` | `socket_path` | SPIRE Workload API socket. Recommended for production deployments. |
+| `jwt` | `private_key`, `trusted_keys` | Ed25519 private key (PKCS#8 PEM) and a JWKS of trusted peers' public keys, each as `file:` or inline `data:`. The Channel Manager signs as the key's `did:key` and logs it at startup, for peers' allow-lists. |
 
 ### `channels`
 

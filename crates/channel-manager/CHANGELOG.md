@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.1.0...slim-channel-manager-v3.2.0) - 2026-10-09
+
+### Added
+
+- *(config,channel-manager)* JWT did:key app identity ([#2203](https://github.com/agntcy/slim/pull/2203))
+
+### Fixed
+
+- *(session,rpc)* expose the caller's verified identity to slim-rpc handlers ([#2204](https://github.com/agntcy/slim/pull/2204))
+
+## [3.1.0](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.0.1...slim-channel-manager-v3.1.0) - 2026-10-09
+
+### Added
+
+- *(channel-manager)* identify callers by their mTLS client certificate ([#2190](https://github.com/agntcy/slim/pull/2190))
+- *(slimctl,cmctl)* expose channel ownership, grants and TTL ([#2185](https://github.com/agntcy/slim/pull/2185))
+- *(channel-manager)* expire channels created with a TTL ([#2184](https://github.com/agntcy/slim/pull/2184))
+- *(channel-manager)* persist channel ownership and used grants ([#2183](https://github.com/agntcy/slim/pull/2183))
+- *(channel-manager)* refuse replayed grants ([#2182](https://github.com/agntcy/slim/pull/2182))
+- *(channel-manager)* ask the channel owner when no grant is presented ([#2181](https://github.com/agntcy/slim/pull/2181))
+- *(channel-manager)* signed-grant contract for AddParticipant/DeleteParticipant ([#2180](https://github.com/agntcy/slim/pull/2180))
+- *(channel-manager)* channel ownership (owner principal per channel) ([#2178](https://github.com/agntcy/slim/pull/2178))
+- *(channel-manager)* thread caller identity into RPC handlers ([#2177](https://github.com/agntcy/slim/pull/2177))
+
+### Other
+
+- *(channel-manager)* end-to-end tests for owned channels; fix owner approval ([#2192](https://github.com/agntcy/slim/pull/2192))
+- release ([#2153](https://github.com/agntcy/slim/pull/2153))
+
 ## [3.0.2](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.0.1...slim-channel-manager-v3.0.2) - 2026-09-30
 
 ### Other

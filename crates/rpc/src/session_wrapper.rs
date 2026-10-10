@@ -17,7 +17,7 @@ use slim_datapath::api::ProtoName as Name;
 use slim_service::app::App as SlimApp;
 use slim_session::context::SessionContext;
 use slim_session::errors::SessionError;
-use slim_session::{AppChannelReceiver, CompletionHandle};
+use slim_session::{AppChannelReceiver, CompletionHandle, PeerIdentity};
 
 use super::{RpcCode, RpcError, STATUS_CODE_KEY};
 
@@ -85,6 +85,11 @@ impl SessionTx {
     /// Get session metadata
     pub fn metadata(&self) -> std::collections::HashMap<String, String> {
         self.controller.metadata()
+    }
+
+    /// The verified identity of the peer that set up the session.
+    pub fn peer_identity(&self) -> Option<PeerIdentity> {
+        self.controller.peer_identity()
     }
 
     /// Publish a message to `target` through this session.

@@ -5,23 +5,41 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use std::time::Duration;
 
+use agntcy_slim_channel_manager::approval::{APPROVAL_METHOD, APPROVAL_SERVICE};
+use agntcy_slim_channel_manager::proto::approval_response::Decision;
 use agntcy_slim_channel_manager::proto::channel_manager_service_client::ChannelManagerServiceClient;
 use agntcy_slim_channel_manager::proto::channel_manager_service_server::ChannelManagerServiceServer;
 use agntcy_slim_channel_manager::proto::{
-    AddParticipantRequest, CreateChannelRequest, DeleteChannelRequest, DeleteParticipantRequest,
-    ListChannelsRequest, ListParticipantsRequest,
+    AddParticipantRequest, ApprovalRequest, ApprovalResponse, CommandResponse,
+    CreateChannelRequest, DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest,
+    ListParticipantsRequest,
 };
 use agntcy_slim_channel_manager::service::ChannelManagerServer;
 use agntcy_slim_channel_manager::sessions::SessionsList;
 
+use aws_lc_rs::rand::SystemRandom;
+use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair as _};
+use prost::Message;
+use rcgen::{
+    BasicConstraints, CertificateParams, CertifiedIssuer, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+    KeyUsagePurpose, SanType,
+};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+use slim_auth::did_key::ed25519_did_key;
+use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
 use slim_auth::traits::{TokenProvider, Verifier};
-use slim_config::client::ClientConfig;
+use slim_auth::utils::bytes_to_pem;
+use slim_config::auth::AuthConfig;
+use slim_config::auth::jwt::{Claims, Config as JwtConfig, JwtKey};
+use slim_config::client::{
+    AuthenticationConfig as ClientAuthenticationConfig, ClientConfig, TransportChannel,
+};
 use slim_config::component::ComponentBuilder;
-use slim_config::grpc::server::ServerConfig;
+use slim_config::grpc::server::{AuthenticationConfig as ServerAuthenticationConfig, ServerConfig};
 use slim_config::tls::client::TlsClientConfig;
 use slim_config::tls::server::TlsServerConfig;
 use slim_datapath::api::ProtoName;
+use slim_rpc::{Context, RpcError, Server};
 use slim_service::app::App;
 use slim_service::{Service, ServiceBuilder};
 use slim_session::{Direction, Notification};
@@ -112,10 +130,23 @@ async fn create_service_and_connect(slim_port: u16, service_name: &str) -> (Arc<
     (service, conn_id)
 }
 
-/// Create an app with shared secret authentication.
+/// Create an app with shared secret authentication that neither sends nor
+/// receives data messages, like the channel manager and its participants.
 async fn create_app_with_shared_secret(
     service: &Service,
     name: &str,
+) -> (
+    App<AuthProvider, AuthVerifier>,
+    tokio::sync::mpsc::Receiver<Result<slim_session::Notification, slim_session::SessionError>>,
+) {
+    create_app_with_shared_secret_and_direction(service, name, Direction::None).await
+}
+
+/// Create an app with shared secret authentication.
+async fn create_app_with_shared_secret_and_direction(
+    service: &Service,
+    name: &str,
+    direction: Direction,
 ) -> (
     App<AuthProvider, AuthVerifier>,
     tokio::sync::mpsc::Receiver<Result<slim_session::Notification, slim_session::SessionError>>,
@@ -131,15 +162,28 @@ async fn create_app_with_shared_secret(
     verifier.initialize().await.expect("verifier init");
 
     service
-        .create_app_with_direction(&app_name, provider, verifier, Direction::None)
+        .create_app_with_direction(&app_name, provider, verifier, direction)
         .expect("failed to create app")
 }
 
-/// Start the channel-manager gRPC server in-process.
+/// Start the channel-manager gRPC server in-process, plaintext and without
+/// auth.
 async fn start_channel_manager(
     service: &Arc<Service>,
     conn_id: u64,
     cm_port: u16,
+) -> (Arc<App<AuthProvider, AuthVerifier>>, Arc<SessionsList>) {
+    let api = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
+        .with_tls_settings(TlsServerConfig::insecure());
+    start_channel_manager_with_api(service, conn_id, api).await
+}
+
+/// Start the channel-manager gRPC server in-process, serving its API with
+/// `api` (endpoint, TLS, auth).
+async fn start_channel_manager_with_api(
+    service: &Arc<Service>,
+    conn_id: u64,
+    api: ServerConfig,
 ) -> (Arc<App<AuthProvider, AuthVerifier>>, Arc<SessionsList>) {
     let (app, _rx) = create_app_with_shared_secret(service, "org/ns/channel-manager").await;
     let app = Arc::new(app);
@@ -162,12 +206,8 @@ async fn start_channel_manager(
     server.spawn_reaper(Duration::from_millis(100));
     let svc = ChannelManagerServiceServer::from_arc(server);
 
-    // Start gRPC server using ServerConfig
-    let server_config = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
-        .with_tls_settings(TlsServerConfig::insecure());
-
     tokio::spawn(async move {
-        let server_future = server_config
+        let server_future = api
             .to_server_future(&[svc])
             .await
             .expect("failed to create channel-manager gRPC server");
@@ -212,6 +252,76 @@ async fn create_cm_client(cm_port: u16) -> ChannelManagerServiceClient<tonic::tr
     ChannelManagerServiceClient::connect(format!("http://127.0.0.1:{cm_port}"))
         .await
         .expect("failed to connect to channel-manager gRPC API")
+}
+
+/// Create a gRPC client for the channel-manager API from a full client
+/// config (TLS, auth), the way `cmctl --client-config` does.
+async fn create_cm_client_with(
+    config: ClientConfig,
+) -> ChannelManagerServiceClient<
+    impl tonic::client::GrpcService<
+        tonic::body::Body,
+        Error: Into<tonic::codegen::StdError> + Send,
+        ResponseBody: tonic::codegen::Body<
+            Data = tonic::codegen::Bytes,
+            Error: Into<tonic::codegen::StdError> + Send,
+        > + Send
+                          + 'static,
+        Future: Send,
+    > + Send
+    + Clone
+    + 'static,
+> {
+    match config
+        .to_channel()
+        .await
+        .expect("failed to create channel-manager gRPC channel")
+    {
+        TransportChannel::Grpc(channel) => ChannelManagerServiceClient::new(channel),
+        TransportChannel::Websocket(_) => panic!("expected a gRPC channel"),
+    }
+}
+
+/// A throwaway PKI generated when a test starts, so no key material lives in
+/// the repository: a CA, and certificates it issues as PEM `(cert, key)`.
+struct TestPki {
+    ca: CertifiedIssuer<'static, KeyPair>,
+}
+
+impl TestPki {
+    fn new() -> Self {
+        let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+        let ca = CertifiedIssuer::self_signed(params, KeyPair::generate().unwrap()).unwrap();
+        TestPki { ca }
+    }
+
+    fn ca_pem(&self) -> String {
+        self.ca.pem()
+    }
+
+    fn issue(&self, san: SanType, usage: ExtendedKeyUsagePurpose) -> (String, String) {
+        let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.subject_alt_names = vec![san];
+        params.extended_key_usages = vec![usage];
+        let key = KeyPair::generate().unwrap();
+        let cert = params.signed_by(&key, &self.ca).unwrap();
+        (cert.pem(), key.serialize_pem())
+    }
+
+    /// A server certificate for 127.0.0.1.
+    fn server(&self) -> (String, String) {
+        let ip = SanType::IpAddress(std::net::Ipv4Addr::LOCALHOST.into());
+        self.issue(ip, ExtendedKeyUsagePurpose::ServerAuth)
+    }
+
+    /// A client certificate whose URI SAN is `spiffe_id`, as in an
+    /// X.509-SVID.
+    fn client(&self, spiffe_id: &str) -> (String, String) {
+        let uri = SanType::URI(spiffe_id.try_into().unwrap());
+        self.issue(uri, ExtendedKeyUsagePurpose::ClientAuth)
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -691,4 +801,841 @@ async fn test_channel_expires_after_its_ttl() {
         "expired channel still listed: {names:?}"
     );
     assert!(names.contains(&"org/ns/permanent".to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_mtls_client_certificate_identifies_the_caller() {
+    let slim_port = reserve_local_port();
+    let cm_port = reserve_local_port();
+
+    let _slim_handle = start_slim_node(slim_port);
+    wait_for_port("127.0.0.1", slim_port, Duration::from_secs(60), "SLIM node").await;
+    let (service, conn_id) = create_service_and_connect(slim_port, "mtls-service").await;
+
+    // The API requires a client certificate chaining to the test CA, and no
+    // token: the caller's only identity is its certificate.
+    let pki = TestPki::new();
+    let (server_cert, server_key) = pki.server();
+    let api = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}")).with_tls_settings(
+        TlsServerConfig::new()
+            .with_insecure(false)
+            .with_cert_and_key_pem(&server_cert, &server_key)
+            .with_client_ca_pem(&pki.ca_pem()),
+    );
+    let (_cm_app, _cm_sessions) = start_channel_manager_with_api(&service, conn_id, api).await;
+    wait_for_port(
+        "127.0.0.1",
+        cm_port,
+        Duration::from_secs(60),
+        "channel-manager",
+    )
+    .await;
+
+    let client_as = |spiffe_id: &str| {
+        let (cert, key) = pki.client(spiffe_id);
+        ClientConfig::with_endpoint(&format!("https://127.0.0.1:{cm_port}")).with_tls_setting(
+            TlsClientConfig::new()
+                .with_insecure(false)
+                .with_ca_pem(&pki.ca_pem())
+                .with_cert_and_key_pem(&cert, &key),
+        )
+    };
+    let mut owner = create_cm_client_with(client_as("spiffe://example.org/owner")).await;
+    let mut agent = create_cm_client_with(client_as("spiffe://example.org/agent")).await;
+
+    let _participant = start_receiver(&service, "org/ns/mtls-participant", conn_id).await;
+
+    let channel = "org/ns/mtls-channel";
+    let resp = owner
+        .create_channel(CreateChannelRequest {
+            channel_name: channel.to_string(),
+            mls_enabled: false,
+            owner_callback_name: None,
+            ttl_seconds: None,
+        })
+        .await
+        .expect("create-channel request failed")
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+
+    // The creator's certificate SPIFFE ID is recorded as the owner.
+    let channels = owner
+        .list_channels(ListChannelsRequest {})
+        .await
+        .expect("list-channels failed")
+        .into_inner()
+        .channels;
+    let listed = channels
+        .iter()
+        .find(|c| c.channel_name == channel)
+        .expect("channel not listed");
+    assert_eq!(listed.owner.as_deref(), Some("spiffe://example.org/owner"));
+
+    let add = || AddParticipantRequest {
+        channel_name: channel.to_string(),
+        participant_name: "org/ns/mtls-participant".to_string(),
+        grant: None,
+    };
+
+    // A caller with a different certificate isn't the owner: no grant, no
+    // change.
+    let resp = agent
+        .add_participant(add())
+        .await
+        .expect("add-participant request failed")
+        .into_inner();
+    assert!(!resp.success);
+    assert!(
+        resp.error_msg
+            .as_deref()
+            .unwrap_or_default()
+            .contains("requires a grant"),
+        "unexpected error: {:?}",
+        resp.error_msg
+    );
+
+    // The owner needs no grant for their own channel.
+    let resp = owner
+        .add_participant(add())
+        .await
+        .expect("add-participant request failed")
+        .into_inner();
+    assert!(resp.success, "owner add failed: {:?}", resp.error_msg);
+}
+
+// --- Owned channels end to end: grants, owner approval, restarts ---
+
+/// HS256 key the channel-manager API verifies caller tokens with.
+const API_JWT_SECRET: &str = "integration-test-api-jwt-secret-0123456789";
+
+fn api_jwt_key(encoding: bool) -> JwtKey {
+    let key = Key {
+        algorithm: Algorithm::HS256,
+        format: KeyFormat::Pem,
+        key: KeyData::Data(API_JWT_SECRET.to_string()),
+    };
+    if encoding {
+        JwtKey::Encoding(key)
+    } else {
+        JwtKey::Decoding(key)
+    }
+}
+
+/// A plaintext channel-manager API that requires a JWT, so every caller has
+/// a verified `sub`.
+fn jwt_api(cm_port: u16) -> ServerConfig {
+    ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
+        .with_tls_settings(TlsServerConfig::insecure())
+        .with_auth(ServerAuthenticationConfig::Jwt(JwtConfig::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            api_jwt_key(false),
+        )))
+}
+
+/// Client config for calling a [`jwt_api`] as `subject`.
+fn jwt_caller(cm_port: u16, subject: &str) -> ClientConfig {
+    ClientConfig::with_endpoint(&format!("http://127.0.0.1:{cm_port}"))
+        .with_tls_setting(TlsClientConfig::insecure())
+        .with_auth(ClientAuthenticationConfig::Jwt(JwtConfig::new(
+            Claims::new(None, None, Some(subject.to_string()), None),
+            Duration::from_secs(3600),
+            api_jwt_key(true),
+        )))
+}
+
+/// A channel owner: an Ed25519 key whose `did:key` is the subject they
+/// authenticate as, so the default verifier can check grants they sign.
+struct Owner {
+    key_pair: Ed25519KeyPair,
+    did: String,
+}
+
+impl Owner {
+    fn new() -> Self {
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+        let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let mut multicodec = vec![0xed, 0x01];
+        multicodec.extend_from_slice(key_pair.public_key().as_ref());
+        let did = format!("did:key:z{}", bs58::encode(multicodec).into_string());
+        Owner { key_pair, did }
+    }
+
+    /// A grant for `action` ("add" or "delete") on `invitee` in `channel`,
+    /// valid for an hour. Built from the documented wire format rather than
+    /// the crate's internals, so these tests pin that format too.
+    fn grant(&self, channel: &str, invitee: &str, action: &str) -> Vec<u8> {
+        let not_after = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+        let nonce = uuid::Uuid::new_v4().to_string();
+        let signed = [
+            "SLIM-CHANNEL-GRANT/1",
+            channel,
+            invitee,
+            action,
+            "member",
+            &not_after.to_string(),
+            &nonce,
+        ]
+        .join("\0");
+        let signature = self.key_pair.sign(signed.as_bytes());
+        serde_json::json!({
+            "channel": channel,
+            "invitee": invitee,
+            "action": action,
+            "role": "member",
+            "not_after": not_after,
+            "nonce": nonce,
+            "signature": base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                signature.as_ref(),
+            ),
+        })
+        .to_string()
+        .into_bytes()
+    }
+}
+
+fn create_request(channel: &str, owner_callback_name: Option<&str>) -> CreateChannelRequest {
+    CreateChannelRequest {
+        channel_name: channel.to_string(),
+        mls_enabled: true,
+        owner_callback_name: owner_callback_name.map(str::to_string),
+        ttl_seconds: None,
+    }
+}
+
+fn add_request(channel: &str, participant: &str, grant: Option<Vec<u8>>) -> AddParticipantRequest {
+    AddParticipantRequest {
+        channel_name: channel.to_string(),
+        participant_name: participant.to_string(),
+        grant,
+    }
+}
+
+fn assert_refused(resp: &CommandResponse, reason: &str) {
+    assert!(!resp.success, "expected a refusal ({reason}), got success");
+    let msg = resp.error_msg.as_deref().unwrap_or_default();
+    assert!(msg.contains(reason), "expected {reason:?}, got {msg:?}");
+}
+
+/// Starts a SLIM node and a service connected to it.
+async fn start_node(service_name: &str) -> (u16, std::thread::JoinHandle<()>, Arc<Service>, u64) {
+    let slim_port = reserve_local_port();
+    let handle = start_slim_node(slim_port);
+    wait_for_port("127.0.0.1", slim_port, Duration::from_secs(60), "SLIM node").await;
+    let (service, conn_id) = create_service_and_connect(slim_port, service_name).await;
+    (slim_port, handle, service, conn_id)
+}
+
+/// Starts the channel manager in-process behind a [`jwt_api`].
+async fn start_jwt_channel_manager(service: &Arc<Service>, conn_id: u64) -> u16 {
+    let cm_port = reserve_local_port();
+    let (_app, _sessions) =
+        start_channel_manager_with_api(service, conn_id, jwt_api(cm_port)).await;
+    wait_for_port(
+        "127.0.0.1",
+        cm_port,
+        Duration::from_secs(60),
+        "channel-manager",
+    )
+    .await;
+    cm_port
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_grants_gate_participant_changes() {
+    let (_slim_port, _node, service, conn_id) = start_node("grants-service").await;
+    let cm_port = start_jwt_channel_manager(&service, conn_id).await;
+
+    let owner = Owner::new();
+    let mut as_owner = create_cm_client_with(jwt_caller(cm_port, &owner.did)).await;
+    let mut as_agent = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+    let channel = "org/ns/granted-channel";
+    let participant = "org/ns/granted-participant";
+    let _participant = start_receiver(&service, participant, conn_id).await;
+
+    let resp = as_owner
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+
+    // Not the owner, no grant, and no callback to ask the owner through.
+    let resp = as_agent
+        .add_participant(add_request(channel, participant, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "requires a grant");
+
+    // With the owner's grant the participant really joins.
+    let grant = owner.grant(channel, participant, "add");
+    let resp = as_agent
+        .add_participant(add_request(channel, participant, Some(grant.clone())))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "granted add failed: {:?}", resp.error_msg);
+    let members = as_agent
+        .list_participants(ListParticipantsRequest {
+            channel_name: channel.to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .participant_name;
+    assert!(
+        members.iter().any(|m| m.contains(participant)),
+        "{participant} not in {members:?}"
+    );
+
+    // The same grant can't be spent twice.
+    let resp = as_agent
+        .add_participant(add_request(channel, participant, Some(grant)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "already been used");
+
+    // Removing takes a grant for that action.
+    let resp = as_agent
+        .delete_participant(DeleteParticipantRequest {
+            channel_name: channel.to_string(),
+            participant_name: participant.to_string(),
+            grant: Some(owner.grant(channel, participant, "delete")),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "granted delete failed: {:?}", resp.error_msg);
+}
+
+/// The owner's approval endpoint, in its own service on the node: answers
+/// `RequestApproval` with a grant signed by `owner` for participants in
+/// `approved` and a denial otherwise, recording each request.
+async fn start_owner_endpoint(
+    slim_port: u16,
+    name: &str,
+    owner: Arc<Owner>,
+    approved: Vec<String>,
+) -> (
+    Arc<Server>,
+    Arc<tokio::sync::Mutex<Vec<(ApprovalRequest, Option<String>)>>>,
+) {
+    let (service, conn_id) = create_service_and_connect(slim_port, "owner-service").await;
+    // Answering requests means receiving and sending data.
+    let (app, notifications) =
+        create_app_with_shared_secret_and_direction(&service, name, Direction::Bidirectional).await;
+    let app = Arc::new(app);
+    let server = Arc::new(Server::new_with_connection_and_runtime(
+        app.clone(),
+        app.app_name().clone(),
+        Some(conn_id),
+        notifications,
+        None,
+    ));
+
+    let received = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let recorder = received.clone();
+    server.register_unary_unary(
+        APPROVAL_SERVICE,
+        APPROVAL_METHOD,
+        move |bytes: Vec<u8>, ctx: Context| {
+            let (owner, approved, recorder) = (owner.clone(), approved.clone(), recorder.clone());
+            async move {
+                let request = ApprovalRequest::decode(bytes.as_slice())
+                    .map_err(|e| RpcError::invalid_argument(e.to_string()))?;
+                let decision = if approved.contains(&request.participant_name) {
+                    Decision::Grant(owner.grant(
+                        &request.channel_name,
+                        &request.participant_name,
+                        "add",
+                    ))
+                } else {
+                    Decision::Denied("not on the guest list".to_string())
+                };
+                // Who is asking, as verified -- not the `requester` claimed
+                // in the request.
+                recorder.lock().await.push((request, ctx.peer_subject()));
+                Ok(ApprovalResponse {
+                    decision: Some(decision),
+                }
+                .encode_to_vec())
+            }
+        },
+    );
+    let serving = server.clone();
+    tokio::spawn(async move {
+        let _ = serving.serve().await;
+    });
+    // Leaks the owner's service for the test's lifetime, as the node does.
+    std::mem::forget(service);
+    (server, received)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_owner_approves_and_denies_over_slimrpc() {
+    let (slim_port, _node, service, conn_id) = start_node("approval-service").await;
+    // The real binary, so the test covers how it wires up owner approval.
+    let state_dir = tempfile::tempdir().unwrap();
+    let cm_port = reserve_local_port();
+    let _process = ChannelManagerProcess::start(slim_port, cm_port, state_dir.path()).await;
+
+    let owner = Arc::new(Owner::new());
+    let callback = "org/ns/channel-owner";
+    let approved = "org/ns/approved-participant";
+    let refused = "org/ns/refused-participant";
+    let (_endpoint, received) = start_owner_endpoint(
+        slim_port,
+        callback,
+        owner.clone(),
+        vec![approved.to_string()],
+    )
+    .await;
+    let _approved = start_receiver(&service, approved, conn_id).await;
+    let _refused = start_receiver(&service, refused, conn_id).await;
+
+    let mut as_owner = create_cm_client_with(jwt_caller(cm_port, &owner.did)).await;
+    let mut as_agent = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+    let channel = "org/ns/approval-channel";
+
+    let resp = as_owner
+        .create_channel(create_request(channel, Some(callback)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+
+    // No grant presented: the owner is asked, signs one, and the
+    // participant joins.
+    let resp = as_agent
+        .add_participant(add_request(channel, approved, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "approved add failed: {:?}", resp.error_msg);
+    let members = as_agent
+        .list_participants(ListParticipantsRequest {
+            channel_name: channel.to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .participant_name;
+    assert!(
+        members.iter().any(|m| m.contains(approved)),
+        "{approved} not in {members:?}"
+    );
+
+    let resp = as_agent
+        .add_participant(add_request(channel, refused, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "not on the guest list");
+
+    // The owner learns who asked, for whom, on which channel.
+    let requests = received.lock().await;
+    let asked: Vec<_> = requests
+        .iter()
+        .map(|(r, _)| {
+            (
+                r.channel_name.as_str(),
+                r.participant_name.as_str(),
+                r.requester.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        asked,
+        vec![
+            (channel, approved, Some("org/ns/requester")),
+            (channel, refused, Some("org/ns/requester")),
+        ]
+    );
+
+    // The owner can tell the requests really come from the channel manager's
+    // approval app: its verified subject is that app's shared-secret id (plus
+    // the per-instance suffix shared-secret ids get).
+    for (_, caller) in requests.iter() {
+        let caller = caller.as_deref().expect("no verified caller identity");
+        assert!(
+            caller.starts_with("org/ns/channel-manager-approval_"),
+            "unexpected caller {caller}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_inviting_an_offline_participant_in_api_mode() {
+    let (_slim_port, _node, service, conn_id) = start_node("offline-service").await;
+    let cm_port = start_jwt_channel_manager(&service, conn_id).await;
+
+    let owner = Owner::new();
+    let mut as_owner = create_cm_client_with(jwt_caller(cm_port, &owner.did)).await;
+    let channel = "org/ns/offline-channel";
+    let resp = as_owner
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+
+    // Nobody is subscribed under this name: the invite fails rather than
+    // hanging or leaving a phantom member.
+    let resp = as_owner
+        .add_participant(add_request(channel, "org/ns/nobody-home", None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "failed to invite participant org/ns/nobody-home");
+
+    let members = as_owner
+        .list_participants(ListParticipantsRequest {
+            channel_name: channel.to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .participant_name;
+    assert!(
+        !members.iter().any(|m| m.contains("org/ns/nobody-home")),
+        "offline participant listed: {members:?}"
+    );
+
+    // The channel is still usable: an online participant joins.
+    let online = "org/ns/online-participant";
+    let _online = start_receiver(&service, online, conn_id).await;
+    let resp = as_owner
+        .add_participant(add_request(channel, online, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "online add failed: {:?}", resp.error_msg);
+}
+
+/// The `channel-manager` binary running as a child process; killed on drop.
+struct ChannelManagerProcess {
+    child: std::process::Child,
+    log: std::path::PathBuf,
+}
+
+impl ChannelManagerProcess {
+    /// Starts the binary with a config for the node at `slim_port`, serving
+    /// a [`jwt_api`] on `cm_port` and keeping its state in `state_dir`, and
+    /// waits for the API to come up.
+    async fn start(slim_port: u16, cm_port: u16, state_dir: &std::path::Path) -> Self {
+        let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
+        Self::start_with(slim_port, cm_port, state_dir, jwt_api(cm_port), auth).await
+    }
+
+    /// Like [`Self::start`], with the given API server and SLIM app identity
+    /// (the config's `auth` section).
+    async fn start_with(
+        slim_port: u16,
+        cm_port: u16,
+        state_dir: &std::path::Path,
+        api: ServerConfig,
+        auth: serde_json::Value,
+    ) -> Self {
+        let slim_connection = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{slim_port}"))
+            .with_tls_setting(TlsClientConfig::insecure());
+        let config = serde_json::json!({
+            "channel-manager": {
+                "slim-connection": slim_connection,
+                "api-server": api,
+                "local-name": "org/ns/channel-manager",
+                "auth": auth,
+                "persistence": {
+                    "path": state_dir,
+                    "encryption-passphrase": "integration-test-passphrase",
+                },
+            }
+        });
+        let config_path = state_dir.join(format!("config-{cm_port}.yaml"));
+        std::fs::write(&config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+
+        let log = state_dir.join(format!("channel-manager-{cm_port}.log"));
+        let out = std::fs::File::create(&log).unwrap();
+        let child = std::process::Command::new(env!("CARGO_BIN_EXE_channel-manager"))
+            .arg("--config-file")
+            .arg(&config_path)
+            .stdout(out.try_clone().unwrap())
+            .stderr(out)
+            .spawn()
+            .expect("failed to start channel-manager");
+        let process = ChannelManagerProcess { child, log };
+
+        let label = format!("channel-manager (log: {})", process.log.display());
+        wait_for_port("127.0.0.1", cm_port, Duration::from_secs(60), &label).await;
+        process
+    }
+
+    /// Kills the process without letting it shut down cleanly.
+    fn crash(mut self) {
+        self.child.kill().unwrap();
+        self.child.wait().unwrap();
+    }
+}
+
+impl Drop for ChannelManagerProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_ownership_and_used_grants_survive_a_restart() {
+    let (slim_port, _node, service, conn_id) = start_node("restart-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+
+    let owner = Owner::new();
+    let channel = "org/ns/durable-channel";
+    let first = "org/ns/first-participant";
+    let second = "org/ns/second-participant";
+    let _first = start_receiver(&service, first, conn_id).await;
+    let _second = start_receiver(&service, second, conn_id).await;
+
+    let cm_port = reserve_local_port();
+    let process = ChannelManagerProcess::start(slim_port, cm_port, state_dir.path()).await;
+    let mut as_owner = create_cm_client_with(jwt_caller(cm_port, &owner.did)).await;
+    let mut as_agent = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+
+    let resp = as_owner
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+    let used = owner.grant(channel, first, "add");
+    let resp = as_agent
+        .add_participant(add_request(channel, first, Some(used.clone())))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "granted add failed: {:?}", resp.error_msg);
+
+    process.crash();
+
+    // A fresh port, so the restart doesn't race the old listener's teardown.
+    let cm_port = reserve_local_port();
+    let _process = ChannelManagerProcess::start(slim_port, cm_port, state_dir.path()).await;
+    let mut as_agent = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+
+    // The channel came back with its owner.
+    let channels = as_agent
+        .list_channels(ListChannelsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .channels;
+    let listed = channels
+        .iter()
+        .find(|c| c.channel_name == channel)
+        .unwrap_or_else(|| panic!("{channel} not restored: {channels:?}"));
+    assert_eq!(listed.owner.as_deref(), Some(owner.did.as_str()));
+
+    // Still gated, and the grant used before the restart stays used.
+    let resp = as_agent
+        .add_participant(add_request(channel, second, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "requires a grant");
+    let resp = as_agent
+        .add_participant(add_request(channel, first, Some(used)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "already been used");
+
+    // A new grant still works on the restored channel.
+    let resp = as_agent
+        .add_participant(add_request(
+            channel,
+            second,
+            Some(owner.grant(channel, second, "add")),
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(
+        resp.success,
+        "granted add after restart failed: {:?}",
+        resp.error_msg
+    );
+}
+
+// --- A did:key (JWT) identity for the channel manager's SLIM apps ---
+
+/// An Ed25519 identity, generated when the test starts: its PKCS#8 PEM, its
+/// `did:key`, and its public key as a JWK.
+struct Ed25519Identity {
+    pem: String,
+    did: String,
+    jwk: serde_json::Value,
+}
+
+impl Ed25519Identity {
+    fn new() -> Self {
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+        let key_pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let public = key_pair.public_key().as_ref();
+        let did = ed25519_did_key(public);
+        let jwk = serde_json::json!({
+            "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "use": "sig", "kid": did,
+            "x": base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, public),
+        });
+        let pem = bytes_to_pem(
+            pkcs8.as_ref(),
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----\n",
+        );
+        Ed25519Identity { pem, did, jwk }
+    }
+
+    fn signing_key(&self) -> JwtKey {
+        JwtKey::Encoding(Key {
+            algorithm: Algorithm::EdDSA,
+            format: KeyFormat::Pem,
+            key: KeyData::Data(self.pem.clone()),
+        })
+    }
+}
+
+fn jwks(identities: &[&Ed25519Identity]) -> String {
+    serde_json::json!({ "keys": identities.iter().map(|i| i.jwk.clone()).collect::<Vec<_>>() })
+        .to_string()
+}
+
+/// A participant app with a `jwt` identity, trusting the keys in `trusted`.
+async fn start_jwt_receiver(
+    service: &Arc<Service>,
+    local_name: &str,
+    identity: &Ed25519Identity,
+    trusted: String,
+    conn_id: u64,
+) -> App<AuthProvider, AuthVerifier> {
+    let auth = AuthConfig::Jwt {
+        private_key: KeyData::Data(identity.pem.clone()),
+        trusted_keys: KeyData::Data(trusted),
+    };
+    let (provider, verifier) = auth.to_identity_configs(local_name).unwrap();
+    let mut provider = provider.build_auth_provider().unwrap();
+    let mut verifier = verifier.build_auth_verifier().unwrap();
+    provider.initialize().await.unwrap();
+    verifier.initialize().await.unwrap();
+
+    let name = ProtoName::parse_name(local_name).unwrap();
+    let (app, _rx) = service
+        .create_app_with_direction(&name, provider, verifier, Direction::None)
+        .unwrap();
+    app.subscribe(&name, Some(conn_id)).await.unwrap();
+    app
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_channel_manager_with_a_jwt_did_key_identity() {
+    let (slim_port, _node, service, conn_id) = start_node("jwt-identity-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+
+    let cm = Ed25519Identity::new();
+    let member = Ed25519Identity::new();
+    let outsider = Ed25519Identity::new();
+    let owner = Ed25519Identity::new();
+
+    // Key files, as an operator would provide them.
+    let key_path = state_dir.path().join("cm-ed25519.pem");
+    let jwks_path = state_dir.path().join("members.jwks.json");
+    std::fs::write(&key_path, &cm.pem).unwrap();
+    std::fs::write(&jwks_path, jwks(&[&cm, &member])).unwrap();
+    let auth = serde_json::json!({
+        "type": "jwt",
+        "private_key": { "file": key_path },
+        "trusted_keys": { "file": jwks_path },
+    });
+
+    // The API verifies owner tokens signed with Ed25519 against a JWKS too.
+    let cm_port = reserve_local_port();
+    let api = ServerConfig::with_endpoint(&format!("127.0.0.1:{cm_port}"))
+        .with_tls_settings(TlsServerConfig::insecure())
+        .with_auth(ServerAuthenticationConfig::Jwt(JwtConfig::new(
+            Claims::default(),
+            Duration::from_secs(3600),
+            JwtKey::Decoding(Key {
+                algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Jwks,
+                key: KeyData::Data(jwks(&[&owner])),
+            }),
+        )));
+    let process =
+        ChannelManagerProcess::start_with(slim_port, cm_port, state_dir.path(), api, auth).await;
+
+    // Operators read the channel manager's did:key from its startup log.
+    let log = std::fs::read_to_string(&process.log).unwrap();
+    assert!(log.contains(&cm.did), "did:key {} not logged", cm.did);
+
+    // The participants trust everyone, so only the channel manager's JWKS
+    // decides who it can invite.
+    let everyone = || jwks(&[&cm, &member, &outsider]);
+    let _member =
+        start_jwt_receiver(&service, "org/ns/jwt-member", &member, everyone(), conn_id).await;
+    let _outsider = start_jwt_receiver(
+        &service,
+        "org/ns/jwt-outsider",
+        &outsider,
+        everyone(),
+        conn_id,
+    )
+    .await;
+
+    let caller = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{cm_port}"))
+        .with_tls_setting(TlsClientConfig::insecure())
+        .with_auth(ClientAuthenticationConfig::Jwt(JwtConfig::new(
+            Claims::new(None, Some(owner.did.clone()), Some(owner.did.clone()), None),
+            Duration::from_secs(3600),
+            owner.signing_key(),
+        )));
+    let mut as_owner = create_cm_client_with(caller).await;
+
+    let channel = "org/ns/jwt-channel";
+    let resp = as_owner
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+    let channels = as_owner
+        .list_channels(ListChannelsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .channels;
+    let listed = channels
+        .iter()
+        .find(|c| c.channel_name == channel)
+        .expect("channel not listed");
+    assert_eq!(listed.owner.as_deref(), Some(owner.did.as_str()));
+
+    // A participant whose key the channel manager trusts joins.
+    let resp = as_owner
+        .add_participant(add_request(channel, "org/ns/jwt-member", None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "member add failed: {:?}", resp.error_msg);
+
+    // One whose key isn't in its JWKS doesn't.
+    let resp = as_owner
+        .add_participant(add_request(channel, "org/ns/jwt-outsider", None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(!resp.success, "an untrusted participant joined");
 }

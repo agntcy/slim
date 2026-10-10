@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0](https://github.com/agntcy/slim/compare/slim-config-v0.16.6...slim-config-v0.17.0) - 2026-10-09
+
+### Added
+
+- *(config,channel-manager)* JWT did:key app identity ([#2203](https://github.com/agntcy/slim/pull/2203))
+
+## [0.16.6](https://github.com/agntcy/slim/compare/slim-config-v0.16.5...slim-config-v0.16.6) - 2026-10-09
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [0.16.5](https://github.com/agntcy/slim/compare/slim-config-v0.16.4...slim-config-v0.16.5) - 2026-09-30
 
 ### Other
