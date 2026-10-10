@@ -117,8 +117,10 @@ jobs:
 
       - name: Run release-plz update
         run: |
-          sed 's/^\[workspace\]$/[workspace]\nsemver_check = false/' .release-plz.toml \
-            > "$RUNNER_TEMP/release-plz.toml"
+          # Drop any semver_check already set, so the key isn't duplicated.
+          sed -e '/^semver_check *=/d' \
+            -e 's/^\[workspace\]$/[workspace]\nsemver_check = false/' \
+            .release-plz.toml > "$RUNNER_TEMP/release-plz.toml"
           release-plz update --config "$RUNNER_TEMP/release-plz.toml"
 
   windows-build:
