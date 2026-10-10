@@ -92,9 +92,8 @@ jobs:
 
   # Run release-plz's version and changelog computation before merge, so a
   # change that breaks it fails here rather than on main (release-rust.yaml).
-  # Semver checks are off: they take about half an hour, and release-plz can
-  # only disable them in its config. Skipped on push, where release-rust.yaml
-  # runs the real thing.
+  # Without semver checks, which take about half an hour. Skipped on push,
+  # where release-rust.yaml runs the real thing.
   release-plz-update:
     name: release-plz update
     needs: [changes]
@@ -116,12 +115,9 @@ jobs:
           tool: release-plz@0.3.169
 
       - name: Run release-plz update
-        run: |
-          # Drop any semver_check already set, so the key isn't duplicated.
-          sed -e '/^semver_check *=/d' \
-            -e 's/^\[workspace\]$/[workspace]\nsemver_check = false/' \
-            .release-plz.toml > "$RUNNER_TEMP/release-plz.toml"
-          release-plz update --config "$RUNNER_TEMP/release-plz.toml"
+        # cargo-semver-checks isn't installed, so release-plz skips its
+        # (half-hour) semver checks.
+        run: release-plz update --config .release-plz.toml
 
   windows-build:
     name: Build (Windows)
