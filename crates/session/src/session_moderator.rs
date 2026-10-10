@@ -832,6 +832,18 @@ where
     }
 
     async fn on_discovery_reply(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
+        // A failure here (e.g. the MLS group can't be created) ends the
+        // AddParticipant task: report it to whoever asked for the invite,
+        // who would otherwise wait for an answer that never comes.
+        self.on_discovery_reply_inner(msg)
+            .await
+            .map_err(|e| self.handle_task_error(e))
+    }
+
+    async fn on_discovery_reply_inner(
+        &mut self,
+        msg: Message,
+    ) -> Result<SessionOutput, SessionError> {
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
@@ -2027,6 +2039,101 @@ mod tests {
 
     fn make_name(parts: &[&str; 3]) -> ProtoName {
         ProtoName::from_strings([parts[0], parts[1], parts[2]]).with_id(0)
+    }
+
+    #[tokio::test]
+    async fn an_invite_fails_instead_of_hanging_when_the_mls_group_cant_be_created() {
+        use slim_auth::shared_secret::SharedSecret;
+
+        // The verifier can't check the moderator's own token, so creating
+        // the MLS group (which validates the creator's credential) fails.
+        const SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+        const OTHER_SECRET: &str = "another-shared-secret-0123456789-abcdefghijklmnopqrstuv";
+
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let participant = make_name(&["remote", "participant", "v1"]);
+
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+        let settings = SessionSettings {
+            id: 1,
+            source: source.clone(),
+            destination: participant.clone(),
+            control: participant.clone(),
+            config: SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                max_retries: Some(3),
+                interval: Some(std::time::Duration::from_secs(1)),
+                mls_settings: Some(MlsSettings::default()),
+                initiator: true,
+                metadata: Default::default(),
+            },
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim.clone(),
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: SharedSecret::new("test", SECRET).unwrap(),
+            identity_verifier: SharedSecret::new("test", OTHER_SECRET).unwrap(),
+            graceful_shutdown_timeout: None,
+            subscription_manager: crate::subscription_manager::SubscriptionManager::new(tx_slim),
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
+            enforce_pqc: false,
+        };
+        let mut moderator = SessionModerator::new(MockInnerHandler::new(), settings);
+        moderator.init().await.unwrap();
+
+        // The app asks to invite the participant.
+        let invite = Message::builder()
+            .source(source.clone())
+            .destination(participant.clone())
+            .identity("")
+            .forward_to(0)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+            .session_id(1)
+            .message_id(1)
+            .payload(CommandPayload::builder().discovery_request().as_content())
+            .build_publish()
+            .unwrap();
+        let (ack_tx, mut ack_rx) = oneshot::channel();
+        let output = moderator
+            .on_discovery_request(invite, Some(ack_tx))
+            .await
+            .unwrap();
+        let discovery_id = output
+            .messages
+            .iter()
+            .find_map(|m| match m {
+                OutboundMessage::ToSlim(m) => Some(m.get_id()),
+                _ => None,
+            })
+            .expect("no discovery request sent");
+
+        // The participant answers; the moderator now creates the MLS group.
+        let reply = Message::builder()
+            .source(participant.clone().with_id(500))
+            .destination(source)
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::DiscoveryReply)
+            .session_id(1)
+            .message_id(discovery_id)
+            .payload(CommandPayload::builder().discovery_reply().as_content())
+            .build_publish()
+            .unwrap();
+        assert!(moderator.on_discovery_reply(reply).await.is_err());
+
+        // The invite is answered with an error rather than left waiting.
+        assert!(matches!(ack_rx.try_recv(), Ok(Err(_))));
+        assert!(moderator.current_task.is_none());
     }
 
     fn setup_moderator() -> (
