@@ -8,8 +8,10 @@
 
 use std::time::Duration;
 
+use base64::Engine;
 use serde::Deserialize;
-use slim_auth::did_key::ed25519_did_key_from_pkcs8_pem;
+use slim_auth::did_key::{ed25519_did_key, ed25519_public_key_from_pkcs8_pem};
+use slim_auth::errors::AuthError as SlimAuthError;
 use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
 
 use super::ConfigAuthError;
@@ -50,6 +52,36 @@ pub enum AuthConfig {
 /// Lifetime of the tokens a `jwt` identity issues.
 const JWT_TOKEN_LIFETIME: Duration = Duration::from_secs(3600);
 
+/// The contents of `key`, or `None` if its file can't be read.
+fn read_key_data(key: &KeyData) -> Option<String> {
+    match key {
+        KeyData::Data(data) => Some(data.clone()),
+        KeyData::File(path) => std::fs::read_to_string(path).ok(),
+    }
+}
+
+/// Whether a JWKS document has an entry for `public_key` (an OKP key whose
+/// `x` is its base64url encoding). `true` when it doesn't parse as a JWKS,
+/// which the verifier reports instead.
+fn jwks_has_key(jwks: &str, public_key: &[u8]) -> bool {
+    let Ok(jwks) = serde_json::from_str::<serde_json::Value>(jwks) else {
+        return true;
+    };
+    let Some(keys) = jwks.get("keys").and_then(|k| k.as_array()) else {
+        return true;
+    };
+    keys.iter().any(|key| {
+        key.get("x")
+            .and_then(|x| x.as_str())
+            .and_then(|x| {
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(x.trim_end_matches('='))
+                    .ok()
+            })
+            .is_some_and(|x| x == public_key)
+    })
+}
+
 impl AuthConfig {
     /// Return a copy with the identity `id` overridden.
     /// For SPIRE configs this is a no-op (identity comes from the workload).
@@ -68,6 +100,11 @@ impl AuthConfig {
 
     /// The app's `did:key`, for a `jwt` identity; `None` for the others.
     pub fn did_key(&self) -> Result<Option<String>, ConfigAuthError> {
+        Ok(self.jwt_public_key()?.map(|key| ed25519_did_key(&key)))
+    }
+
+    /// The public key of a `jwt` identity's private key.
+    fn jwt_public_key(&self) -> Result<Option<Vec<u8>>, ConfigAuthError> {
         let AuthConfig::Jwt { private_key, .. } = self else {
             return Ok(None);
         };
@@ -80,7 +117,7 @@ impl AuthConfig {
                 }
             })?,
         };
-        Ok(Some(ed25519_did_key_from_pkcs8_pem(&pem)?))
+        Ok(Some(ed25519_public_key_from_pkcs8_pem(&pem)?))
     }
 
     /// Validate the auth configuration fields.
@@ -97,8 +134,21 @@ impl AuthConfig {
                     return Err(ConfigAuthError::AuthSpireSocketPathMissing);
                 }
             }
-            AuthConfig::Jwt { .. } => {
-                self.did_key()?;
+            AuthConfig::Jwt { trusted_keys, .. } => {
+                let public_key = self.jwt_public_key()?.unwrap_or_default();
+                // MLS checks the app's own credential -- its own token -- with
+                // this verifier, so the app must trust its own key. A JWKS that
+                // can't be read or parsed is left for the verifier to report.
+                if let Some(jwks) = read_key_data(trusted_keys)
+                    && !jwks_has_key(&jwks, &public_key)
+                {
+                    let did_key = ed25519_did_key(&public_key);
+                    return Err(SlimAuthError::InvalidEd25519Key(format!(
+                        "auth.trusted_keys has no entry for this app's own key ({did_key}): \
+                         MLS verifies the app's own token against it, so add it"
+                    ))
+                    .into());
+                }
             }
         }
         Ok(())
@@ -344,6 +394,43 @@ mod tests {
             Err(ConfigAuthError::AuthJwtPrivateKeyRead { .. })
         ));
         assert!(cfg.to_identity_configs("org/ns/app").is_err());
+    }
+
+    /// The RFC 8032 identity with `trusted_keys` replaced.
+    fn jwt_config_trusting(trusted_keys: &str) -> AuthConfig {
+        let AuthConfig::Jwt { private_key, .. } = jwt_config() else {
+            unreachable!()
+        };
+        AuthConfig::Jwt {
+            private_key,
+            trusted_keys: KeyData::Data(trusted_keys.to_string()),
+        }
+    }
+
+    #[test]
+    fn jwt_identity_that_trusts_its_own_key_is_valid() {
+        assert!(jwt_config().validate().is_ok());
+    }
+
+    #[test]
+    fn jwt_identity_must_trust_its_own_key() {
+        // A valid JWKS, but only for some other key.
+        let other = serde_json::json!({"keys": [{
+            "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA",
+            "x": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        }]});
+        let err = jwt_config_trusting(&other.to_string())
+            .validate()
+            .unwrap_err();
+        let ConfigAuthError::AuthInternalError(SlimAuthError::InvalidEd25519Key(msg)) = err else {
+            panic!("unexpected error: {err:?}");
+        };
+        assert!(msg.contains(&expected_did_key()), "{msg}");
+    }
+
+    #[test]
+    fn an_unparsable_jwks_is_left_for_the_verifier() {
+        assert!(jwt_config_trusting("not a jwks").validate().is_ok());
     }
 
     #[test]
