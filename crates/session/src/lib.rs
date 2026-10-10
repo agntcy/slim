@@ -10,6 +10,7 @@ pub mod errors;
 pub mod mls_state;
 mod moderator_task;
 pub mod notification;
+pub mod peer_identity;
 mod persistence;
 pub mod producer_buffer;
 pub mod receiver_buffer;
@@ -80,5 +81,6 @@ pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
 // Re-export specific items that need to be publicly accessible
 pub use completion_handle::CompletionHandle;
 pub use notification::Notification;
+pub use peer_identity::PeerIdentity;
 pub use session_controller::CloseMode;
 pub use subscription_manager::{AutoAckManager, SubscriptionOps};

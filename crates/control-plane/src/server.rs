@@ -183,7 +183,12 @@ impl ControlPlane {
                     // using the secret alone.
                     let auth_config =
                         slim_config::auth::AuthConfig::SharedSecret { id: None, secret };
-                    let (_, verifier_cfg) = auth_config.to_identity_configs(&domain_name);
+                    let (_, verifier_cfg) =
+                        auth_config.to_identity_configs(&domain_name).map_err(|e| {
+                            anyhow::anyhow!(
+                                "invalid registration auth for domain '{domain_name}': {e}"
+                            )
+                        })?;
                     let verifier = verifier_cfg.build_auth_verifier().map_err(|e| {
                         anyhow::anyhow!(
                             "failed to build auth verifier for domain '{domain_name}': {e}"

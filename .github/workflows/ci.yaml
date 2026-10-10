@@ -90,6 +90,37 @@ jobs:
       rust-test-wasm: ${{ needs.changes.outputs.workspace == 'true' }}
       rust-test-wasm-browser: false
 
+  # Run release-plz's version and changelog computation before merge, so a
+  # change that breaks it fails here rather than on main (release-rust.yaml).
+  # Semver checks are off: they take about half an hour, and release-plz can
+  # only disable them in its config. Skipped on push, where release-rust.yaml
+  # runs the real thing.
+  release-plz-update:
+    name: release-plz update
+    needs: [changes]
+    if: ${{ github.event_name != 'push' && needs.changes.outputs.workspace == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          # release-plz reads the history since each package's last release tag.
+          fetch-depth: 0
+
+      # Keep in step with the version the release-plz/action pinned in
+      # release-rust.yaml installs.
+      - name: Install release-plz
+        uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
+        with:
+          tool: release-plz@0.3.169
+
+      - name: Run release-plz update
+        run: |
+          sed 's/^\[workspace\]$/[workspace]\nsemver_check = false/' .release-plz.toml \
+            > "$RUNNER_TEMP/release-plz.toml"
+          release-plz update --config "$RUNNER_TEMP/release-plz.toml"
+
   windows-build:
     name: Build (Windows)
     needs: [changes]
