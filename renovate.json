@@ -13,7 +13,18 @@
   "enabled": true,
   "minimumReleaseAge": "7 days",
   "schedule": ["before 8am on Monday"],
-  "enabledManagers": ["github-actions", "cargo"],
+  "enabledManagers": ["github-actions", "cargo", "custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": ["ARG TASK_VERSION=(?<currentValue>\\S+)"],
+      "datasourceTemplate": "github-releases",
+      "packageNameTemplate": "go-task/task",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "versioningTemplate": "semver"
+    }
+  ],
   "labels": ["dependencies"],
   "ignoreDeps": ["agntcy-slim*"],
   "osvVulnerabilityAlerts": true,

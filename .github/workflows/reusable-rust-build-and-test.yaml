@@ -256,7 +256,8 @@ jobs:
           # Local binary-echo WebSocket server (loopback only) in an isolated
           # venv to avoid PEP 668 "externally-managed" pip failures.
           python3 -m venv /tmp/ws-echo-venv
-          /tmp/ws-echo-venv/bin/pip install --quiet websockets
+          /tmp/ws-echo-venv/bin/pip install --quiet --require-hashes \
+            -r "${{ github.workspace }}/.github/scripts/requirements.txt"
           /tmp/ws-echo-venv/bin/python .github/scripts/ws_echo_server.py 127.0.0.1 9001 &
           echo_pid=$!
           trap 'kill "${echo_pid}" 2>/dev/null || true' EXIT
