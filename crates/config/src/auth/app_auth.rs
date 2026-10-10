@@ -242,7 +242,6 @@ mod tests {
                 assert_eq!(id, Some("new-id".to_string()));
                 assert_eq!(secret, "my-secret-that-is-long-enough-ok");
             }
-            #[cfg(not(target_family = "windows"))]
             _ => panic!("expected SharedSecret"),
         }
     }
