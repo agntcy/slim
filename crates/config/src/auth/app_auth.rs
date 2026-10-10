@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unparseable_jwks_is_left_for_the_verifier() {
+    fn an_unparsable_jwks_is_left_for_the_verifier() {
         assert!(jwt_config_trusting("not a jwks").validate().is_ok());
     }
 
