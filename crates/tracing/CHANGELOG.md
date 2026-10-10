@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.26](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.25...slim-tracing-v0.4.26) - 2026-10-09
+
+### Other
+
+- *(deps)* update OpenTelemetry to 0.33 and tracing-opentelemetry to 0.34 ([#2200](https://github.com/agntcy/slim/pull/2200))
+
 ## [0.4.25](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.24...slim-tracing-v0.4.25) - 2026-10-09
 
 ### Other

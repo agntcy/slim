@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0](https://github.com/agntcy/slim/compare/slim-auth-v0.16.4...slim-auth-v0.17.0) - 2026-10-09
+
+### Added
+
+- *(config,channel-manager)* JWT did:key app identity ([#2203](https://github.com/agntcy/slim/pull/2203))
+
 ## [0.16.4](https://github.com/agntcy/slim/compare/slim-auth-v0.16.3...slim-auth-v0.16.4) - 2026-10-09
 
 ### Other
