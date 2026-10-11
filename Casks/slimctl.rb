@@ -15,8 +15,8 @@ cask "slimctl" do
 
   binary "slimctl"
 
-  postflight do
-    system "chmod", "+x", "#{staged_path}/slimctl"
-    system "/usr/bin/xattr", "-dr", "com.apple.quarantine", "#{staged_path}/slimctl" if MacOS.version >= :catalina
+  postflight_steps do
+    set_permissions "slimctl", "+x", recursive: false
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{staged_path}}/slimctl"]
   end
 end
