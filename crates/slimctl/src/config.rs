@@ -246,13 +246,14 @@ pub fn load_config_mapping(config_file: Option<&str>) -> Result<serde_yaml::Mapp
 }
 
 /// Write a raw config mapping back, creating parent directories as needed.
+/// Private, because `config set basic-auth-creds` puts a password in it.
 pub fn save_config_mapping(map: &serde_yaml::Mapping, config_file: Option<&str>) -> Result<()> {
     let path = update_target_path(config_file)?;
     let dir = path.parent().expect("config path must have a parent");
     std::fs::create_dir_all(dir)
         .with_context(|| format!("failed to create config directory: {}", dir.display()))?;
     let data = serde_yaml::to_string(map).context("failed to serialize config")?;
-    std::fs::write(&path, data)
+    write_private(&path, data.as_bytes())
         .with_context(|| format!("failed to write config file: {}", path.display()))?;
     Ok(())
 }
@@ -334,40 +335,21 @@ pub fn refresh_token_file_path() -> Result<PathBuf> {
     Ok(home.join(".slimctl").join("refresh_token"))
 }
 
-#[cfg(unix)]
+/// Write a file only its owner can read: mode 0600 on Unix, including when the
+/// file already existed with wider permissions.  Elsewhere it keeps the
+/// permissions it inherits from its directory.
 fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?
-        .write_all(data)
-}
-
-#[cfg(not(unix))]
-fn write_private(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        return OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)?
-            .write_all(data);
-    }
-    #[cfg(not(unix))]
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)?
-        .write_all(data)
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path)?;
+    // `mode` only applies to a file being created; narrow an existing one
+    // before anything is written to it.
+    #[cfg(unix)]
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    file.write_all(data)
 }
 
 pub fn save_credentials(creds: &OidcCredentials) -> Result<()> {
@@ -1067,6 +1049,34 @@ mod tests {
         std::fs::write(&path, "endpoint: x:1\n").unwrap();
         let tls: TlsClientConfig = get_config_key("tls", Some(path.to_str().unwrap())).unwrap();
         assert_eq!(tls, TlsClientConfig::default());
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_config_key_creates_the_config_private() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        set_config_key("endpoint", &"myhost:50051", path.to_str()).unwrap();
+        assert_eq!(mode(&path), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_config_key_narrows_an_existing_world_readable_config() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(&path, "endpoint: x:1\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        set_config_key("endpoint", &"myhost:50051", path.to_str()).unwrap();
+        assert_eq!(mode(&path), 0o600);
     }
 
     // ── save_login_auth ─────────────────────────────────────────────────────
