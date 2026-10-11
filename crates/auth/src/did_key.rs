@@ -22,10 +22,15 @@ pub fn ed25519_did_key(public_key: &[u8]) -> String {
 /// The `did:key` of the Ed25519 key in a PKCS#8 PEM document
 /// (`-----BEGIN PRIVATE KEY-----`).
 pub fn ed25519_did_key_from_pkcs8_pem(pem: &str) -> Result<String, AuthError> {
+    Ok(ed25519_did_key(&ed25519_public_key_from_pkcs8_pem(pem)?))
+}
+
+/// The public key of the Ed25519 key in a PKCS#8 PEM document.
+pub fn ed25519_public_key_from_pkcs8_pem(pem: &str) -> Result<Vec<u8>, AuthError> {
     let der = pem_contents(pem, "PRIVATE KEY")?;
     let key_pair = Ed25519KeyPair::from_pkcs8(&der)
         .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?;
-    Ok(ed25519_did_key(key_pair.public_key().as_ref()))
+    Ok(key_pair.public_key().as_ref().to_vec())
 }
 
 /// The DER bytes of the first `label` block in `pem`.
