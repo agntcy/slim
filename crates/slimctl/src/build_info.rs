@@ -5,7 +5,7 @@ pub const BUILD_INFO: BuildInfo = BuildInfo {
     date: env!("BUILD_DATE"),
     git_sha: env!("GIT_SHA"),
     profile: env!("PROFILE"),
-    version: env!("VERSION"),
+    version: env!("CARGO_PKG_VERSION"),
 };
 
 #[derive(Copy, Clone, Debug, Default, Hash, PartialEq, Eq)]
@@ -80,5 +80,10 @@ mod tests {
         let c = a;
         assert_eq!(a, b);
         assert_eq!(a, c);
+    }
+
+    #[test]
+    fn version_is_the_crate_version() {
+        assert_eq!(BUILD_INFO.version, env!("CARGO_PKG_VERSION"));
     }
 }

@@ -5,7 +5,7 @@ pub const BUILD_INFO: BuildInfo = BuildInfo {
     date: env!("BUILD_DATE"),
     git_sha: env!("GIT_SHA"),
     profile: env!("PROFILE"),
-    version: env!("VERSION"),
+    version: env!("CARGO_PKG_VERSION"),
 };
 
 #[derive(Copy, Clone, Debug, Default, Hash, PartialEq, Eq)]
@@ -24,5 +24,15 @@ impl std::fmt::Display for BuildInfo {
             "Version:\t{}\nBuild Date:\t{}\nGit SHA:\t{}\nProfile:\t{}",
             self.version, self.date, self.git_sha, self.profile
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_is_the_crate_version() {
+        assert_eq!(BUILD_INFO.version, env!("CARGO_PKG_VERSION"));
     }
 }
