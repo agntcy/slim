@@ -1,25 +1,21 @@
 # slimctl channel-manager delete-channel
 
-Delete a group channel. A channel with an owner can only be deleted with a delete request its owner signed: see [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
+Delete a group channel, with a delete request signed by its owner or by an operator: see [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md#delete-request). `slimctl` forwards the signed request without reading it.
 
 **Aliases:** `dc`
 
 ## Usage
 
 ```
-slimctl channel-manager delete-channel <CHANNEL> [OPTIONS]
+slimctl channel-manager delete-channel <CHANNEL> --signed-request-file <PATH>
 ```
 
 ## Examples
 
-```bash
-slimctl channel-manager delete-channel agntcy/team/general
-```
-
-With the owner's signed delete request, read from a file or from standard input:
+With the signed delete request in a file, as the channel's owner or an operator produced it:
 
 ```bash
-slimctl channel-manager delete-channel agntcy/team/general --owner-proof-file delete.json
+slimctl channel-manager delete-channel agntcy/team/general --signed-request-file delete.json
 ```
 
 ## Options
@@ -27,7 +23,7 @@ slimctl channel-manager delete-channel agntcy/team/general --owner-proof-file de
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `<CHANNEL>` | **Yes** | Channel name in `org/namespace/channel` format |
-| `--owner-proof-file <PATH>` | No | File holding a delete request signed by the channel's owner; `-` reads standard input. Needed when the channel has an owner |
+| `--signed-request-file <PATH>` | **Yes** | File holding the delete request signed by the channel's owner or an operator; `-` reads standard input |
 
 ## Inherited Options
 

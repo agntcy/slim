@@ -37,34 +37,26 @@ The Channel Manager holds the moderator role for every channel it creates. When 
 
 **Startup channel provisioning** — channels and their initial participants can be declared in the configuration file. The Channel Manager creates them and completes all invitation handshakes automatically when it starts.
 
-**Two management modes** — the Channel Manager operates in either config-mode or API-mode, mirroring the Controller's topology model. When channels are declared in the configuration file (config-mode), `slimctl channel-manager` commands are read-only. When no channels are pre-configured (API-mode), channels and participants can be created and modified at any time using `slimctl channel-manager` commands without restarting the service.
+**Two management modes** — the Channel Manager operates in either config-mode or API-mode, mirroring the Controller's topology model. When channels are declared in the configuration file (config-mode), the API refuses changes to them. When no channels are pre-configured (API-mode), applications create channels and change their participants at any time through the Channel Manager's gRPC API, with the channel owner's signature, without restarting the service.
 
 **MLS encryption** — channels are created with MLS end-to-end encryption enabled by default. Each membership change triggers a key rotation, so former members cannot read future messages and new members cannot read past messages. MLS can be disabled per-channel if not required.
 
 **Authentication** — the Channel Manager authenticates using the same options as any SLIM application: shared secret (development), JWT, or SPIRE (production).
 
-## Managing Channels with slimctl
+## Operating Channels with slimctl
 
-Once the Channel Manager is running, use `slimctl channel-manager` (alias `cm`) to manage channels and participants. The default API endpoint is `127.0.0.1:10356`.
+Channels are created, and their participants changed, by applications holding the channel owner's key, through the Channel Manager's gRPC API: see [Channel Ownership, Grants and Expiry](./ownership.md). Operators use `slimctl channel-manager` (alias `cm`) to inspect them, and to delete a channel with a signed delete request. The default API endpoint is `127.0.0.1:10356`.
 
 ```bash
-# Create a channel (MLS enabled by default)
-slimctl channel-manager create-channel agntcy/ns/team-chat
-
-# Add participants
-slimctl channel-manager add-participant agntcy/ns/team-chat agntcy/ns/agent-1
-slimctl channel-manager add-participant agntcy/ns/team-chat agntcy/ns/agent-2
-
-# List channels and participants
+# List channels, with their owners and expiry times, and participants
 slimctl channel-manager list-channels
 slimctl channel-manager list-participants agntcy/ns/team-chat
 
-# Remove a participant
-slimctl channel-manager delete-participant agntcy/ns/team-chat agntcy/ns/agent-2
-
-# Delete a channel
-slimctl channel-manager delete-channel agntcy/ns/team-chat
+# Delete a channel, with a delete request its owner or an operator signed
+slimctl channel-manager delete-channel agntcy/ns/team-chat --signed-request-file delete.json
 ```
+
+For development and testing, `cmctl`, installed with the Channel Manager crate, sends any request to the API.
 
 Connect to a non-default endpoint with `--endpoint`:
 

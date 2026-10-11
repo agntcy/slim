@@ -9,12 +9,16 @@ use clap::{Args, Subcommand};
 
 use crate::client::get_channel_manager_client;
 use crate::proto::channel_manager::proto::v1::{
-    AddParticipantRequest, ChannelInfo, CommandResponse, CreateChannelRequest,
-    DeleteChannelRequest, DeleteParticipantRequest, ListChannelsRequest, ListParticipantsRequest,
+    ChannelInfo, CommandResponse, DeleteChannelRequest, ListChannelsRequest,
+    ListParticipantsRequest,
 };
 use crate::rpc;
 use slim_config::grpc::client::ClientConfig;
 
+/// Operations on a Channel Manager. slimctl never creates channels or changes
+/// their participants on its own authority: applications do that with their
+/// owner's signature. It inspects channels, and deletes one with a request
+/// its owner or an operator signed.
 #[derive(Args)]
 pub struct ChannelManagerArgs {
     #[command(subcommand)]
@@ -23,66 +27,14 @@ pub struct ChannelManagerArgs {
 
 #[derive(Subcommand)]
 pub enum ChannelManagerCommand {
-    /// Create a new channel
-    #[command(name = "create-channel", visible_alias = "cc")]
-    CreateChannel {
-        /// Channel name (org/namespace/channel)
-        channel: String,
-        /// Disable MLS for this channel (MLS is enabled by default)
-        #[arg(long = "disable-mls", default_value_t = false)]
-        disable_mls: bool,
-        /// SLIM name (org/namespace/app) at which the channel's owner can be
-        /// asked to approve participant changes others request without a
-        /// grant. Needs --owner-proof-file
-        #[arg(long = "owner-callback-name", value_name = "NAME")]
-        owner_callback_name: Option<String>,
-        /// Delete the channel automatically this many seconds after creation
-        #[arg(long = "ttl-seconds", value_name = "SECONDS")]
-        ttl_seconds: Option<u64>,
-        /// File holding the create request signed by the channel's owner,
-        /// covering these exact settings ("-" reads stdin). Its signer
-        /// becomes the owner; without it the channel has no owner
-        #[arg(long = "owner-proof-file", value_name = "PATH")]
-        owner_proof_file: Option<PathBuf>,
-    },
-
-    /// Delete a channel
+    /// Delete a channel, with a delete request its owner or an operator signed
     #[command(name = "delete-channel", visible_alias = "dc")]
     DeleteChannel {
         /// Channel name (org/namespace/channel)
         channel: String,
-        /// File holding a delete request signed by the channel's owner ("-"
-        /// reads stdin). Needed when the channel has an owner
-        #[arg(long = "owner-proof-file", value_name = "PATH")]
-        owner_proof_file: Option<PathBuf>,
-    },
-
-    /// Add a participant to a channel
-    #[command(name = "add-participant", visible_alias = "ap")]
-    AddParticipant {
-        /// Channel name (org/namespace/channel)
-        channel: String,
-        /// Participant name (org/namespace/app)
-        participant: String,
-        /// File holding a grant signed by the channel's owner authorizing
-        /// this change ("-" reads stdin). Needed on an owned channel, by its
-        /// owner too, unless the channel can ask its owner to approve
-        #[arg(long = "grant-file", value_name = "PATH")]
-        grant_file: Option<PathBuf>,
-    },
-
-    /// Remove a participant from a channel
-    #[command(name = "delete-participant", visible_alias = "dp")]
-    DeleteParticipant {
-        /// Channel name (org/namespace/channel)
-        channel: String,
-        /// Participant name (org/namespace/app)
-        participant: String,
-        /// File holding a grant signed by the channel's owner authorizing
-        /// this change ("-" reads stdin). Needed on an owned channel, by its
-        /// owner too, unless the channel can ask its owner to approve
-        #[arg(long = "grant-file", value_name = "PATH")]
-        grant_file: Option<PathBuf>,
+        /// File holding the signed delete request ("-" reads stdin)
+        #[arg(long = "signed-request-file", value_name = "PATH")]
+        signed_request_file: PathBuf,
     },
 
     /// List all channels
@@ -97,27 +49,17 @@ pub enum ChannelManagerCommand {
     },
 }
 
-/// Reads a grant from `path` ("-" for stdin), if one was given.
-fn read_grant(path: Option<&Path>) -> Result<Option<Vec<u8>>> {
-    read_signed(path, "grant")
-}
-
-/// Reads a signed statement (`what`: a grant, or the owner's signed create
-/// or delete request) from `path` ("-" for stdin), if one was given.
-fn read_signed(path: Option<&Path>, what: &str) -> Result<Option<Vec<u8>>> {
-    let Some(path) = path else {
-        return Ok(None);
-    };
-    let mut signed = Vec::new();
+/// Reads a signed request from `path` ("-" for stdin).
+fn read_signed_request(path: &Path) -> Result<Vec<u8>> {
     if path == Path::new("-") {
+        let mut signed = Vec::new();
         std::io::stdin()
             .read_to_end(&mut signed)
-            .with_context(|| format!("failed to read {what} from stdin"))?;
-    } else {
-        signed = std::fs::read(path)
-            .with_context(|| format!("failed to read {what} file: {}", path.display()))?;
+            .context("failed to read the signed request from stdin")?;
+        return Ok(signed);
     }
-    Ok(Some(signed))
+    std::fs::read(path)
+        .with_context(|| format!("failed to read signed request file: {}", path.display()))
 }
 
 /// One line of `list-channels` output: the name, then owner and expiry when
@@ -161,68 +103,16 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
     let mut client = get_channel_manager_client(opts).await?;
 
     match &args.command {
-        ChannelManagerCommand::CreateChannel {
-            channel,
-            disable_mls,
-            owner_callback_name,
-            ttl_seconds,
-            owner_proof_file,
-        } => {
-            let request = CreateChannelRequest {
-                channel_name: channel.clone(),
-                mls_enabled: !disable_mls,
-                owner_callback_name: owner_callback_name.clone(),
-                ttl_seconds: *ttl_seconds,
-                owner_proof: read_signed(owner_proof_file.as_deref(), "signed create request")?,
-            };
-            let response = rpc!(client, create_channel, request);
-            check_command_response(response, &format!("Channel {channel} created successfully"))
-        }
-
         ChannelManagerCommand::DeleteChannel {
             channel,
-            owner_proof_file,
+            signed_request_file,
         } => {
             let request = DeleteChannelRequest {
                 channel_name: channel.clone(),
-                owner_proof: read_signed(owner_proof_file.as_deref(), "signed delete request")?,
+                owner_proof: Some(read_signed_request(signed_request_file)?),
             };
             let response = rpc!(client, delete_channel, request);
             check_command_response(response, &format!("Channel {channel} deleted successfully"))
-        }
-
-        ChannelManagerCommand::AddParticipant {
-            channel,
-            participant,
-            grant_file,
-        } => {
-            let request = AddParticipantRequest {
-                channel_name: channel.clone(),
-                participant_name: participant.clone(),
-                grant: read_grant(grant_file.as_deref())?,
-            };
-            let response = rpc!(client, add_participant, request);
-            check_command_response(
-                response,
-                &format!("Participant {participant} added to channel {channel}"),
-            )
-        }
-
-        ChannelManagerCommand::DeleteParticipant {
-            channel,
-            participant,
-            grant_file,
-        } => {
-            let request = DeleteParticipantRequest {
-                channel_name: channel.clone(),
-                participant_name: participant.clone(),
-                grant: read_grant(grant_file.as_deref())?,
-            };
-            let response = rpc!(client, delete_participant, request);
-            check_command_response(
-                response,
-                &format!("Participant {participant} removed from channel {channel}"),
-            )
         }
 
         ChannelManagerCommand::ListChannels => {
@@ -318,6 +208,15 @@ mod tests {
         };
         let err = check_command_response(resp, "ok").unwrap_err();
         assert!(err.to_string().contains("unknown error"));
+    }
+
+    /// Stands in for a signed delete request: slimctl forwards it unread.
+    const SIGNED: &[u8] = b"{\"signed\":\"delete\"}";
+
+    fn signed_request_file() -> tempfile::NamedTempFile {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), SIGNED).unwrap();
+        file
     }
 
     // ── mock gRPC servers ───────────────────────────────────────────────────
@@ -532,68 +431,13 @@ mod tests {
     // ── happy-path tests ────────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn create_channel_succeeds() {
-        let addr = spawn_svc(MockChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::CreateChannel {
-                channel: "org/ns/chan".to_string(),
-                disable_mls: false,
-                owner_callback_name: None,
-                ttl_seconds: None,
-                owner_proof_file: None,
-            },
-        };
-        run(&args, &make_opts(&addr)).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_channel_disable_mls_succeeds() {
-        let addr = spawn_svc(MockChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::CreateChannel {
-                channel: "org/ns/chan".to_string(),
-                disable_mls: true,
-                owner_callback_name: None,
-                ttl_seconds: None,
-                owner_proof_file: None,
-            },
-        };
-        run(&args, &make_opts(&addr)).await.unwrap();
-    }
-
-    #[tokio::test]
     async fn delete_channel_succeeds() {
         let addr = spawn_svc(MockChannelManagerSvc).await;
+        let file = signed_request_file();
         let args = ChannelManagerArgs {
             command: ChannelManagerCommand::DeleteChannel {
                 channel: "org/ns/chan".to_string(),
-                owner_proof_file: None,
-            },
-        };
-        run(&args, &make_opts(&addr)).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn add_participant_succeeds() {
-        let addr = spawn_svc(MockChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::AddParticipant {
-                channel: "org/ns/chan".to_string(),
-                participant: "org/ns/app".to_string(),
-                grant_file: None,
-            },
-        };
-        run(&args, &make_opts(&addr)).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn delete_participant_succeeds() {
-        let addr = spawn_svc(MockChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::DeleteParticipant {
-                channel: "org/ns/chan".to_string(),
-                participant: "org/ns/app".to_string(),
-                grant_file: None,
+                signed_request_file: file.path().to_path_buf(),
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -622,53 +466,13 @@ mod tests {
     // ── gRPC-level error tests ──────────────────────────────────────────────
 
     #[tokio::test]
-    async fn create_channel_grpc_error_propagates() {
-        let addr = spawn_svc(ErrorChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::CreateChannel {
-                channel: "c".to_string(),
-                disable_mls: false,
-                owner_callback_name: None,
-                ttl_seconds: None,
-                owner_proof_file: None,
-            },
-        };
-        assert!(run(&args, &make_opts(&addr)).await.is_err());
-    }
-
-    #[tokio::test]
     async fn delete_channel_grpc_error_propagates() {
         let addr = spawn_svc(ErrorChannelManagerSvc).await;
+        let file = signed_request_file();
         let args = ChannelManagerArgs {
             command: ChannelManagerCommand::DeleteChannel {
                 channel: "c".to_string(),
-                owner_proof_file: None,
-            },
-        };
-        assert!(run(&args, &make_opts(&addr)).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn add_participant_grpc_error_propagates() {
-        let addr = spawn_svc(ErrorChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::AddParticipant {
-                channel: "c".to_string(),
-                participant: "p".to_string(),
-                grant_file: None,
-            },
-        };
-        assert!(run(&args, &make_opts(&addr)).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn delete_participant_grpc_error_propagates() {
-        let addr = spawn_svc(ErrorChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::DeleteParticipant {
-                channel: "c".to_string(),
-                participant: "p".to_string(),
-                grant_file: None,
+                signed_request_file: file.path().to_path_buf(),
             },
         };
         assert!(run(&args, &make_opts(&addr)).await.is_err());
@@ -697,56 +501,13 @@ mod tests {
     // ── negative-ACK tests (success = false) ────────────────────────────────
 
     #[tokio::test]
-    async fn create_channel_nack_fails() {
-        let addr = spawn_svc(NackChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::CreateChannel {
-                channel: "c".to_string(),
-                disable_mls: false,
-                owner_callback_name: None,
-                ttl_seconds: None,
-                owner_proof_file: None,
-            },
-        };
-        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
-        assert!(err.to_string().contains("nack"));
-    }
-
-    #[tokio::test]
     async fn delete_channel_nack_fails() {
         let addr = spawn_svc(NackChannelManagerSvc).await;
+        let file = signed_request_file();
         let args = ChannelManagerArgs {
             command: ChannelManagerCommand::DeleteChannel {
                 channel: "c".to_string(),
-                owner_proof_file: None,
-            },
-        };
-        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
-        assert!(err.to_string().contains("nack"));
-    }
-
-    #[tokio::test]
-    async fn add_participant_nack_fails() {
-        let addr = spawn_svc(NackChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::AddParticipant {
-                channel: "c".to_string(),
-                participant: "p".to_string(),
-                grant_file: None,
-            },
-        };
-        let err = run(&args, &make_opts(&addr)).await.unwrap_err();
-        assert!(err.to_string().contains("nack"));
-    }
-
-    #[tokio::test]
-    async fn delete_participant_nack_fails() {
-        let addr = spawn_svc(NackChannelManagerSvc).await;
-        let args = ChannelManagerArgs {
-            command: ChannelManagerCommand::DeleteParticipant {
-                channel: "c".to_string(),
-                participant: "p".to_string(),
-                grant_file: None,
+                signed_request_file: file.path().to_path_buf(),
             },
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
@@ -799,36 +560,91 @@ mod tests {
     }
 
     #[test]
-    fn reads_a_grant_file() {
-        let file = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(file.path(), b"{\"signed\":\"grant\"}").unwrap();
-        assert_eq!(
-            read_grant(Some(file.path())).unwrap(),
-            Some(b"{\"signed\":\"grant\"}".to_vec())
-        );
+    fn reads_a_signed_request_file() {
+        let file = signed_request_file();
+        assert_eq!(read_signed_request(file.path()).unwrap(), SIGNED.to_vec());
     }
 
     #[test]
-    fn no_grant_file_means_no_grant() {
-        assert_eq!(read_grant(None).unwrap(), None);
-    }
-
-    #[test]
-    fn a_missing_grant_file_is_an_error() {
-        let err = read_grant(Some(Path::new("/nonexistent/grant.json"))).unwrap_err();
-        assert!(err.to_string().contains("failed to read grant file"));
-    }
-
-    #[test]
-    fn a_missing_owner_proof_file_says_what_was_being_read() {
-        let err = read_signed(
-            Some(Path::new("/nonexistent/create.json")),
-            "signed create request",
-        )
-        .unwrap_err();
+    fn a_missing_signed_request_file_is_an_error() {
+        let err = read_signed_request(Path::new("/nonexistent/delete.json")).unwrap_err();
         assert!(
             err.to_string()
-                .contains("failed to read signed create request file")
+                .contains("failed to read signed request file")
         );
+    }
+
+    /// Records the owner_proof of each delete request it receives.
+    #[derive(Default)]
+    struct RecordingSvc {
+        proofs: std::sync::Arc<tokio::sync::Mutex<Vec<Option<Vec<u8>>>>>,
+    }
+
+    #[tonic::async_trait]
+    impl ChannelManagerService for RecordingSvc {
+        async fn create_channel(
+            &self,
+            _request: tonic::Request<CreateChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used"))
+        }
+
+        async fn delete_channel(
+            &self,
+            request: tonic::Request<DeleteChannelRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            self.proofs
+                .lock()
+                .await
+                .push(request.into_inner().owner_proof);
+            Ok(tonic::Response::new(CommandResponse {
+                success: true,
+                error_msg: None,
+            }))
+        }
+
+        async fn add_participant(
+            &self,
+            _request: tonic::Request<AddParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used"))
+        }
+
+        async fn delete_participant(
+            &self,
+            _request: tonic::Request<DeleteParticipantRequest>,
+        ) -> Result<tonic::Response<CommandResponse>, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used"))
+        }
+
+        async fn list_channels(
+            &self,
+            _request: tonic::Request<ListChannelsRequest>,
+        ) -> Result<tonic::Response<ListChannelsResponse>, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used"))
+        }
+
+        async fn list_participants(
+            &self,
+            _request: tonic::Request<ListParticipantsRequest>,
+        ) -> Result<tonic::Response<ListParticipantsResponse>, tonic::Status> {
+            Err(tonic::Status::unimplemented("not used"))
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_channel_forwards_the_signed_request() {
+        let svc = RecordingSvc::default();
+        let proofs = svc.proofs.clone();
+        let addr = spawn_svc(svc).await;
+        let file = signed_request_file();
+        let args = ChannelManagerArgs {
+            command: ChannelManagerCommand::DeleteChannel {
+                channel: "org/ns/chan".to_string(),
+                signed_request_file: file.path().to_path_buf(),
+            },
+        };
+        run(&args, &make_opts(&addr)).await.unwrap();
+        assert_eq!(*proofs.lock().await, vec![Some(SIGNED.to_vec())]);
     }
 }

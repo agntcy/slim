@@ -518,183 +518,61 @@ mod tests {
     // ── channel-manager ──────────────────────────────────────────────────────
 
     #[test]
-    fn parse_channel_manager_create_channel() {
-        let cli = parse_ok(&["slimctl", "channel-manager", "create-channel", "my/ns/chan"]);
+    fn parse_channel_manager_delete_channel() {
+        let cli = parse_ok(&[
+            "slimctl",
+            "channel-manager",
+            "delete-channel",
+            "my/ns/chan",
+            "--signed-request-file",
+            "delete.json",
+        ]);
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        let ChannelManagerCommand::CreateChannel {
+        let ChannelManagerCommand::DeleteChannel {
             channel,
-            disable_mls,
-            ..
+            signed_request_file,
         } = args.command
         else {
             panic!()
         };
         assert_eq!(channel, "my/ns/chan");
-        assert!(!disable_mls);
+        assert_eq!(signed_request_file, std::path::PathBuf::from("delete.json"));
     }
 
     #[test]
-    fn parse_channel_manager_create_channel_disable_mls() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "channel-manager",
-            "create-channel",
-            "my/ns/chan",
-            "--disable-mls",
-        ]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        let ChannelManagerCommand::CreateChannel {
-            channel,
-            disable_mls,
-            ..
-        } = args.command
-        else {
-            panic!()
-        };
-        assert_eq!(channel, "my/ns/chan");
-        assert!(disable_mls);
+    fn parse_channel_manager_delete_channel_without_a_signed_request_fails() {
+        let err = parse_err(&["slimctl", "channel-manager", "delete-channel", "my/ns/chan"]);
+        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
     }
 
     #[test]
-    fn parse_channel_manager_create_channel_with_owner_callback_and_ttl() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "channel-manager",
-            "create-channel",
-            "my/ns/chan",
-            "--owner-callback-name",
-            "my/ns/owner",
-            "--ttl-seconds",
-            "3600",
-        ]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        let ChannelManagerCommand::CreateChannel {
-            owner_callback_name,
-            ttl_seconds,
-            ..
-        } = args.command
-        else {
-            panic!()
-        };
-        assert_eq!(owner_callback_name.as_deref(), Some("my/ns/owner"));
-        assert_eq!(ttl_seconds, Some(3600));
-    }
-
-    #[test]
-    fn parse_channel_manager_add_participant_with_grant_file() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "channel-manager",
-            "add-participant",
-            "my/ns/chan",
-            "org/ns/app",
-            "--grant-file",
-            "grant.json",
-        ]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        let ChannelManagerCommand::AddParticipant { grant_file, .. } = args.command else {
-            panic!()
-        };
-        assert_eq!(grant_file, Some(std::path::PathBuf::from("grant.json")));
-    }
-
-    #[test]
-    fn parse_channel_manager_owner_proof_files() {
-        for command in ["create-channel", "delete-channel"] {
-            let argv = [
+    fn channel_manager_has_no_commands_acting_on_its_own_authority() {
+        for argv in [
+            &["slimctl", "channel-manager", "create-channel", "my/ns/chan"][..],
+            &[
                 "slimctl",
                 "channel-manager",
-                command,
+                "add-participant",
                 "my/ns/chan",
-                "--owner-proof-file",
-                "-",
-            ];
-            let Commands::ChannelManager(args) = parse_ok(&argv).command else {
-                panic!()
-            };
-            let owner_proof_file = match args.command {
-                ChannelManagerCommand::CreateChannel {
-                    owner_proof_file, ..
-                }
-                | ChannelManagerCommand::DeleteChannel {
-                    owner_proof_file, ..
-                } => owner_proof_file,
-                _ => panic!(),
-            };
+                "org/ns/app",
+            ],
+            &[
+                "slimctl",
+                "channel-manager",
+                "delete-participant",
+                "my/ns/chan",
+                "org/ns/app",
+            ],
+        ] {
+            let err = parse_err(argv);
             assert_eq!(
-                owner_proof_file,
-                Some(std::path::PathBuf::from("-")),
+                err.kind(),
+                clap::error::ErrorKind::InvalidSubcommand,
                 "{argv:?}"
             );
         }
-    }
-
-    #[test]
-    fn parse_channel_manager_delete_channel() {
-        let cli = parse_ok(&["slimctl", "channel-manager", "delete-channel", "my/ns/chan"]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        let ChannelManagerCommand::DeleteChannel { channel, .. } = args.command else {
-            panic!()
-        };
-        assert_eq!(channel, "my/ns/chan");
-    }
-
-    #[test]
-    fn parse_channel_manager_add_participant() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "channel-manager",
-            "add-participant",
-            "my/ns/chan",
-            "org/ns/app",
-        ]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        let ChannelManagerCommand::AddParticipant {
-            channel,
-            participant,
-            ..
-        } = args.command
-        else {
-            panic!()
-        };
-        assert_eq!(channel, "my/ns/chan");
-        assert_eq!(participant, "org/ns/app");
-    }
-
-    #[test]
-    fn parse_channel_manager_delete_participant() {
-        let cli = parse_ok(&[
-            "slimctl",
-            "channel-manager",
-            "delete-participant",
-            "my/ns/chan",
-            "org/ns/app",
-        ]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        let ChannelManagerCommand::DeleteParticipant {
-            channel,
-            participant,
-            ..
-        } = args.command
-        else {
-            panic!()
-        };
-        assert_eq!(channel, "my/ns/chan");
-        assert_eq!(participant, "org/ns/app");
     }
 
     #[test]
@@ -724,75 +602,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_channel_manager_create_channel_missing_arg_fails() {
-        let err = parse_err(&["slimctl", "channel-manager", "create-channel"]);
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-    }
-
-    #[test]
-    fn parse_channel_manager_add_participant_missing_participant_fails() {
-        let err = parse_err(&[
-            "slimctl",
-            "channel-manager",
-            "add-participant",
-            "my/ns/chan",
-        ]);
-        assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
-    }
-
-    // ── channel-manager aliases ──────────────────────────────────────────────
-
-    #[test]
     fn alias_channel_manager_cm() {
         let cli = parse_ok(&["slimctl", "cm", "list-channels"]);
         assert!(matches!(cli.command, Commands::ChannelManager(_)));
     }
 
     #[test]
-    fn alias_channel_manager_cc() {
-        let cli = parse_ok(&["slimctl", "cm", "cc", "my/ns/chan"]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        assert!(matches!(
-            args.command,
-            ChannelManagerCommand::CreateChannel { .. }
-        ));
-    }
-
-    #[test]
     fn alias_channel_manager_dc() {
-        let cli = parse_ok(&["slimctl", "cm", "dc", "my/ns/chan"]);
+        let cli = parse_ok(&[
+            "slimctl",
+            "cm",
+            "dc",
+            "my/ns/chan",
+            "--signed-request-file",
+            "-",
+        ]);
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
         assert!(matches!(
             args.command,
             ChannelManagerCommand::DeleteChannel { .. }
-        ));
-    }
-
-    #[test]
-    fn alias_channel_manager_ap() {
-        let cli = parse_ok(&["slimctl", "cm", "ap", "my/ns/chan", "org/ns/app"]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        assert!(matches!(
-            args.command,
-            ChannelManagerCommand::AddParticipant { .. }
-        ));
-    }
-
-    #[test]
-    fn alias_channel_manager_dp() {
-        let cli = parse_ok(&["slimctl", "cm", "dp", "my/ns/chan", "org/ns/app"]);
-        let Commands::ChannelManager(args) = cli.command else {
-            panic!()
-        };
-        assert!(matches!(
-            args.command,
-            ChannelManagerCommand::DeleteParticipant { .. }
         ));
     }
 

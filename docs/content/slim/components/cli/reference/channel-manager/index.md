@@ -1,6 +1,6 @@
 # slimctl channel-manager
 
-Interact with the SLIM Channel Manager service to create and manage group channels and their participants.
+Inspect the group channels a SLIM Channel Manager manages, and delete one with a signed request. `slimctl` never creates channels or changes their participants on its own authority: applications do that through the Channel Manager API with the owner's signature. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md#clients).
 
 **Aliases:** `cm`
 
@@ -16,10 +16,7 @@ slimctl channel-manager <COMMAND>
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| [`create-channel`](./create-channel.md) | `cc` | Create a new channel |
-| [`delete-channel`](./delete-channel.md) | `dc` | Delete a channel |
-| [`add-participant`](./add-participant.md) | `ap` | Add a participant to a channel |
-| [`delete-participant`](./delete-participant.md) | `dp` | Remove a participant from a channel |
+| [`delete-channel`](./delete-channel.md) | `dc` | Delete a channel, with a delete request its owner or an operator signed |
 | [`list-channels`](./list-channels.md) | `lc` | List all channels |
 | [`list-participants`](./list-participants.md) | `lp` | List participants in a channel |
 
