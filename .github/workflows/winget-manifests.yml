@@ -1,0 +1,287 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+#
+# WinGet manifests for slimctl, as in agntcy/shadi: render them from a
+# slimctl release, validate them by installing and running slimctl on Windows,
+# and (with `publish`) push them to the org's winget-pkgs fork, ready for the
+# upstream PR to microsoft/winget-pkgs.
+
+name: Publish WinGet Manifests
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: slimctl release tag (e.g. slimctl-v3.2.1)
+        required: true
+        type: string
+      publish:
+        description: Push to the winget-pkgs fork. Off by default so a manual run only validates.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      PROJECT_APP_ID:
+        required: false
+      PROJECT_APP_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: slimctl release tag (e.g. slimctl-v3.2.1)
+        required: true
+        type: string
+      publish:
+        description: Push to the winget-pkgs fork. Off by default so a manual run only validates.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_IDENTIFIER: AGNTCY.slimctl
+  MANIFEST_VERSION: "1.12.0"
+
+jobs:
+  render-winget-manifests:
+    runs-on: ubuntu-latest
+    outputs:
+      manifest_rel_dir: ${{ steps.render.outputs.manifest_rel_dir }}
+      package_version: ${{ steps.render.outputs.package_version }}
+      release_url: ${{ steps.render.outputs.release_url }}
+    steps:
+      - name: Render WinGet manifests
+        id: render
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_TAG" in
+            slimctl-v*) version="${RELEASE_TAG#slimctl-v}" ;;
+            *) echo "::error::expected a slimctl-v<version> tag, got $RELEASE_TAG"; exit 1 ;;
+          esac
+
+          release=$(gh api "repos/$REPO/releases/tags/$RELEASE_TAG")
+          release_date=$(jq -r '.published_at[0:10]' <<<"$release")
+          release_url=$(jq -r '.html_url' <<<"$release")
+          asset() { # <archive name> <field>
+            jq -er --arg n "$1" --arg f "$2" '.assets[] | select(.name == $n) | .[$f]' <<<"$release"
+          }
+          amd64_url=$(asset slimctl-windows-amd64.zip browser_download_url)
+          arm64_url=$(asset slimctl-windows-arm64.zip browser_download_url)
+          # GitHub's asset digests are "sha256:<hex>"; WinGet wants uppercase hex.
+          amd64_sha=$(asset slimctl-windows-amd64.zip digest | sed 's/^sha256://' | tr a-f A-F)
+          arm64_sha=$(asset slimctl-windows-arm64.zip digest | sed 's/^sha256://' | tr a-f A-F)
+
+          rel_dir="manifests/a/AGNTCY/slimctl/$version"
+          dir="dist/winget/$rel_dir"
+          mkdir -p "$dir"
+          repo_url="https://github.com/$REPO"
+
+          cat > "$dir/$PACKAGE_IDENTIFIER.yaml" <<EOF
+          # yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.$MANIFEST_VERSION.schema.json
+
+          PackageIdentifier: $PACKAGE_IDENTIFIER
+          PackageVersion: $version
+          DefaultLocale: en-US
+          ManifestType: version
+          ManifestVersion: $MANIFEST_VERSION
+          EOF
+
+          cat > "$dir/$PACKAGE_IDENTIFIER.locale.en-US.yaml" <<EOF
+          # yaml-language-server: \$schema=https://aka.ms/winget-manifest.defaultLocale.$MANIFEST_VERSION.schema.json
+
+          PackageIdentifier: $PACKAGE_IDENTIFIER
+          PackageVersion: $version
+          PackageLocale: en-US
+          Publisher: AGNTCY
+          PublisherUrl: https://github.com/agntcy
+          PublisherSupportUrl: $repo_url/issues
+          Author: AGNTCY Contributors
+          PackageName: slimctl
+          PackageUrl: $repo_url
+          License: Apache-2.0
+          LicenseUrl: $repo_url/blob/$RELEASE_TAG/LICENSE.md
+          ShortDescription: SLIM control CLI
+          Moniker: slimctl
+          Tags:
+          - agntcy
+          - cli
+          - messaging
+          - slim
+          Documentations:
+          - DocumentLabel: Documentation
+            DocumentUrl: https://agntcy.github.io/slim/
+          ReleaseNotesUrl: $release_url
+          ManifestType: defaultLocale
+          ManifestVersion: $MANIFEST_VERSION
+          EOF
+
+          # slimctl.exe sits at the root of each zip and links the MSVC runtime
+          # dynamically, hence the VC++ redistributable dependency.
+          cat > "$dir/$PACKAGE_IDENTIFIER.installer.yaml" <<EOF
+          # yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.$MANIFEST_VERSION.schema.json
+
+          PackageIdentifier: $PACKAGE_IDENTIFIER
+          PackageVersion: $version
+          InstallerType: zip
+          NestedInstallerType: portable
+          NestedInstallerFiles:
+          - RelativeFilePath: slimctl.exe
+            PortableCommandAlias: slimctl
+          Commands:
+          - slimctl
+          ReleaseDate: $release_date
+          Installers:
+          - Architecture: x64
+            InstallerUrl: $amd64_url
+            InstallerSha256: $amd64_sha
+            Dependencies:
+              PackageDependencies:
+              - PackageIdentifier: Microsoft.VCRedist.2015+.x64
+          - Architecture: arm64
+            InstallerUrl: $arm64_url
+            InstallerSha256: $arm64_sha
+            Dependencies:
+              PackageDependencies:
+              - PackageIdentifier: Microsoft.VCRedist.2015+.arm64
+          ManifestType: installer
+          ManifestVersion: $MANIFEST_VERSION
+          EOF
+
+          for f in "$dir"/*.yaml; do echo "--- $f"; cat "$f"; done
+          {
+            echo "manifest_rel_dir=$rel_dir"
+            echo "package_version=$version"
+            echo "release_url=$release_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload WinGet manifests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: winget-manifests-${{ steps.render.outputs.package_version }}
+          path: dist/winget/manifests
+
+  validate-winget-manifests:
+    needs: render-winget-manifests
+    runs-on: windows-2025
+    steps:
+      - name: Download WinGet manifests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: winget-manifests-${{ needs.render-winget-manifests.outputs.package_version }}
+          path: manifests
+
+      - name: Validate manifests
+        shell: pwsh
+        env:
+          MANIFEST_REL_DIR: ${{ needs.render-winget-manifests.outputs.manifest_rel_dir }}
+        run: |
+          winget --version
+          $dir = Join-Path "manifests" ($env:MANIFEST_REL_DIR -replace '^manifests/', '')
+          winget validate --manifest $dir --ignore-warnings
+          if ($LASTEXITCODE -ne 0) { throw "winget validate failed with exit $LASTEXITCODE" }
+
+      - name: Install from the manifests and run slimctl
+        shell: pwsh
+        env:
+          MANIFEST_REL_DIR: ${{ needs.render-winget-manifests.outputs.manifest_rel_dir }}
+        run: |
+          $dir = Join-Path "manifests" ($env:MANIFEST_REL_DIR -replace '^manifests/', '')
+          winget settings --enable LocalManifestFiles
+          if ($LASTEXITCODE -ne 0) { throw "winget settings failed with exit $LASTEXITCODE" }
+          winget install --manifest $dir `
+            --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "winget install failed with exit $LASTEXITCODE" }
+
+          $env:PATH = "$env:LOCALAPPDATA\Microsoft\WinGet\Links;$env:PATH"
+          slimctl --help
+          if ($LASTEXITCODE -ne 0) { throw "slimctl --help failed with exit $LASTEXITCODE" }
+
+  publish-winget-manifests:
+    needs: [render-winget-manifests, validate-winget-manifests]
+    if: inputs.publish == true || inputs.publish == 'true'
+    runs-on: ubuntu-latest
+    env:
+      APP_AUTH_CONFIGURED: ${{ secrets.PROJECT_APP_ID != '' && secrets.PROJECT_APP_KEY != '' }}
+    steps:
+      - name: Download WinGet manifests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: winget-manifests-${{ needs.render-winget-manifests.outputs.package_version }}
+          path: dist/winget/manifests
+
+      - name: Authenticate as the GitHub App
+        if: env.APP_AUTH_CONFIGURED == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0 # zizmor: ignore[github-app] needs the org's winget-pkgs fork, as in agntcy/shadi
+        with:
+          app-id: ${{ secrets.PROJECT_APP_ID }}
+          private-key: ${{ secrets.PROJECT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Resolve the GitHub App's user id
+        if: steps.app-token.outputs.token != ''
+        id: app-user
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: echo "user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+
+      - name: Push manifests to the winget-pkgs fork
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FORK_OWNER: ${{ github.repository_owner }}
+          GIT_AUTHOR_NAME: ${{ steps.app-token.outputs.app-slug }}[bot]
+          GIT_AUTHOR_EMAIL: ${{ steps.app-user.outputs.user_id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com
+          MANIFEST_REL_DIR: ${{ needs.render-winget-manifests.outputs.manifest_rel_dir }}
+          PACKAGE_VERSION: ${{ needs.render-winget-manifests.outputs.package_version }}
+          RELEASE_URL: ${{ needs.render-winget-manifests.outputs.release_url }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::PROJECT_APP_ID / PROJECT_APP_KEY aren't available; the manifests are only in the workflow artifact."
+            exit 0
+          fi
+          manifest_dir="$GITHUB_WORKSPACE/dist/winget/$MANIFEST_REL_DIR"
+
+          gh auth setup-git >/dev/null
+          gh repo clone "$FORK_OWNER/winget-pkgs" "$RUNNER_TEMP/winget-pkgs" -- --depth 1
+          cd "$RUNNER_TEMP/winget-pkgs"
+          git remote add upstream https://github.com/microsoft/winget-pkgs.git
+          git fetch --depth 1 upstream master
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+
+          branch="automation/winget-slimctl-$PACKAGE_VERSION"
+          git checkout -B "$branch" upstream/master
+          mkdir -p "$(dirname "$MANIFEST_REL_DIR")"
+          cp -R "$manifest_dir" "$(dirname "$MANIFEST_REL_DIR")/"
+          git add --all "$MANIFEST_REL_DIR"
+          if git diff --cached --quiet -- "$MANIFEST_REL_DIR"; then
+            echo "WinGet manifests are already up to date for $RELEASE_TAG"
+            exit 0
+          fi
+          git commit -m "New version: $PACKAGE_IDENTIFIER version $PACKAGE_VERSION"
+          git push --force --set-upstream origin "$branch"
+
+          pr=$(gh pr list --repo microsoft/winget-pkgs --head "$FORK_OWNER:$branch" --state open \
+            --json number --jq '.[0].number // ""' 2>/dev/null || true)
+          {
+            echo "### WinGet manifests for $PACKAGE_IDENTIFIER $PACKAGE_VERSION"
+            echo
+            if [ -n "$pr" ]; then
+              echo "Pushed to \`$branch\`, updating https://github.com/microsoft/winget-pkgs/pull/$pr"
+            else
+              echo "Pushed to \`$branch\`. Open the upstream PR (the App can't, as it isn't installed on microsoft/winget-pkgs):"
+              echo
+              echo "https://github.com/microsoft/winget-pkgs/compare/master...$FORK_OWNER:$branch?expand=1"
+            fi
+            echo
+            echo "Release: $RELEASE_URL"
+          } >> "$GITHUB_STEP_SUMMARY"
