@@ -81,6 +81,9 @@ jobs:
           dir="dist/winget/$rel_dir"
           mkdir -p "$dir"
           repo_url="https://github.com/$REPO"
+          # Policy 1.5.1: slimctl handles credentials, so the manifest needs a privacy
+          # policy. It points at main because releases before it have no PRIVACY.md.
+          privacy_url="$repo_url/blob/main/crates/slimctl/PRIVACY.md"
 
           cat > "$dir/$PACKAGE_IDENTIFIER.yaml" <<EOF
           # yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.$MANIFEST_VERSION.schema.json
@@ -101,6 +104,7 @@ jobs:
           Publisher: AGNTCY
           PublisherUrl: https://github.com/agntcy
           PublisherSupportUrl: $repo_url/issues
+          PrivacyUrl: $privacy_url
           Author: AGNTCY Contributors
           PackageName: slimctl
           PackageUrl: $repo_url
