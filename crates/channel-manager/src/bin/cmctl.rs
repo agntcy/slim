@@ -64,14 +64,19 @@ enum Command {
         /// Disable MLS for this channel (MLS is enabled by default)
         #[arg(long = "disable-mls", default_value_t = false)]
         disable_mls: bool,
-        /// SLIM name (org/namespace/app) at which you, as the channel's
-        /// owner, can be asked to approve participant changes others request
-        /// without a grant
+        /// SLIM name (org/namespace/app) at which the channel's owner can be
+        /// asked to approve participant changes others request without a
+        /// grant. Needs --owner-proof-file
         #[arg(long = "owner-callback-name", value_name = "NAME")]
         owner_callback_name: Option<String>,
         /// Delete the channel automatically this many seconds after creation
         #[arg(long = "ttl-seconds", value_name = "SECONDS")]
         ttl_seconds: Option<u64>,
+        /// File holding the create request signed by the channel's owner,
+        /// covering these exact settings ("-" reads stdin). Its signer
+        /// becomes the owner; without it the channel has no owner
+        #[arg(long = "owner-proof-file", value_name = "PATH")]
+        owner_proof_file: Option<PathBuf>,
     },
 
     /// Delete a channel
@@ -79,6 +84,10 @@ enum Command {
     DeleteChannel {
         /// Channel name (org/namespace/channel)
         channel: String,
+        /// File holding a delete request signed by the channel's owner ("-"
+        /// reads stdin). Needed when the channel has an owner
+        #[arg(long = "owner-proof-file", value_name = "PATH")]
+        owner_proof_file: Option<PathBuf>,
     },
 
     /// Add a participant to a channel
@@ -89,8 +98,8 @@ enum Command {
         /// Participant name (org/namespace/app)
         participant: String,
         /// File holding a grant signed by the channel's owner authorizing
-        /// this change ("-" reads stdin). Needed on an owned channel unless
-        /// you're its owner or it can ask the owner to approve
+        /// this change ("-" reads stdin). Needed on an owned channel, by its
+        /// owner too, unless the channel can ask its owner to approve
         #[arg(long = "grant-file", value_name = "PATH")]
         grant_file: Option<PathBuf>,
     },
@@ -103,8 +112,8 @@ enum Command {
         /// Participant name (org/namespace/app)
         participant: String,
         /// File holding a grant signed by the channel's owner authorizing
-        /// this change ("-" reads stdin). Needed on an owned channel unless
-        /// you're its owner or it can ask the owner to approve
+        /// this change ("-" reads stdin). Needed on an owned channel, by its
+        /// owner too, unless the channel can ask its owner to approve
         #[arg(long = "grant-file", value_name = "PATH")]
         grant_file: Option<PathBuf>,
     },
@@ -123,19 +132,25 @@ enum Command {
 
 /// Reads a grant from `path` ("-" for stdin), if one was given.
 fn read_grant(path: Option<&Path>) -> Result<Option<Vec<u8>>> {
+    read_signed(path, "grant")
+}
+
+/// Reads a signed statement (`what`: a grant, or the owner's signed create
+/// or delete request) from `path` ("-" for stdin), if one was given.
+fn read_signed(path: Option<&Path>, what: &str) -> Result<Option<Vec<u8>>> {
     let Some(path) = path else {
         return Ok(None);
     };
-    let mut grant = Vec::new();
+    let mut signed = Vec::new();
     if path == Path::new("-") {
         std::io::stdin()
-            .read_to_end(&mut grant)
-            .context("failed to read grant from stdin")?;
+            .read_to_end(&mut signed)
+            .with_context(|| format!("failed to read {what} from stdin"))?;
     } else {
-        grant = std::fs::read(path)
-            .with_context(|| format!("failed to read grant file: {}", path.display()))?;
+        signed = std::fs::read(path)
+            .with_context(|| format!("failed to read {what} file: {}", path.display()))?;
     }
-    Ok(Some(grant))
+    Ok(Some(signed))
 }
 
 /// One line of `list-channels` output: the name, then owner and expiry when
@@ -222,12 +237,14 @@ async fn main() -> Result<()> {
             disable_mls,
             owner_callback_name,
             ttl_seconds,
+            owner_proof_file,
         } => {
             let request = CreateChannelRequest {
                 channel_name: channel.clone(),
                 mls_enabled: !disable_mls,
                 owner_callback_name,
                 ttl_seconds,
+                owner_proof: read_signed(owner_proof_file.as_deref(), "signed create request")?,
             };
             let response = client
                 .create_channel(request)
@@ -239,9 +256,13 @@ async fn main() -> Result<()> {
             )
         }
 
-        Command::DeleteChannel { channel } => {
+        Command::DeleteChannel {
+            channel,
+            owner_proof_file,
+        } => {
             let request = DeleteChannelRequest {
                 channel_name: channel.clone(),
+                owner_proof: read_signed(owner_proof_file.as_deref(), "signed delete request")?,
             };
             let response = client
                 .delete_channel(request)
@@ -730,7 +751,7 @@ this: is: invalid: yaml: [
         assert!(args.is_ok(), "parsing delete-channel should succeed");
         let args = args.unwrap();
         match args.command {
-            Command::DeleteChannel { channel } => {
+            Command::DeleteChannel { channel, .. } => {
                 assert_eq!(channel, "org/namespace/channel");
             }
             _ => panic!("expected DeleteChannel command"),
@@ -852,6 +873,7 @@ endpoint: "http://127.0.0.1:{port}"
                 mls_enabled: true,
                 owner_callback_name: None,
                 ttl_seconds: None,
+                owner_proof: None,
             })
             .await
             .unwrap()
@@ -878,6 +900,7 @@ endpoint: "http://127.0.0.1:{port}"
                 mls_enabled: true,
                 owner_callback_name: None,
                 ttl_seconds: None,
+                owner_proof: None,
             })
             .await
             .unwrap()
@@ -902,6 +925,7 @@ endpoint: "http://127.0.0.1:{port}"
         let resp = client
             .delete_channel(DeleteChannelRequest {
                 channel_name: "org/ns/ch1".to_string(),
+                owner_proof: None,
             })
             .await
             .unwrap()
@@ -925,6 +949,7 @@ endpoint: "http://127.0.0.1:{port}"
         let resp = client
             .delete_channel(DeleteChannelRequest {
                 channel_name: "org/ns/missing".to_string(),
+                owner_proof: None,
             })
             .await
             .unwrap()

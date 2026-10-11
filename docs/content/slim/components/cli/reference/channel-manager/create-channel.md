@@ -1,6 +1,6 @@
 # slimctl channel-manager create-channel
 
-Create a new group channel. When the Channel Manager's API requires authentication, you become the channel's owner: see [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
+Create a new group channel. With a create request signed by its owner, the channel has that owner; without one it has none. Your login to the Channel Manager never makes you an owner. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
 
 **Aliases:** `cc`
 
@@ -24,11 +24,12 @@ Create a channel without MLS encryption:
 slimctl channel-manager create-channel agntcy/team/broadcast --disable-mls
 ```
 
-Create a task channel that is deleted after an hour, and that asks you to approve participant changes others request:
+Create an owned task channel that is deleted after an hour, and that asks its owner to approve participant changes others request. `create.json` is the owner's signed create request for exactly these settings:
 
 ```bash
 slimctl channel-manager create-channel agntcy/tasks/review-42 \
-  --ttl-seconds 3600 --owner-callback-name agntcy/people/alice
+  --ttl-seconds 3600 --owner-callback-name agntcy/people/alice \
+  --owner-proof-file create.json
 ```
 
 ## Options
@@ -37,8 +38,9 @@ slimctl channel-manager create-channel agntcy/tasks/review-42 \
 |-----------------|---------|----------|-------------|
 | `<CHANNEL>` | — | **Yes** | Channel name in `org/namespace/channel` format |
 | `--disable-mls` | `false` | No | Disable MLS end-to-end encryption for this channel (MLS is enabled by default) |
-| `--owner-callback-name <NAME>` | — | No | SLIM name (`org/namespace/app`) at which you, as the owner, are asked to approve participant changes others request without a grant |
+| `--owner-callback-name <NAME>` | — | No | SLIM name (`org/namespace/app`) at which the owner is asked to approve participant changes others request without a grant. Needs `--owner-proof-file` |
 | `--ttl-seconds <SECONDS>` | — | No | Delete the channel automatically this many seconds after creation |
+| `--owner-proof-file <PATH>` | — | No | File holding the create request signed by the channel's owner, covering these exact settings; `-` reads standard input. Its signer becomes the owner |
 
 ## Inherited Options
 

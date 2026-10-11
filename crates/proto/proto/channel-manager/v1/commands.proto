@@ -7,26 +7,36 @@ package channel_manager.proto.v1;
 message CreateChannelRequest {
   string channel_name = 1;
   bool mls_enabled = 2;
-  // SLIM name (org/namespace/app) at which the creator -- who becomes the
-  // channel's owner -- can be asked to approve participant changes others
-  // request without presenting a grant. Without one, such a request is
-  // denied outright. See ApprovalRequest.
+  // SLIM name (org/namespace/app) at which the owner can be asked to
+  // approve participant changes others request without presenting a grant.
+  // Without one, such a request is denied outright. See ApprovalRequest.
+  // Requires `owner_proof`: an unowned channel has no one to ask.
   optional string owner_callback_name = 3;
   // Seconds until the channel expires and is deleted, along with its
   // participants' membership and MLS state. Must be positive when set.
   // Unset: the channel lives until deleted explicitly.
   optional uint64 ttl_seconds = 4;
+  // The owner's signature over this request, in whichever format the
+  // server's GrantVerifier expects -- opaque bytes here. Its signer becomes
+  // the channel's owner, and it must cover every field above. Unset: the
+  // channel has no owner. The caller's authenticated identity never makes
+  // anyone an owner.
+  optional bytes owner_proof = 5;
 }
 
+// `owner_proof` is required when the channel has an owner on record: the
+// owner's signature over deleting this channel, in whichever format the
+// server's GrantVerifier expects.
 message DeleteChannelRequest {
   string channel_name = 1;
+  optional bytes owner_proof = 2;
 }
 
-// `grant` is required when the channel has an owner on record and the
-// caller isn't that owner: a signed grant from the owner authorizing this
-// exact change. Its format is whichever GrantVerifier the server was built
-// with expects -- opaque bytes here. Unset (or any other case) means no
-// grant is being presented.
+// `grant` is required when the channel has an owner on record: a signed
+// grant from the owner authorizing this exact change, the owner's own
+// changes included. Its format is whichever GrantVerifier the server was
+// built with expects -- opaque bytes here. Unset means no grant is being
+// presented.
 message AddParticipantRequest {
   string channel_name = 1;
   string participant_name = 2;

@@ -607,12 +607,43 @@ mod tests {
     }
 
     #[test]
+    fn parse_channel_manager_owner_proof_files() {
+        for command in ["create-channel", "delete-channel"] {
+            let argv = [
+                "slimctl",
+                "channel-manager",
+                command,
+                "my/ns/chan",
+                "--owner-proof-file",
+                "-",
+            ];
+            let Commands::ChannelManager(args) = parse_ok(&argv).command else {
+                panic!()
+            };
+            let owner_proof_file = match args.command {
+                ChannelManagerCommand::CreateChannel {
+                    owner_proof_file, ..
+                }
+                | ChannelManagerCommand::DeleteChannel {
+                    owner_proof_file, ..
+                } => owner_proof_file,
+                _ => panic!(),
+            };
+            assert_eq!(
+                owner_proof_file,
+                Some(std::path::PathBuf::from("-")),
+                "{argv:?}"
+            );
+        }
+    }
+
+    #[test]
     fn parse_channel_manager_delete_channel() {
         let cli = parse_ok(&["slimctl", "channel-manager", "delete-channel", "my/ns/chan"]);
         let Commands::ChannelManager(args) = cli.command else {
             panic!()
         };
-        let ChannelManagerCommand::DeleteChannel { channel } = args.command else {
+        let ChannelManagerCommand::DeleteChannel { channel, .. } = args.command else {
             panic!()
         };
         assert_eq!(channel, "my/ns/chan");
