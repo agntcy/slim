@@ -1,5 +1,9 @@
 [workspace]
 release_always = false
+# TEMPORARY (#2208): cargo-semver-checks rebuilds each crate's last published
+# version, and those require tokio_with_wasm ^0.10, which upstream yanked, so
+# the check can't run. Revert once the release carrying #2209 is published.
+semver_check = false
 # do not release packages by default
 release = false
 
