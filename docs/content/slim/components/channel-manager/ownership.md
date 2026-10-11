@@ -25,7 +25,7 @@ Earlier versions recorded the creator's authenticated identity as the owner. Suc
 
 ## Signed formats
 
-The default verifier expects an owner to be a `did:key` encoding an Ed25519 public key. Every signed statement is a JSON document whose `signature` is the standard, padded base64 encoding of an Ed25519 signature over its signed bytes: the UTF-8 bytes of a literal tag, then the fields listed, in that order, joined with a NUL byte, with no trailing NUL. Numbers are in decimal. `not_after` is in Unix seconds. `nonce` must be unique per statement.
+The default verifier expects an owner to be a `did:key` encoding an Ed25519 public key. Every signed statement is a JSON document whose `signature` is the standard, padded base64 encoding of an Ed25519 signature over its signed bytes: the UTF-8 bytes of a literal tag, then the fields listed, in that order, joined with a NUL byte, with no trailing NUL. Numbers are in decimal. `not_after` is in Unix seconds. `nonce` must be unique per statement. No field may contain a NUL byte.
 
 ### Grant
 
@@ -47,10 +47,11 @@ Signed bytes: `SLIM-CHANNEL-GRANT/1`, `channel`, `invitee`, `action`, `role`, `n
 
 ### Create request
 
-A signed create request names its signer as `owner`:
+A signed create request names its signer as `owner`, and the Channel Manager it is meant for as `audience`:
 
 ```json
 {
+  "audience": "agntcy/prod/channel-manager",
   "channel": "agntcy/team/general",
   "owner": "did:key:z6Mk...",
   "mls_enabled": true,
@@ -62,14 +63,17 @@ A signed create request names its signer as `owner`:
 }
 ```
 
-Signed bytes: `SLIM-CHANNEL-CREATE/1`, `channel`, `owner`, `mls_enabled` (`true` or `false`), `ttl_seconds`, `owner_callback_name`, `not_after`, `nonce`.
+Signed bytes: `SLIM-CHANNEL-CREATE/1`, `audience`, `channel`, `owner`, `mls_enabled` (`true` or `false`), `ttl_seconds`, `owner_callback_name`, `not_after`, `nonce`.
 
 `ttl_seconds` and `owner_callback_name` are optional. When unset, omit them from the JSON, and sign each as the empty string. The signature is checked with the key in `owner`, and `channel`, `mls_enabled`, `ttl_seconds` and `owner_callback_name` must equal the request's settings.
+
+`audience` is the Channel Manager's [`audience`](./config.md#audience), its `local-name` by default, so a request signed for one Channel Manager is refused by another. `not_after` may be at most 24 hours ahead.
 
 ### Delete request
 
 ```json
 {
+  "audience": "agntcy/prod/channel-manager",
   "channel": "agntcy/team/general",
   "not_after": 1767225600,
   "nonce": "07a3e5d2f1",
@@ -77,7 +81,7 @@ Signed bytes: `SLIM-CHANNEL-CREATE/1`, `channel`, `owner`, `mls_enabled` (`true`
 }
 ```
 
-Signed bytes: `SLIM-CHANNEL-DELETE/1`, `channel`, `not_after`, `nonce`. The signature is checked against the channel's owner.
+Signed bytes: `SLIM-CHANNEL-DELETE/1`, `audience`, `channel`, `not_after`, `nonce`. The signature is checked against the channel's owner. As for a create request, `audience` must name this Channel Manager and `not_after` may be at most 24 hours ahead.
 
 ### Other verifiers
 

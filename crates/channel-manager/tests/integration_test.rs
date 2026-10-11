@@ -942,6 +942,10 @@ struct Owner {
     did: String,
 }
 
+/// The channel manager both test setups run, and so the audience signed
+/// create and delete requests name.
+const CHANNEL_MANAGER: &str = "org/ns/channel-manager";
+
 /// An hour from now, in unix seconds: when signed statements expire.
 fn in_an_hour() -> u64 {
     std::time::SystemTime::now()
@@ -971,12 +975,22 @@ impl Owner {
 
     /// `req`, signed by this owner so that they own the channel it creates.
     /// Like the other statements, built from the documented wire format.
-    fn sign_create(&self, mut req: CreateChannelRequest) -> CreateChannelRequest {
+    fn sign_create(&self, req: CreateChannelRequest) -> CreateChannelRequest {
+        self.sign_create_for(CHANNEL_MANAGER, req)
+    }
+
+    /// Like [`Self::sign_create`], for the channel manager named `audience`.
+    fn sign_create_for(
+        &self,
+        audience: &str,
+        mut req: CreateChannelRequest,
+    ) -> CreateChannelRequest {
         let not_after = in_an_hour();
         let nonce = uuid::Uuid::new_v4().to_string();
         let ttl = req.ttl_seconds.map(|t| t.to_string()).unwrap_or_default();
         let signature = self.sign(&[
             "SLIM-CHANNEL-CREATE/1",
+            audience,
             &req.channel_name,
             &self.did,
             if req.mls_enabled { "true" } else { "false" },
@@ -986,6 +1000,7 @@ impl Owner {
             &nonce,
         ]);
         let proof = serde_json::json!({
+            "audience": audience,
             "channel": req.channel_name,
             "owner": self.did,
             "mls_enabled": req.mls_enabled,
@@ -1005,11 +1020,13 @@ impl Owner {
         let nonce = uuid::Uuid::new_v4().to_string();
         let signature = self.sign(&[
             "SLIM-CHANNEL-DELETE/1",
+            CHANNEL_MANAGER,
             channel,
             &not_after.to_string(),
             &nonce,
         ]);
         let proof = serde_json::json!({
+            "audience": CHANNEL_MANAGER,
             "channel": channel,
             "not_after": not_after,
             "nonce": nonce,
@@ -1446,21 +1463,31 @@ impl ChannelManagerProcess {
     /// waits for the API to come up.
     async fn start(slim_port: u16, cm_port: u16, state_dir: &std::path::Path) -> Self {
         let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
-        Self::start_with(slim_port, cm_port, state_dir, jwt_api(cm_port), auth).await
+        Self::start_with(
+            slim_port,
+            cm_port,
+            state_dir,
+            jwt_api(cm_port),
+            auth,
+            serde_json::json!({}),
+        )
+        .await
     }
 
     /// Like [`Self::start`], with the given API server and SLIM app identity
-    /// (the config's `auth` section).
+    /// (the config's `auth` section), plus `extra` keys for the
+    /// config.s `channel-manager` section.
     async fn start_with(
         slim_port: u16,
         cm_port: u16,
         state_dir: &std::path::Path,
         api: ServerConfig,
         auth: serde_json::Value,
+        extra: serde_json::Value,
     ) -> Self {
         let slim_connection = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{slim_port}"))
             .with_tls_setting(TlsClientConfig::insecure());
-        let config = serde_json::json!({
+        let mut config = serde_json::json!({
             "channel-manager": {
                 "slim-connection": slim_connection,
                 "api-server": api,
@@ -1472,6 +1499,12 @@ impl ChannelManagerProcess {
                 },
             }
         });
+        if let serde_json::Value::Object(extra) = extra {
+            config["channel-manager"]
+                .as_object_mut()
+                .unwrap()
+                .extend(extra);
+        }
         let config_path = state_dir.join(format!("config-{cm_port}.yaml"));
         std::fs::write(&config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
 
@@ -1587,6 +1620,44 @@ async fn test_ownership_and_used_grants_survive_a_restart() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_configured_audience_replaces_the_local_name() {
+    let (slim_port, _node, _service, _conn_id) = start_node("audience-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+    let cm_port = reserve_local_port();
+    let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
+    let extra = serde_json::json!({ "audience": "org/prod/channel-manager" });
+    let _process = ChannelManagerProcess::start_with(
+        slim_port,
+        cm_port,
+        state_dir.path(),
+        jwt_api(cm_port),
+        auth,
+        extra,
+    )
+    .await;
+    let owner = Owner::new();
+    let mut client = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+
+    // Signed for the local-name, which is no longer the audience.
+    let resp = client
+        .create_channel(owner.sign_create(create_request("org/ns/a-channel", None)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "not this channel manager");
+
+    let resp = client
+        .create_channel(owner.sign_create_for(
+            "org/prod/channel-manager",
+            create_request("org/ns/a-channel", None),
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+}
+
 // --- A did:key (JWT) identity for the channel manager's SLIM apps ---
 
 /// An Ed25519 identity, generated when the test starts: its PKCS#8 PEM, its
@@ -1689,8 +1760,15 @@ async fn test_channel_manager_with_a_jwt_did_key_identity() {
                 key: KeyData::Data(jwks(&[&owner])),
             }),
         )));
-    let process =
-        ChannelManagerProcess::start_with(slim_port, cm_port, state_dir.path(), api, auth).await;
+    let process = ChannelManagerProcess::start_with(
+        slim_port,
+        cm_port,
+        state_dir.path(),
+        api,
+        auth,
+        serde_json::json!({}),
+    )
+    .await;
 
     // Operators read the channel manager's did:key from its startup log.
     let log = std::fs::read_to_string(&process.log).unwrap();

@@ -87,6 +87,12 @@ channel-manager:
   local-name: "agntcy/ns/channel-manager"
 
   # ---------------------------------------------------------------------------
+  # audience (optional): what owners' signed create and delete requests must
+  # name as the Channel Manager they are meant for. Defaults to local-name.
+  # ---------------------------------------------------------------------------
+  # audience: "agntcy/prod/channel-manager"
+
+  # ---------------------------------------------------------------------------
   # auth: how this Channel Manager authenticates its own SLIM application
   # identity to the SLIM node.
   # ---------------------------------------------------------------------------
@@ -162,6 +168,10 @@ The gRPC server address where `slimctl channel-manager` and `cmctl` send managem
 ### `local-name`
 
 The SLIM name the Channel Manager registers as. Use a unique three-component name (`org/namespace/service`) per deployment to avoid conflicts if running multiple Channel Manager instances.
+
+### `audience`
+
+Optional. The value an owner's signed create and delete requests must name as their `audience` ([Channel Ownership, Grants and Expiry](./ownership.md#create-request)), so a request signed for one Channel Manager can't be replayed against another. Defaults to `local-name`. Set it to a value unique to the deployment when several deployments share a `local-name`, for example development and production.
 
 ### `auth`
 

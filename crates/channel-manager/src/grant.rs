@@ -62,6 +62,9 @@ pub struct Grant {
 /// one set of settings can't create a channel with another.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelCreation {
+    /// The channel manager the request is meant for, so it can't be
+    /// replayed against another one.
+    pub audience: String,
     pub channel: String,
     pub owner: String,
     pub mls_enabled: bool,
@@ -75,6 +78,8 @@ pub struct ChannelCreation {
 /// The authenticated contents of a signed delete request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelDeletion {
+    /// The channel manager the request is meant for.
+    pub audience: String,
     pub channel: String,
     /// Unix seconds after which the request is no longer valid.
     pub not_after: u64,
@@ -163,11 +168,21 @@ struct SignedGrant {
 /// verify as a grant. Bump the version if the layout below changes.
 const GRANT_DOMAIN: &str = "SLIM-CHANNEL-GRANT/1";
 
+/// Refuses a field containing a NUL byte. The signed bytes join fields with
+/// NUL, so one inside a field could shift the boundaries between them.
+fn reject_nul(fields: &[&str]) -> Result<(), GrantError> {
+    if fields.iter().any(|field| field.contains('\0')) {
+        return Err(GrantError::MalformedGrant(
+            "fields must not contain NUL bytes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Byte representation a grant is signed over: [`GRANT_DOMAIN`] then the
-/// grant's fields, in this order, NUL-separated. None of them are expected
-/// to contain NUL bytes (they're protocol names, an action, a role label, a
-/// timestamp and a nonce), so this needs no escaping and has no field-order
-/// ambiguity, unlike signing re-serialized JSON would.
+/// grant's fields, in this order, NUL-separated. Fields containing NUL are
+/// refused (see `reject_nul`), so this needs no escaping and has no
+/// field-order ambiguity, unlike signing re-serialized JSON would.
 fn canonical_bytes(grant: &Grant) -> Vec<u8> {
     [
         GRANT_DOMAIN,
@@ -188,6 +203,7 @@ fn canonical_bytes(grant: &Grant) -> Vec<u8> {
 /// omitted (or null) when unset.
 #[derive(Debug, Serialize, Deserialize)]
 struct SignedCreate {
+    audience: String,
     channel: String,
     owner: String,
     mls_enabled: bool,
@@ -212,6 +228,7 @@ const CREATE_DOMAIN: &str = "SLIM-CHANNEL-CREATE/1";
 fn create_canonical_bytes(creation: &ChannelCreation) -> Vec<u8> {
     [
         CREATE_DOMAIN,
+        creation.audience.as_str(),
         creation.channel.as_str(),
         creation.owner.as_str(),
         if creation.mls_enabled {
@@ -235,6 +252,7 @@ fn create_canonical_bytes(creation: &ChannelCreation) -> Vec<u8> {
 /// `owner_proof`, signed with the owner's key (see `delete_canonical_bytes`).
 #[derive(Debug, Serialize, Deserialize)]
 struct SignedDelete {
+    audience: String,
     channel: String,
     not_after: u64,
     nonce: String,
@@ -245,11 +263,12 @@ struct SignedDelete {
 /// Domain-separation tag of a signed delete request.
 const DELETE_DOMAIN: &str = "SLIM-CHANNEL-DELETE/1";
 
-/// Bytes a delete request is signed over: [`DELETE_DOMAIN`], `channel`,
-/// `not_after` and `nonce`, NUL-separated.
+/// Bytes a delete request is signed over: [`DELETE_DOMAIN`], `audience`,
+/// `channel`, `not_after` and `nonce`, NUL-separated.
 fn delete_canonical_bytes(deletion: &ChannelDeletion) -> Vec<u8> {
     [
         DELETE_DOMAIN,
+        deletion.audience.as_str(),
         deletion.channel.as_str(),
         &deletion.not_after.to_string(),
         deletion.nonce.as_str(),
@@ -305,6 +324,12 @@ impl GrantVerifier for DidKeyEd25519Verifier {
 
         let signed: SignedGrant =
             serde_json::from_slice(grant).map_err(|e| GrantError::MalformedGrant(e.to_string()))?;
+        reject_nul(&[
+            &signed.channel,
+            &signed.invitee,
+            &signed.role,
+            &signed.nonce,
+        ])?;
         let grant = Grant {
             channel: signed.channel,
             invitee: signed.invitee,
@@ -329,8 +354,16 @@ impl GrantVerifier for DidKeyEd25519Verifier {
                 "owner_callback_name must be omitted rather than empty".to_string(),
             ));
         }
+        reject_nul(&[
+            &signed.audience,
+            &signed.channel,
+            &signed.owner,
+            signed.owner_callback_name.as_deref().unwrap_or_default(),
+            &signed.nonce,
+        ])?;
         let pubkey_bytes = decode_ed25519_did_key(&signed.owner)?;
         let creation = ChannelCreation {
+            audience: signed.audience,
             channel: signed.channel,
             owner: signed.owner,
             mls_enabled: signed.mls_enabled,
@@ -353,7 +386,9 @@ impl GrantVerifier for DidKeyEd25519Verifier {
 
         let signed: SignedDelete =
             serde_json::from_slice(proof).map_err(|e| GrantError::MalformedGrant(e.to_string()))?;
+        reject_nul(&[&signed.audience, &signed.channel, &signed.nonce])?;
         let deletion = ChannelDeletion {
+            audience: signed.audience,
             channel: signed.channel,
             not_after: signed.not_after,
             nonce: signed.nonce,
@@ -526,6 +561,7 @@ mod tests {
 
     fn creation(owner: &str) -> ChannelCreation {
         ChannelCreation {
+            audience: "org/ns/channel-manager".to_string(),
             channel: "org/ns/ch1".to_string(),
             owner: owner.to_string(),
             mls_enabled: true,
@@ -539,6 +575,7 @@ mod tests {
     fn signed_create(key_pair: &Ed25519KeyPair, creation: &ChannelCreation) -> serde_json::Value {
         let signature = key_pair.sign(&create_canonical_bytes(creation));
         serde_json::to_value(SignedCreate {
+            audience: creation.audience.clone(),
             channel: creation.channel.clone(),
             owner: creation.owner.clone(),
             mls_enabled: creation.mls_enabled,
@@ -556,6 +593,7 @@ mod tests {
 
     fn deletion() -> ChannelDeletion {
         ChannelDeletion {
+            audience: "org/ns/channel-manager".to_string(),
             channel: "org/ns/ch1".to_string(),
             not_after: 9_999_999_999,
             nonce: "nonce-d".to_string(),
@@ -565,6 +603,7 @@ mod tests {
     fn signed_delete(key_pair: &Ed25519KeyPair, deletion: &ChannelDeletion) -> serde_json::Value {
         let signature = key_pair.sign(&delete_canonical_bytes(deletion));
         serde_json::to_value(SignedDelete {
+            audience: deletion.audience.clone(),
             channel: deletion.channel.clone(),
             not_after: deletion.not_after,
             nonce: deletion.nonce.clone(),
@@ -612,6 +651,7 @@ mod tests {
             ("ttl_seconds", serde_json::json!(1)),
             ("owner_callback_name", serde_json::json!("org/ns/attacker")),
             ("channel", serde_json::json!("org/ns/other")),
+            ("audience", serde_json::json!("org/ns/another-manager")),
         ] {
             let mut proof = signed_create(&key_pair, &creation(&owner));
             proof[field] = value;
@@ -674,15 +714,20 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_delete_retargeted_at_another_channel() {
+    fn rejects_a_delete_retargeted_at_another_channel_or_manager() {
         let (key_pair, owner) = new_owner();
-        let mut proof = signed_delete(&key_pair, &deletion());
-        proof["channel"] = "org/ns/other".into();
-
-        assert_eq!(
-            DidKeyEd25519Verifier.verify_delete(&owner, proof.to_string().as_bytes()),
-            Err(GrantError::InvalidSignature)
-        );
+        for (field, value) in [
+            ("channel", "org/ns/other"),
+            ("audience", "org/ns/another-manager"),
+        ] {
+            let mut proof = signed_delete(&key_pair, &deletion());
+            proof[field] = value.into();
+            assert_eq!(
+                DidKeyEd25519Verifier.verify_delete(&owner, proof.to_string().as_bytes()),
+                Err(GrantError::InvalidSignature),
+                "{field}"
+            );
+        }
     }
 
     #[test]
@@ -701,6 +746,40 @@ mod tests {
             DidKeyEd25519Verifier.verify_create(proof.to_string().as_bytes()),
             Err(GrantError::InvalidSignature)
         );
+    }
+
+    #[test]
+    fn rejects_fields_containing_nul() {
+        let (key_pair, owner) = new_owner();
+        let nul_invitee = Grant {
+            invitee: "org/ns/agent1\0member".to_string(),
+            ..grant()
+        };
+        let bytes = to_bytes(&sign(&key_pair, &nul_invitee));
+        assert!(matches!(
+            DidKeyEd25519Verifier.verify(&owner, &bytes),
+            Err(GrantError::MalformedGrant(_))
+        ));
+
+        let nul_channel = ChannelCreation {
+            channel: "org/ns/ch1\0x".to_string(),
+            ..creation(&owner)
+        };
+        let proof = signed_create(&key_pair, &nul_channel).to_string();
+        assert!(matches!(
+            DidKeyEd25519Verifier.verify_create(proof.as_bytes()),
+            Err(GrantError::MalformedGrant(_))
+        ));
+
+        let nul_nonce = ChannelDeletion {
+            nonce: "n\0".to_string(),
+            ..deletion()
+        };
+        let proof = signed_delete(&key_pair, &nul_nonce).to_string();
+        assert!(matches!(
+            DidKeyEd25519Verifier.verify_delete(&owner, proof.as_bytes()),
+            Err(GrantError::MalformedGrant(_))
+        ));
     }
 
     #[test]
