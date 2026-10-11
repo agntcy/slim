@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/agntcy/slim/compare/slim-auth-v0.17.0...slim-auth-v0.17.1) - 2026-10-11
+
+### Fixed
+
+- *(config)* refuse a jwt identity whose trusted_keys lacks its own key ([#2212](https://github.com/agntcy/slim/pull/2212))
+
 ## [0.17.0](https://github.com/agntcy/slim/compare/slim-auth-v0.16.4...slim-auth-v0.17.0) - 2026-10-09
 
 ### Added

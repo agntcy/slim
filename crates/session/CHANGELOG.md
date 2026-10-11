@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.17](https://github.com/agntcy/slim/compare/slim-session-v0.7.16...slim-session-v0.7.17) - 2026-10-11
+
+### Fixed
+
+- *(session)* fail the invite when handling its DiscoveryReply fails ([#2214](https://github.com/agntcy/slim/pull/2214))
+- *(deps)* accept tokio_with_wasm 0.9, now that 0.10 is yanked ([#2209](https://github.com/agntcy/slim/pull/2209))
+
 ## [0.7.16](https://github.com/agntcy/slim/compare/slim-session-v0.7.15...slim-session-v0.7.16) - 2026-10-09
 
 ### Fixed

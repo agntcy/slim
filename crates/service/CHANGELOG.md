@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.5](https://github.com/agntcy/slim/compare/slim-service-v0.13.4...slim-service-v0.13.5) - 2026-10-11
+
+### Fixed
+
+- *(deps)* accept tokio_with_wasm 0.9, now that 0.10 is yanked ([#2209](https://github.com/agntcy/slim/pull/2209))
+
 ## [0.13.4](https://github.com/agntcy/slim/compare/slim-service-v0.13.3...slim-service-v0.13.4) - 2026-10-09
 
 ### Added
