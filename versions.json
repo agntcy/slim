@@ -332,9 +332,7 @@
   {
     "version": "slim-tracing-v0.4.27",
     "title": "slim-tracing-v0.4.27",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-tracing-v0.4.16",
@@ -645,6 +643,13 @@
     "version": "slim-persistence-v0.1.0",
     "title": "slim-persistence-v0.1.0",
     "aliases": []
+  },
+  {
+    "version": "slim-mls-v0.4.5",
+    "title": "slim-mls-v0.4.5",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-mls-v0.4.2",
