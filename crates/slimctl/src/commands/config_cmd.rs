@@ -61,10 +61,59 @@ pub async fn run(args: &ConfigArgs, config_file: Option<&str>) -> Result<()> {
 }
 
 fn run_list(config_file: Option<&str>) -> Result<()> {
-    let config = load_config(config_file)?;
-    let yaml = serde_yaml::to_string(&config)?;
-    print!("{}", yaml);
+    print!("{}", render_list(config_file)?);
     Ok(())
+}
+
+fn render_list(config_file: Option<&str>) -> Result<String> {
+    let mut value = serde_yaml::to_value(load_config(config_file)?)?;
+    redact_secrets(&mut value, None);
+    Ok(serde_yaml::to_string(&value)?)
+}
+
+/// Printed by `config list` in place of a secret.
+const REDACTED: &str = "(redacted)";
+
+/// Mask the secrets in a serialized config: passwords, OIDC client secrets and
+/// refresh tokens, header values, inline TLS private keys and inline JWT keys.
+///
+/// Goes by key name because, once serialized, a secret is a plain string
+/// (`OpaqueString` serializes its cleartext), and a `${env:...}`/`${file:...}`
+/// reference has already been replaced by its expansion.  `parent` is the key
+/// under which `value` sits.
+fn redact_secrets(value: &mut serde_yaml::Value, parent: Option<&str>) {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            let inline_pem = map.get("type").and_then(|t| t.as_str()) == Some("pem");
+            for (key, v) in map.iter_mut() {
+                match key.as_str() {
+                    Some("password" | "client_secret" | "refresh_token") => mask(v),
+                    Some("headers") => {
+                        if let serde_yaml::Value::Mapping(headers) = v {
+                            headers.values_mut().for_each(mask);
+                        }
+                    }
+                    // A TLS `source` of type `pem` carries the private key inline.
+                    Some("key") if inline_pem => mask(v),
+                    // A JWT key given inline: `key: {data: ...}`.
+                    Some("data") if parent == Some("key") => mask(v),
+                    k => redact_secrets(v, k),
+                }
+            }
+        }
+        serde_yaml::Value::Sequence(items) => items
+            .iter_mut()
+            .for_each(|item| redact_secrets(item, parent)),
+        _ => {}
+    }
+}
+
+/// Replace a set value with [`REDACTED`], leaving unset ones visible as unset.
+fn mask(value: &mut serde_yaml::Value) {
+    let unset = value.is_null() || value.as_str() == Some("");
+    if !unset {
+        *value = serde_yaml::Value::String(REDACTED.to_string());
+    }
 }
 
 /// Set a single config key, leaving every other key in the file untouched —
@@ -189,5 +238,100 @@ mod tests {
         .unwrap();
         let config = crate::config::load_config(Some(&path_str)).unwrap();
         assert!(matches!(config.auth, AuthenticationConfig::Basic(_)));
+    }
+
+    #[test]
+    fn list_redacts_a_basic_auth_password() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cfg.yaml");
+        let path_str = path.to_str().unwrap().to_string();
+        run_set(
+            &SetCommand::BasicAuthCreds {
+                value: "alice:hunter2".to_string(),
+            },
+            Some(&path_str),
+        )
+        .unwrap();
+
+        let out = render_list(Some(&path_str)).unwrap();
+        assert!(!out.contains("hunter2"), "leaked: {out}");
+        assert!(out.contains("alice"), "username should stay visible: {out}");
+        assert!(out.contains(REDACTED), "{out}");
+    }
+
+    #[test]
+    fn list_redacts_a_secret_read_from_a_file_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("secret.txt");
+        std::fs::write(&secret, "from-the-file").unwrap();
+        let path = dir.path().join("cfg.yaml");
+        std::fs::write(
+            &path,
+            format!(
+                "endpoint: http://localhost:46358\n\
+                 auth:\n  type: basic\n  username: alice\n  password: ${{file:{}}}\n",
+                secret.display()
+            ),
+        )
+        .unwrap();
+
+        let out = render_list(path.to_str()).unwrap();
+        assert!(!out.contains("from-the-file"), "leaked: {out}");
+    }
+
+    fn redacted(yaml: &str) -> serde_yaml::Value {
+        let mut value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        redact_secrets(&mut value, None);
+        value
+    }
+
+    #[test]
+    fn redacts_every_kind_of_secret() {
+        let value = redacted(
+            r#"
+headers: {authorization: Bearer abc}
+proxy: {username: bob, password: p1, headers: {x-api-key: k1}}
+auth: {type: oidc, client_secret: s1, refresh_token: r1, refresh_token_file: /rt}
+tls: {source: {type: pem, cert: CERT, key: PRIVATE}}
+jwt: {key: {type: encoding, algorithm: ES256, format: pem, key: {data: INLINE}}}
+"#,
+        );
+        for path in [
+            &["headers", "authorization"][..],
+            &["proxy", "password"],
+            &["proxy", "headers", "x-api-key"],
+            &["auth", "client_secret"],
+            &["auth", "refresh_token"],
+            &["tls", "source", "key"],
+            &["jwt", "key", "key", "data"],
+        ] {
+            let got = path.iter().fold(&value, |v, k| &v[*k]);
+            assert_eq!(got.as_str(), Some(REDACTED), "{path:?} in {value:?}");
+        }
+        // Not secrets: who you are, where things are, public material.
+        assert_eq!(value["proxy"]["username"].as_str(), Some("bob"));
+        assert_eq!(value["auth"]["refresh_token_file"].as_str(), Some("/rt"));
+        assert_eq!(value["tls"]["source"]["cert"].as_str(), Some("CERT"));
+        assert_eq!(value["jwt"]["key"]["algorithm"].as_str(), Some("ES256"));
+    }
+
+    #[test]
+    fn keeps_file_paths_and_unset_secrets_visible() {
+        let value = redacted(
+            r#"
+tls: {source: {type: file, cert: /c.pem, key: /k.pem}, ca_source: {type: pem, data: CA}}
+jwt: {key: {type: decoding, algorithm: ES256, format: pem, key: {file: /pub.pem}}}
+proxy: {password: null}
+auth: {type: oidc, client_secret: ""}
+"#,
+        );
+        assert_eq!(value["tls"]["source"]["key"].as_str(), Some("/k.pem"));
+        assert_eq!(value["tls"]["ca_source"]["data"].as_str(), Some("CA"));
+        assert_eq!(
+            value["jwt"]["key"]["key"]["file"].as_str(),
+            Some("/pub.pem")
+        );
+        assert!(value["proxy"]["password"].is_null());
+        assert_eq!(value["auth"]["client_secret"].as_str(), Some(""));
     }
 }

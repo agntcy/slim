@@ -28,17 +28,17 @@ operates them.
   - `token`: the access token, or the ID token if no access token was issued.
   - `refresh_token`, when one was issued. It is there for long-running SLIM
     processes to use; `slimctl` itself never uses it.
-
-  On Linux and macOS these files are created readable only by you (mode
-  0600). On Windows they inherit the permissions of your user profile folder.
 - `slimctl login` and `slimctl config set` update the config file. `login`
   records the endpoint and an auth block that points at `~/.slimctl/token`,
   never the token itself. `config set basic-auth-creds` stores the username
-  and password in the file in clear text, and the config file is written
-  with default file permissions. To keep a password out of the file,
-  reference it with `${env:VAR}` or `${file:/path}` instead.
+  and password in the file. To keep the password out of it, reference it
+  with `${env:VAR}` or `${file:/path}` instead.
 - `slimctl slim start` without `--config` writes a temporary node config,
   holding only the listen address, and deletes it on exit.
+
+On Linux and macOS, `slimctl` writes all of these files readable only by you
+(mode 0600), and narrows any that already existed with wider permissions. On
+Windows they inherit the permissions of your user profile folder.
 
 ## What it sends, and to whom
 
@@ -69,9 +69,10 @@ operates them.
 ## Credentials in output
 
 Credentials are held in memory only while a command runs. `slimctl login`
-prints the paths it wrote, not the tokens. `slimctl config list`, however,
-prints the loaded configuration as it is, including a basic-auth password and
-any `${env:...}` or `${file:...}` value it expanded.
+prints the paths it wrote, not the tokens. `slimctl config list` shows
+passwords, client secrets, refresh tokens, header values and inline private
+keys as `(redacted)`, including values it expanded from `${env:...}` or
+`${file:...}` references.
 
 ## Telemetry
 
