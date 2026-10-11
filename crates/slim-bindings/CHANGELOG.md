@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.1](https://github.com/agntcy/slim/compare/slim-bindings-v3.2.0...slim-bindings-v3.2.1) - 2026-10-11
+
+### Fixed
+
+- *(deps)* accept tokio_with_wasm 0.9, now that 0.10 is yanked ([#2209](https://github.com/agntcy/slim/pull/2209))
+
 ## [3.1.0](https://github.com/agntcy/slim/compare/slim-bindings-v3.0.1...slim-bindings-v3.1.0) - 2026-10-09
 
 ### Other
