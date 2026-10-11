@@ -1127,10 +1127,37 @@ async fn start_owner_endpoint(
     Arc<Server>,
     Arc<tokio::sync::Mutex<Vec<(ApprovalRequest, Option<String>)>>>,
 ) {
+    start_owner_endpoint_as(slim_port, name, owner, approved, None).await
+}
+
+/// Like [`start_owner_endpoint`], authenticating to SLIM as `identity`
+/// instead of with the shared secret.
+async fn start_owner_endpoint_as(
+    slim_port: u16,
+    name: &str,
+    owner: Arc<Owner>,
+    approved: Vec<String>,
+    identity: Option<(AuthProvider, AuthVerifier)>,
+) -> (
+    Arc<Server>,
+    Arc<tokio::sync::Mutex<Vec<(ApprovalRequest, Option<String>)>>>,
+) {
     let (service, conn_id) = create_service_and_connect(slim_port, "owner-service").await;
     // Answering requests means receiving and sending data.
-    let (app, notifications) =
-        create_app_with_shared_secret_and_direction(&service, name, Direction::Bidirectional).await;
+    let (app, notifications) = match identity {
+        None => {
+            create_app_with_shared_secret_and_direction(&service, name, Direction::Bidirectional)
+                .await
+        }
+        Some((provider, verifier)) => service
+            .create_app_with_direction(
+                &ProtoName::parse_name(name).unwrap(),
+                provider,
+                verifier,
+                Direction::Bidirectional,
+            )
+            .unwrap(),
+    };
     let app = Arc::new(app);
     let server = Arc::new(Server::new_with_connection_and_runtime(
         app.clone(),
@@ -1331,21 +1358,31 @@ impl ChannelManagerProcess {
     /// waits for the API to come up.
     async fn start(slim_port: u16, cm_port: u16, state_dir: &std::path::Path) -> Self {
         let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
-        Self::start_with(slim_port, cm_port, state_dir, jwt_api(cm_port), auth).await
+        Self::start_with(
+            slim_port,
+            cm_port,
+            state_dir,
+            jwt_api(cm_port),
+            auth,
+            serde_json::json!({}),
+        )
+        .await
     }
 
     /// Like [`Self::start`], with the given API server and SLIM app identity
-    /// (the config's `auth` section).
+    /// (the config's `auth` section), plus `extra` keys for the
+    /// config's `channel-manager` section.
     async fn start_with(
         slim_port: u16,
         cm_port: u16,
         state_dir: &std::path::Path,
         api: ServerConfig,
         auth: serde_json::Value,
+        extra: serde_json::Value,
     ) -> Self {
         let slim_connection = ClientConfig::with_endpoint(&format!("http://127.0.0.1:{slim_port}"))
             .with_tls_setting(TlsClientConfig::insecure());
-        let config = serde_json::json!({
+        let mut config = serde_json::json!({
             "channel-manager": {
                 "slim-connection": slim_connection,
                 "api-server": api,
@@ -1357,6 +1394,12 @@ impl ChannelManagerProcess {
                 },
             }
         });
+        if let serde_json::Value::Object(extra) = extra {
+            config["channel-manager"]
+                .as_object_mut()
+                .unwrap()
+                .extend(extra);
+        }
         let config_path = state_dir.join(format!("config-{cm_port}.yaml"));
         std::fs::write(&config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
 
@@ -1514,14 +1557,13 @@ fn jwks(identities: &[&Ed25519Identity]) -> String {
         .to_string()
 }
 
-/// A participant app with a `jwt` identity, trusting the keys in `trusted`.
-async fn start_jwt_receiver(
-    service: &Arc<Service>,
+/// A `jwt` identity for the app `local_name`: `identity`'s key, trusting the
+/// keys in `trusted`.
+async fn jwt_identity(
     local_name: &str,
     identity: &Ed25519Identity,
     trusted: String,
-    conn_id: u64,
-) -> App<AuthProvider, AuthVerifier> {
+) -> (AuthProvider, AuthVerifier) {
     let auth = AuthConfig::Jwt {
         private_key: KeyData::Data(identity.pem.clone()),
         trusted_keys: KeyData::Data(trusted),
@@ -1531,6 +1573,18 @@ async fn start_jwt_receiver(
     let mut verifier = verifier.build_auth_verifier().unwrap();
     provider.initialize().await.unwrap();
     verifier.initialize().await.unwrap();
+    (provider, verifier)
+}
+
+/// A participant app with a `jwt` identity, trusting the keys in `trusted`.
+async fn start_jwt_receiver(
+    service: &Arc<Service>,
+    local_name: &str,
+    identity: &Ed25519Identity,
+    trusted: String,
+    conn_id: u64,
+) -> App<AuthProvider, AuthVerifier> {
+    let (provider, verifier) = jwt_identity(local_name, identity, trusted).await;
 
     let name = ProtoName::parse_name(local_name).unwrap();
     let (app, _rx) = service
@@ -1574,8 +1628,15 @@ async fn test_channel_manager_with_a_jwt_did_key_identity() {
                 key: KeyData::Data(jwks(&[&owner])),
             }),
         )));
-    let process =
-        ChannelManagerProcess::start_with(slim_port, cm_port, state_dir.path(), api, auth).await;
+    let process = ChannelManagerProcess::start_with(
+        slim_port,
+        cm_port,
+        state_dir.path(),
+        api,
+        auth,
+        serde_json::json!({}),
+    )
+    .await;
 
     // Operators read the channel manager's did:key from its startup log.
     let log = std::fs::read_to_string(&process.log).unwrap();
@@ -1638,4 +1699,85 @@ async fn test_channel_manager_with_a_jwt_did_key_identity() {
         .unwrap()
         .into_inner();
     assert!(!resp.success, "an untrusted participant joined");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_owner_approval_comes_from_the_approval_auth_identity() {
+    let (slim_port, _node, service, conn_id) = start_node("approval-auth-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+
+    // The channel manager connects to SLIM with the shared secret, as a
+    // workload identity would, but asks owners for approval as a did:key.
+    let approval = Ed25519Identity::new();
+    let endpoint = Ed25519Identity::new();
+    let trusted = jwks(&[&approval, &endpoint]);
+    let key_path = state_dir.path().join("approval-ed25519.pem");
+    let jwks_path = state_dir.path().join("approval.jwks.json");
+    std::fs::write(&key_path, &approval.pem).unwrap();
+    std::fs::write(&jwks_path, &trusted).unwrap();
+    let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
+    let extra = serde_json::json!({
+        "approval-auth": {
+            "type": "jwt",
+            "private_key": { "file": key_path },
+            "trusted_keys": { "file": jwks_path },
+        },
+    });
+    let cm_port = reserve_local_port();
+    let process = ChannelManagerProcess::start_with(
+        slim_port,
+        cm_port,
+        state_dir.path(),
+        jwt_api(cm_port),
+        auth,
+        extra,
+    )
+    .await;
+
+    // Operators read the did:key to pin in owner endpoints from the log.
+    let log = std::fs::read_to_string(&process.log).unwrap();
+    assert!(
+        log.contains(&approval.did),
+        "approval did:key {} not logged",
+        approval.did
+    );
+
+    // An owner endpoint that is itself a did:key, as SHADI's Desktop is.
+    let owner = Arc::new(Owner::new());
+    let callback = "org/ns/owner-desktop";
+    let participant = "org/ns/approved-participant";
+    let (_endpoint, received) = start_owner_endpoint_as(
+        slim_port,
+        callback,
+        owner.clone(),
+        vec![participant.to_string()],
+        Some(jwt_identity(callback, &endpoint, trusted).await),
+    )
+    .await;
+    let _participant = start_receiver(&service, participant, conn_id).await;
+
+    let mut as_owner = create_cm_client_with(jwt_caller(cm_port, &owner.did)).await;
+    let mut as_agent = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+    let channel = "org/ns/approval-auth-channel";
+    let resp = as_owner
+        .create_channel(create_request(channel, Some(callback)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+
+    let resp = as_agent
+        .add_participant(add_request(channel, participant, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "approved add failed: {:?}", resp.error_msg);
+
+    // The owner endpoint saw the request come from the approval did:key.
+    let requests = received.lock().await;
+    let callers: Vec<_> = requests
+        .iter()
+        .map(|(_, caller)| caller.as_deref())
+        .collect();
+    assert_eq!(callers, vec![Some(approval.did.as_str())]);
 }

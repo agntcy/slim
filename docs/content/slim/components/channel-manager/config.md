@@ -109,6 +109,18 @@ channel-manager:
     #                                       # including this app's own
 
   # ---------------------------------------------------------------------------
+  # approval-auth (optional): identity of the app that asks channel owners
+  # for approval, in place of auth. Same types as auth. A jwt identity lets
+  # owner endpoints recognize this Channel Manager by its did:key.
+  # ---------------------------------------------------------------------------
+  # approval-auth:
+  #   type: jwt
+  #   private_key:
+  #     file: "/path/to/cm-approval-ed25519.pem"
+  #   trusted_keys:
+  #     file: "/path/to/owners.jwks.json"  # owner endpoints' keys, and its own
+
+  # ---------------------------------------------------------------------------
   # channels: list of channels to create automatically on startup.
   # The Channel Manager creates each channel and invites all listed
   # participants before the gRPC API begins accepting connections.
@@ -172,6 +184,10 @@ Authentication options for the Channel Manager's SLIM application identity:
 | `shared_secret` | `secret` | Symmetric key. Sufficient for development and trusted networks. |
 | `spire` | `socket_path` | SPIRE Workload API socket. Recommended for production deployments. |
 | `jwt` | `private_key`, `trusted_keys` | Ed25519 private key (PKCS#8 PEM) and a JWKS of trusted peers' public keys, each as `file:` or inline `data:`. The Channel Manager signs as the key's `did:key` and logs it at startup, for peers' allow-lists. `trusted_keys` must include its own key (MLS checks its own token against it); it refuses to start otherwise. |
+
+### `approval-auth`
+
+Optional. The identity of the app that asks channel owners for approval, `<local-name>-approval`, in place of `auth`. It takes the same types as `auth`. Use `jwt` to have owner endpoints recognize the Channel Manager by a did:key, logged at startup as its owner approval identity, while `auth` keeps, for example, its SPIRE identity. `trusted_keys` must then include the owner endpoints' keys as well as its own. See [Owner approval](./ownership.md#owner-approval).
 
 ### `channels`
 
