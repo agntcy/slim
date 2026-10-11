@@ -5299,7 +5299,8 @@
 <span class="w">    </span><span class="c1"># private_key:</span>
 <span class="w">    </span><span class="c1">#   file: &quot;/path/to/cm-ed25519.pem&quot;     # PKCS#8 PEM</span>
 <span class="w">    </span><span class="c1"># trusted_keys:</span>
-<span class="w">    </span><span class="c1">#   file: &quot;/path/to/members.jwks.json&quot;  # public keys of trusted peers</span>
+<span class="w">    </span><span class="c1">#   file: &quot;/path/to/members.jwks.json&quot;  # public keys of trusted peers,</span>
+<span class="w">    </span><span class="c1">#                                       # including this app&#39;s own</span>
 
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># channels: list of channels to create automatically on startup.</span>
@@ -5391,7 +5392,7 @@
 <tr>
 <td><code>jwt</code></td>
 <td><code>private_key</code>, <code>trusted_keys</code></td>
-<td>Ed25519 private key (PKCS#8 PEM) and a JWKS of trusted peers' public keys, each as <code>file:</code> or inline <code>data:</code>. The Channel Manager signs as the key's <code>did:key</code> and logs it at startup, for peers' allow-lists.</td>
+<td>Ed25519 private key (PKCS#8 PEM) and a JWKS of trusted peers' public keys, each as <code>file:</code> or inline <code>data:</code>. The Channel Manager signs as the key's <code>did:key</code> and logs it at startup, for peers' allow-lists. <code>trusted_keys</code> must include its own key (MLS checks its own token against it); it refuses to start otherwise.</td>
 </tr>
 </tbody>
 </table>
