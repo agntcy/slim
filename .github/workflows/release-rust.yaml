@@ -325,6 +325,26 @@ jobs:
           branch: update-slimctl-cask
           base: main
 
+  # Dispatched rather than called, as in agntcy/shadi: winget-manifests.yml
+  # validates on a Windows runner and pushes to the org's winget-pkgs fork, and
+  # can be rerun on its own for a release tag.
+  release-slimctl-winget:
+    name: Publish slimctl WinGet manifests
+    needs: [resolve-slimctl-release, release-slimctl-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Trigger the WinGet manifest workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref_name }}
+          TAG: ${{ needs.resolve-slimctl-release.outputs.release_tag }}
+        run: |
+          gh workflow run winget-manifests.yml --repo "$REPO" --ref "$REF" \
+            -f release_tag="$TAG" -f publish=true
+
   # Create a PR with the new versions and changelog, preparing the next release.
   release-crates-pr:
     name: Release slim crates - PR
