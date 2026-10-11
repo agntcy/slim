@@ -602,9 +602,7 @@
   {
     "version": "slim-rpc-v3.2.1",
     "title": "slim-rpc-v3.2.1",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-rpc-v3.2.0",
@@ -1085,6 +1083,13 @@
     "version": "slim-config-v0.11.0",
     "title": "slim-config-v0.11.0",
     "aliases": []
+  },
+  {
+    "version": "slim-channel-manager-v3.2.1",
+    "title": "slim-channel-manager-v3.2.1",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-channel-manager-v3.2.0",
