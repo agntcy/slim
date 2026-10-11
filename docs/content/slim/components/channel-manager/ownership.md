@@ -25,7 +25,13 @@ Earlier versions recorded the creator's authenticated identity as the owner. Suc
 
 ## Clients
 
-Applications that hold an owner's key, such as SHADI, create channels and change their participants through the Channel Manager's gRPC API. [`slimctl channel-manager`](../cli/reference/channel-manager/index.md) is for operators: it lists channels and participants, and deletes a channel with a signed delete request from its owner or an operator. It never creates a channel or changes participants on its own authority. For development and testing, `cmctl`, installed with the Channel Manager crate, sends any request, forwarding signed requests and grants from files with `--owner-proof-file` and `--grant-file`.
+Applications that hold an owner's key, such as SHADI, call the Channel Manager's gRPC API directly. Without such an application, the Channel Manager's admin manages channels with [`slimctl channel-manager`](../cli/reference/channel-manager/index.md) and an Ed25519 key:
+
+- `--key` signs each change with the key: a create request, which makes the key's did:key the channel's owner, a grant, or a delete request. `--audience` names the Channel Manager that create and delete requests are for.
+- `--signed-request-file` and `--grant-file` forward a request or grant signed elsewhere instead.
+- `slimctl channel-manager did-key --key` prints a key's did:key, for example to list it in `operators`.
+
+slimctl never sends an unsigned change: it acts on the key holder's authority, never its own.
 
 ## Requiring signatures
 

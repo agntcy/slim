@@ -44,6 +44,7 @@ resolver = "2"
 agntcy-slim = { path = "crates/slim", version = "3.2.1" }
 agntcy-slim-auth = { path = "crates/auth", version = "0.17.1" }
 agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.2.1" }
+agntcy-slim-channel-manager = { path = "crates/channel-manager", version = "3.2.1" }
 agntcy-slim-config = { path = "crates/config", version = "0.17.1" }
 agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.2.1" }
 agntcy-slim-controller = { path = "crates/controller", version = "0.13.7" }

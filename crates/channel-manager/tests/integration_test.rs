@@ -255,7 +255,7 @@ async fn create_cm_client(cm_port: u16) -> ChannelManagerServiceClient<tonic::tr
 }
 
 /// Create a gRPC client for the channel-manager API from a full client
-/// config (TLS, auth), the way `cmctl --client-config` does.
+/// config (TLS, auth).
 async fn create_cm_client_with(
     config: ClientConfig,
 ) -> ChannelManagerServiceClient<
@@ -325,7 +325,7 @@ impl TestPki {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_channel_manager_via_cmctl() {
+async fn test_channel_manager_api_end_to_end() {
     let slim_port = reserve_local_port();
     let cm_port = reserve_local_port();
 

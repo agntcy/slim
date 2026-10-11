@@ -1,6 +1,6 @@
 # slimctl channel-manager
 
-Inspect the group channels a SLIM Channel Manager manages, and delete one with a signed request. `slimctl` never creates channels or changes their participants on its own authority: applications do that through the Channel Manager API with the owner's signature. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md#clients).
+Manage the group channels of a SLIM Channel Manager. Every change is signed by a channel's owner or an operator: here with their Ed25519 key (`--key`), or elsewhere and forwarded. `slimctl` never sends an unsigned change. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md#clients).
 
 **Aliases:** `cm`
 
@@ -16,9 +16,13 @@ slimctl channel-manager <COMMAND>
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
+| [`create-channel`](./create-channel.md) | `cc` | Create a channel, owned by whoever signs the request |
 | [`delete-channel`](./delete-channel.md) | `dc` | Delete a channel, with a delete request its owner or an operator signed |
+| [`add-participant`](./add-participant.md) | `ap` | Add a participant, with a grant from the channel's owner |
+| [`delete-participant`](./delete-participant.md) | `dp` | Remove a participant, with a grant from the channel's owner |
 | [`list-channels`](./list-channels.md) | `lc` | List all channels |
 | [`list-participants`](./list-participants.md) | `lp` | List participants in a channel |
+| [`did-key`](./did-key.md) | — | Print the did:key of an Ed25519 key |
 
 ## Inherited Options
 

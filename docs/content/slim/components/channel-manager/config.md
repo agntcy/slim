@@ -60,7 +60,7 @@ channel-manager:
 
   # ---------------------------------------------------------------------------
   # api-server: the gRPC server the Channel Manager exposes for management
-  # commands (slimctl channel-manager / cmctl).
+  # commands (slimctl channel-manager).
   # ---------------------------------------------------------------------------
   api-server:
     endpoint: "127.0.0.1:10356"
@@ -173,7 +173,7 @@ Controls how the Channel Manager connects to the SLIM data plane node. The endpo
 
 ### `api-server`
 
-The gRPC server address where `slimctl channel-manager` and `cmctl` send management commands. Bind to `0.0.0.0:<port>` to accept connections from other hosts.
+The gRPC server address where `slimctl channel-manager` and applications send management commands. Bind to `0.0.0.0:<port>` to accept connections from other hosts.
 
 ### `local-name`
 

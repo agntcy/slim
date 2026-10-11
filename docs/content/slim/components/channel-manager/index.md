@@ -43,20 +43,28 @@ The Channel Manager holds the moderator role for every channel it creates. When 
 
 **Authentication** — the Channel Manager authenticates using the same options as any SLIM application: shared secret (development), JWT, or SPIRE (production).
 
-## Operating Channels with slimctl
+## Managing Channels with slimctl
 
-Channels are created, and their participants changed, by applications holding the channel owner's key, through the Channel Manager's gRPC API: see [Channel Ownership, Grants and Expiry](./ownership.md). Operators use `slimctl channel-manager` (alias `cm`) to inspect them, and to delete a channel with a signed delete request. The default API endpoint is `127.0.0.1:10356`.
+Applications holding a channel owner's key, such as SHADI, use the Channel Manager's gRPC API. Without one, the Channel Manager's admin uses `slimctl channel-manager` (alias `cm`) with an Ed25519 key, which signs every change: see [Channel Ownership, Grants and Expiry](./ownership.md). The default API endpoint is `127.0.0.1:10356`.
 
 ```bash
+# The admin key's did:key, to list in the config's operators
+slimctl channel-manager did-key --key admin.pem
+
+# Create a channel owned by the admin key (MLS enabled by default)
+slimctl channel-manager create-channel agntcy/ns/team-chat --key admin.pem --audience agntcy/ns/channel-manager
+
+# Invite and remove participants, with grants signed by the same key
+slimctl channel-manager add-participant agntcy/ns/team-chat agntcy/ns/agent-1 --key admin.pem
+slimctl channel-manager delete-participant agntcy/ns/team-chat agntcy/ns/agent-1 --key admin.pem
+
 # List channels, with their owners and expiry times, and participants
 slimctl channel-manager list-channels
 slimctl channel-manager list-participants agntcy/ns/team-chat
 
-# Delete a channel, with a delete request its owner or an operator signed
-slimctl channel-manager delete-channel agntcy/ns/team-chat --signed-request-file delete.json
+# Delete the channel
+slimctl channel-manager delete-channel agntcy/ns/team-chat --key admin.pem --audience agntcy/ns/channel-manager
 ```
-
-For development and testing, `cmctl`, installed with the Channel Manager crate, sends any request to the API.
 
 Connect to a non-default endpoint with `--endpoint`:
 

@@ -27,10 +27,14 @@ pub fn ed25519_did_key_from_pkcs8_pem(pem: &str) -> Result<String, AuthError> {
 
 /// The public key of the Ed25519 key in a PKCS#8 PEM document.
 pub fn ed25519_public_key_from_pkcs8_pem(pem: &str) -> Result<Vec<u8>, AuthError> {
-    let der = pem_contents(pem, "PRIVATE KEY")?;
-    let key_pair = Ed25519KeyPair::from_pkcs8(&der)
-        .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?;
+    let key_pair = ed25519_key_pair_from_pkcs8_pem(pem)?;
     Ok(key_pair.public_key().as_ref().to_vec())
+}
+
+/// The Ed25519 key pair in a PKCS#8 PEM document, for signing.
+pub fn ed25519_key_pair_from_pkcs8_pem(pem: &str) -> Result<Ed25519KeyPair, AuthError> {
+    let der = pem_contents(pem, "PRIVATE KEY")?;
+    Ed25519KeyPair::from_pkcs8(&der).map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))
 }
 
 /// The DER bytes of the first `label` block in `pem`.
