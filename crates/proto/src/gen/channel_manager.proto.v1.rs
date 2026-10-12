@@ -5,10 +5,10 @@ pub struct CreateChannelRequest {
     pub channel_name: ::prost::alloc::string::String,
     #[prost(bool, tag = "2")]
     pub mls_enabled: bool,
-    /// SLIM name (org/namespace/app) at which the creator -- who becomes the
-    /// channel's owner -- can be asked to approve participant changes others
-    /// request without presenting a grant. Without one, such a request is
-    /// denied outright. See ApprovalRequest.
+    /// SLIM name (org/namespace/app) at which the owner can be asked to
+    /// approve participant changes others request without presenting a grant.
+    /// Without one, such a request is denied outright. See ApprovalRequest.
+    /// Requires `owner_proof`: an unowned channel has no one to ask.
     #[prost(string, optional, tag = "3")]
     pub owner_callback_name: ::core::option::Option<::prost::alloc::string::String>,
     /// Seconds until the channel expires and is deleted, along with its
@@ -16,17 +16,29 @@ pub struct CreateChannelRequest {
     /// Unset: the channel lives until deleted explicitly.
     #[prost(uint64, optional, tag = "4")]
     pub ttl_seconds: ::core::option::Option<u64>,
+    /// The owner's signature over this request, in whichever format the
+    /// server's GrantVerifier expects -- opaque bytes here. Its signer becomes
+    /// the channel's owner, and it must cover every field above. Unset: the
+    /// channel has no owner. The caller's authenticated identity never makes
+    /// anyone an owner.
+    #[prost(bytes = "vec", optional, tag = "5")]
+    pub owner_proof: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+/// `owner_proof` is required when the channel has an owner on record: the
+/// owner's signature over deleting this channel, in whichever format the
+/// server's GrantVerifier expects.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct DeleteChannelRequest {
     #[prost(string, tag = "1")]
     pub channel_name: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub owner_proof: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
-/// `grant` is required when the channel has an owner on record and the
-/// caller isn't that owner: a signed grant from the owner authorizing this
-/// exact change. Its format is whichever GrantVerifier the server was built
-/// with expects -- opaque bytes here. Unset (or any other case) means no
-/// grant is being presented.
+/// `grant` is required when the channel has an owner on record: a signed
+/// grant from the owner authorizing this exact change, the owner's own
+/// changes included. Its format is whichever GrantVerifier the server was
+/// built with expects -- opaque bytes here. Unset means no grant is being
+/// presented.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct AddParticipantRequest {
     #[prost(string, tag = "1")]

@@ -21,6 +21,7 @@ use anyhow::Context;
 use clap::Parser;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::traits::{TokenProvider, Verifier};
+use slim_config::auth::AuthConfig;
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::{ProtoName, ProtoSessionType};
 use slim_persistence::{MlsEncryptionKey, PersistenceConfig};
@@ -215,12 +216,63 @@ async fn create_channels_from_config(
     Ok(())
 }
 
-/// Builds and initializes the configured identity provider and verifier for
-/// a SLIM app named `name`.
-async fn identity(config: &Config, name: &str) -> anyhow::Result<(AuthProvider, AuthVerifier)> {
-    let (core_provider, core_verifier) = config
-        .manager
-        .auth
+/// Config settings the binary reads beside `Config` rather than through it:
+/// `ManagerConfig`'s fields are all public, so adding one would break the
+/// library's API.
+#[derive(serde::Deserialize)]
+struct ExtraConfig {
+    #[serde(rename = "channel-manager")]
+    manager: ExtraManagerConfig,
+}
+
+#[derive(serde::Deserialize)]
+struct ExtraManagerConfig {
+    /// What signed create and delete requests must name, in place of
+    /// `local-name`.
+    #[serde(default)]
+    audience: Option<String>,
+    /// Refuse unsigned creates, and changes to channels with no owner.
+    #[serde(default, rename = "require-signatures")]
+    require_signatures: bool,
+    /// did:keys whose signed delete request deletes any channel.
+    #[serde(default)]
+    operators: Vec<String>,
+    /// Identity of the app that asks owners for approval, `<local-name>-approval`,
+    /// in place of `auth`. A `jwt` identity lets owner endpoints recognize
+    /// the channel manager by its did:key while it connects to SLIM as,
+    /// say, a SPIRE workload.
+    #[serde(default, rename = "approval-auth")]
+    approval_auth: Option<AuthConfig>,
+}
+
+impl ExtraConfig {
+    fn load(path: &std::path::Path) -> anyhow::Result<Self> {
+        let data = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config file {}", path.display()))?;
+        let mut value: serde_yaml::Value =
+            serde_yaml::from_str(&data).context("parsing config YAML")?;
+        slim_config::provider::ConfigResolver::new()
+            .resolve(&mut value)
+            .context("resolving config values")?;
+        let extra: Self = serde_yaml::from_value(value).context("deserializing config YAML")?;
+        if extra.manager.audience.as_deref() == Some("") {
+            anyhow::bail!("channel-manager.audience cannot be empty");
+        }
+        if extra.manager.operators.iter().any(String::is_empty) {
+            anyhow::bail!("channel-manager.operators cannot contain an empty entry");
+        }
+        if let Some(auth) = &extra.manager.approval_auth {
+            auth.validate()
+                .context("invalid approval-auth configuration")?;
+        }
+        Ok(extra)
+    }
+}
+
+/// Builds and initializes the identity provider and verifier `auth`
+/// describes, for a SLIM app named `name`.
+async fn identity(auth: &AuthConfig, name: &str) -> anyhow::Result<(AuthProvider, AuthVerifier)> {
+    let (core_provider, core_verifier) = auth
         .to_identity_configs(name)
         .context("invalid auth configuration")?;
 
@@ -257,6 +309,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load configuration
     let config = Config::load(&args.config_file)?;
+    let extra = ExtraConfig::load(&args.config_file)?;
     info!(config_file = %args.config_file.display(), "Configuration loaded");
 
     // Peers that check identities against an allow-list (e.g. SHADI agents)
@@ -268,6 +321,18 @@ async fn main() -> anyhow::Result<()> {
         .context("invalid auth configuration")?
     {
         info!(%did_key, "Channel manager identity");
+    }
+    let approval_auth = extra
+        .manager
+        .approval_auth
+        .as_ref()
+        .unwrap_or(&config.manager.auth);
+    // Owner endpoints pin this to accept approval requests only from here.
+    if let Some(did_key) = approval_auth
+        .did_key()
+        .context("invalid approval-auth configuration")?
+    {
+        info!(%did_key, "Owner approval identity");
     }
 
     // Initialize crypto provider (required before any TLS operations)
@@ -293,7 +358,7 @@ async fn main() -> anyhow::Result<()> {
     // Create the SLIM app with configured authentication
     let app_name = ProtoName::parse_name(&config.manager.local_name)
         .map_err(|e| anyhow::anyhow!("invalid local-name: {e}"))?;
-    let (provider, verifier) = identity(&config, &config.manager.local_name).await?;
+    let (provider, verifier) = identity(&config.manager.auth, &config.manager.local_name).await?;
 
     let persistence = config
         .manager
@@ -376,9 +441,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Owner approval is a request/response call, which the moderator app
     // above can't make: as the groups expect of a moderator, it neither
-    // sends nor receives data. Give it an app of its own.
+    // sends nor receives data. Give it an app of its own, with the
+    // approval-auth identity when one is configured.
     let approval_name = format!("{}-approval", config.manager.local_name);
-    let (provider, verifier) = identity(&config, &approval_name).await?;
+    let (provider, verifier) = identity(approval_auth, &approval_name).await?;
     let (approval_app, _approval_notifications) = service.create_app_with_direction(
         &ProtoName::parse_name(&approval_name)
             .map_err(|e| anyhow::anyhow!("invalid approval app name: {e}"))?,
@@ -398,6 +464,21 @@ async fn main() -> anyhow::Result<()> {
                 Arc::new(approval_app),
                 Some(conn_id),
             )));
+    let audience = extra
+        .manager
+        .audience
+        .unwrap_or_else(|| config.manager.local_name.clone());
+    info!(%audience, "Signed create and delete requests must name this audience");
+    if extra.manager.require_signatures {
+        info!("Refusing unsigned creates and changes to channels with no owner");
+    }
+    for operator in &extra.manager.operators {
+        info!(%operator, "Operator: may delete any channel");
+    }
+    server = server
+        .with_audience(audience)
+        .with_signatures_required(extra.manager.require_signatures)
+        .with_operators(extra.manager.operators);
 
     // Ownership and grant replay state persist exactly when sessions do: a
     // restored channel without its owner would accept changes from anyone.

@@ -24,6 +24,7 @@ path = "src/main.rs"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim = { workspace = true }
 agntcy-slim-auth = { workspace = true }
+agntcy-slim-channel-manager = { workspace = true }
 agntcy-slim-config = { workspace = true }
 agntcy-slim-datapath = { workspace = true }
 agntcy-slim-proto = { workspace = true }
@@ -78,4 +79,5 @@ uuid = { workspace = true }
 agntcy-slim-version = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+aws-lc-rs = { workspace = true }
 tokio-stream = { workspace = true, features = ["net"] }

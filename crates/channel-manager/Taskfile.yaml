@@ -13,13 +13,13 @@ tasks:
       - task -l
 
   build:
-    desc: Build both channel-manager and cmctl binaries
+    desc: Build the channel-manager binary
     dir: "{{.TASKFILE_DIR}}"
     cmds:
       - cargo build -p {{.PACKAGE}} --bins
 
   build:release:
-    desc: Build both binaries in release mode
+    desc: Build the channel-manager binary in release mode
     dir: "{{.TASKFILE_DIR}}"
     cmds:
       - cargo build -p {{.PACKAGE}} --bins --release
@@ -29,12 +29,6 @@ tasks:
     dir: "{{.TASKFILE_DIR}}"
     cmds:
       - cargo build -p {{.PACKAGE}} --bin channel-manager
-
-  build:cmctl:
-    desc: Build only the cmctl binary
-    dir: "{{.TASKFILE_DIR}}"
-    cmds:
-      - cargo build -p {{.PACKAGE}} --bin cmctl
 
   run:channel-manager:
     desc: Run the channel-manager with the base config
