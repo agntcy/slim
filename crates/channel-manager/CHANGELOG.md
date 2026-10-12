@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.2.1...slim-channel-manager-v3.3.0) - 2026-10-12
+
+### Added
+
+- *(channel-manager)* approval-auth, a separate identity for owner approval ([#2234](https://github.com/agntcy/slim/pull/2234))
+- *(slimctl)* manage channels with an owner's or operator's key; remove cmctl ([#2236](https://github.com/agntcy/slim/pull/2236))
+- *(channel-manager)* require-signatures switch and operator deletes ([#2235](https://github.com/agntcy/slim/pull/2235))
+- *(channel-manager)* ownership from the owner's signature, not the caller's identity ([#2233](https://github.com/agntcy/slim/pull/2233))
+
 ## [3.2.1](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.2.0...slim-channel-manager-v3.2.1) - 2026-10-11
 
 ### Other

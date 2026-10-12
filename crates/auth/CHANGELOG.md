@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.2](https://github.com/agntcy/slim/compare/slim-auth-v0.17.1...slim-auth-v0.17.2) - 2026-10-12
+
+### Added
+
+- *(slimctl)* manage channels with an owner's or operator's key; remove cmctl ([#2236](https://github.com/agntcy/slim/pull/2236))
+
 ## [0.17.1](https://github.com/agntcy/slim/compare/slim-auth-v0.17.0...slim-auth-v0.17.1) - 2026-10-11
 
 ### Fixed

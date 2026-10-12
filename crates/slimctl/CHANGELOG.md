@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0](https://github.com/agntcy/slim/compare/slimctl-v3.2.1...slimctl-v3.3.0) - 2026-10-12
+
+### Added
+
+- *(slimctl)* manage channels with an owner's or operator's key; remove cmctl ([#2236](https://github.com/agntcy/slim/pull/2236))
+- *(channel-manager)* ownership from the owner's signature, not the caller's identity ([#2233](https://github.com/agntcy/slim/pull/2233))
+
+### Fixed
+
+- report the crate version in slim and slimctl build info ([#2227](https://github.com/agntcy/slim/pull/2227))
+- *(slimctl)* redact secrets in config list, write config.yaml private ([#2223](https://github.com/agntcy/slim/pull/2223))
+
+### Other
+
+- publish slimctl WinGet manifests on release ([#2218](https://github.com/agntcy/slim/pull/2218))
+
 ## [3.2.1](https://github.com/agntcy/slim/compare/slimctl-v3.2.0...slimctl-v3.2.1) - 2026-10-11
 
 ### Other
