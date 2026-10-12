@@ -1429,10 +1429,7 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_peer_sync_starts_with_static_discovery() {
-        let port = {
-            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap().port()
-        };
+        let port = slim_testing::common::reserve_local_port();
 
         let tls_config = TlsServerConfig::new().with_insecure(true);
         let server_config =

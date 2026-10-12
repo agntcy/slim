@@ -59,6 +59,9 @@ cfg-if = { workspace = true }
 clap = { workspace = true }
 test-fork = { workspace = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+agntcy-slim-testing = { workspace = true }
+
 [[example]]
 name = "receiver"
 path = "examples/receiver.rs"
