@@ -305,8 +305,15 @@ impl super::RouteService {
                 // survived its crash: its dependent routes were dropped when it
                 // went away, and nothing re-expands them (the reconciler marks
                 // the link Applied but is not an expansion trigger). If this node
-                // still holds the claim on an Applied link, re-run the idempotent
-                // wildcard expansion so the recovered node's routes come back.
+                // still holds the claim, re-run the idempotent wildcard expansion
+                // so the recovered node's routes come back.
+                //
+                // The link need not be Applied yet: the restore on re-registration
+                // reset it to Pending, and this report can beat the source's ACK.
+                // Expansion skips links that aren't Applied, and the ACK doesn't
+                // re-expand, so mark it Applied here, as claim_link does for a
+                // first claim: the destination seeing the connection is what
+                // establishes a link.
                 let link = self
                     .0
                     .db
@@ -317,10 +324,21 @@ impl super::RouteService {
                     .find(|l| {
                         l.link_id == link_id
                             && l.dest_node_id == node_id
-                            && l.status == crate::db::LinkStatus::Applied
+                            && l.status != crate::db::LinkStatus::Deleted
                     });
                 match link {
-                    Some(link) => {
+                    Some(mut link) => {
+                        if link.status != crate::db::LinkStatus::Applied {
+                            link.status = crate::db::LinkStatus::Applied;
+                            link.status_msg = String::new();
+                            link.last_updated = std::time::SystemTime::now();
+                            if let Err(e) = self.0.db.update_link(link.clone()).await {
+                                tracing::error!(
+                                    "connection_received: failed to mark link {link_id} Applied for {node_id}: {e}"
+                                );
+                                return;
+                            }
+                        }
                         tracing::info!(
                             "connection_received: link {link_id} already claimed by {node_id}; re-expanding routes after reconnect"
                         );
@@ -357,5 +375,69 @@ impl super::RouteService {
             .await;
         self.0.queue.add(source_node_id.to_string());
         self.0.queue.add(dest_node_id.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use slim_config::client::ServerConnectionConfig;
+    use slim_datapath::api::ProtoName;
+
+    use super::super::test_utils::{make_node, make_route_service};
+    use super::*;
+    use crate::db::LinkStatus;
+    use crate::db::inmemory::InMemoryDb;
+
+    /// A node that reconnects over a link it still holds the claim on can
+    /// report the connection before the source's ACK marks the link Applied.
+    /// The report alone must establish the link and bring its routes back.
+    #[tokio::test]
+    async fn reconnect_report_before_the_ack_restores_routes() {
+        let db = InMemoryDb::shared();
+        db.save_node(make_node("node-a", Some("domain-a"), vec![]))
+            .await
+            .unwrap();
+        db.save_node(make_node("node-b", Some("domain-b"), vec![]))
+            .await
+            .unwrap();
+        let svc = make_route_service(db.clone());
+        let all_nodes = db.list_nodes().await.unwrap();
+        svc.rebuild_link_graph(&all_nodes).await;
+
+        // As restored after node-b crashed: still claimed by node-b, but Pending.
+        db.add_link(crate::db::Link {
+            link_id: "link-ab".to_string(),
+            source_node_id: "node-a".to_string(),
+            source_domain: String::new(),
+            dest_node_id: "node-b".to_string(),
+            dest_domain: String::new(),
+            dest_endpoint: "node-b:8080".to_string(),
+            conn_config_data: ServerConnectionConfig::default(),
+            status: LinkStatus::Pending,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        })
+        .await
+        .unwrap();
+
+        // An app on node-a; its wildcard route can't expand over a Pending link.
+        let route = ProtoRoute {
+            name: Some(ProtoName::from_strings(["org", "ns", "svc"])),
+            ..Default::default()
+        };
+        svc.add_route(ALL_NODES_ID, "node-a", &route).await.unwrap();
+        assert!(db.get_routes_for_node("node-b").await.unwrap().is_empty());
+
+        svc.connection_received("node-b", "link-ab").await;
+
+        let link = db.get_link("link-ab", "", "").await.unwrap().unwrap();
+        assert_eq!(link.status, LinkStatus::Applied);
+        assert!(
+            !db.get_routes_for_node("node-b").await.unwrap().is_empty(),
+            "node-b should get its route to node-a back"
+        );
     }
 }

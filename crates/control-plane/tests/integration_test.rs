@@ -1355,11 +1355,14 @@ async fn test_node_crash_and_link_recovery() {
     let a_port = reserve_port();
     let b_port = reserve_port();
 
-    let node_a = start_single_node("node-a", "domain-a", cp.southbound_port, a_port).await;
-    let node_b = start_single_node("node-b", "domain-b", cp.southbound_port, b_port).await;
-
     let id_a = domain_node_id("domain-a", "node-a");
     let id_b = domain_node_id("domain-b", "node-b");
+
+    // node-b registers first, so node-a, registering second, opens the link and
+    // node-b is its destination. Otherwise either can end up on either side.
+    let node_b = start_single_node("node-b", "domain-b", cp.southbound_port, b_port).await;
+    wait_for_nodes_connected(&mut client, &[&id_b], SHORT_TIMEOUT).await;
+    let node_a = start_single_node("node-a", "domain-a", cp.southbound_port, a_port).await;
 
     wait_for_nodes_connected(&mut client, &[&id_a, &id_b], SHORT_TIMEOUT).await;
     wait_for_link_between_domains(&mut client, "domain-a", "domain-b", DEFAULT_TIMEOUT).await;
