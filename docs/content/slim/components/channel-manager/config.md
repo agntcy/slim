@@ -93,6 +93,16 @@ channel-manager:
   # audience: "agntcy/prod/channel-manager"
 
   # ---------------------------------------------------------------------------
+  # require-signatures (optional, default false): refuse unsigned creates,
+  # and changes to channels that have no owner.
+  # operators (optional): did:keys whose signed delete request deletes any
+  # channel. They can't change a channel's participants.
+  # ---------------------------------------------------------------------------
+  # require-signatures: true
+  # operators:
+  #   - "did:key:z6Mk..."
+
+  # ---------------------------------------------------------------------------
   # auth: how this Channel Manager authenticates its own SLIM application
   # identity to the SLIM node.
   # ---------------------------------------------------------------------------
@@ -172,6 +182,14 @@ The SLIM name the Channel Manager registers as. Use a unique three-component nam
 ### `audience`
 
 Optional. The value an owner's signed create and delete requests must name as their `audience` ([Channel Ownership, Grants and Expiry](./ownership.md#create-request)), so a request signed for one Channel Manager can't be replayed against another. Defaults to `local-name`. Set it to a value unique to the deployment when several deployments share a `local-name`, for example development and production.
+
+### `require-signatures`
+
+Optional, `false` by default. When `true`, the Channel Manager refuses a create request without the owner's signature, and refuses changes to channels that have no owner. Turn it on once every client signs its creates. See [Requiring signatures](./ownership.md#requiring-signatures).
+
+### `operators`
+
+Optional. A list of did:keys whose signed delete request deletes any channel, for example one whose owner's key is lost. Operators can't add or remove participants. See [Operators](./ownership.md#operators).
 
 ### `auth`
 

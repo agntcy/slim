@@ -215,37 +215,46 @@ async fn create_channels_from_config(
     Ok(())
 }
 
-/// The config's optional `channel-manager.audience`: what signed create and
-/// delete requests must name, in place of `local-name`. Read beside
-/// `Config` rather than through it: `ManagerConfig`'s fields are all
-/// public, so adding one would break the library's API.
+/// Config settings the binary reads beside `Config` rather than through it:
+/// `ManagerConfig`'s fields are all public, so adding one would break the
+/// library's API.
 #[derive(serde::Deserialize)]
-struct AudienceConfig {
+struct ExtraConfig {
     #[serde(rename = "channel-manager")]
-    manager: AudienceSection,
+    manager: ExtraManagerConfig,
 }
 
 #[derive(serde::Deserialize)]
-struct AudienceSection {
+struct ExtraManagerConfig {
+    /// What signed create and delete requests must name, in place of
+    /// `local-name`.
     #[serde(default)]
     audience: Option<String>,
+    /// Refuse unsigned creates, and changes to channels with no owner.
+    #[serde(default, rename = "require-signatures")]
+    require_signatures: bool,
+    /// did:keys whose signed delete request deletes any channel.
+    #[serde(default)]
+    operators: Vec<String>,
 }
 
-fn load_audience(path: &std::path::Path) -> anyhow::Result<Option<String>> {
-    let data = std::fs::read_to_string(path)
-        .with_context(|| format!("reading config file {}", path.display()))?;
-    let mut value: serde_yaml::Value =
-        serde_yaml::from_str(&data).context("parsing config YAML")?;
-    slim_config::provider::ConfigResolver::new()
-        .resolve(&mut value)
-        .context("resolving config values")?;
-    let config: AudienceConfig =
-        serde_yaml::from_value(value).context("deserializing channel-manager.audience")?;
-    match config.manager.audience {
-        Some(audience) if audience.is_empty() => {
-            anyhow::bail!("channel-manager.audience cannot be empty")
+impl ExtraConfig {
+    fn load(path: &std::path::Path) -> anyhow::Result<Self> {
+        let data = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config file {}", path.display()))?;
+        let mut value: serde_yaml::Value =
+            serde_yaml::from_str(&data).context("parsing config YAML")?;
+        slim_config::provider::ConfigResolver::new()
+            .resolve(&mut value)
+            .context("resolving config values")?;
+        let extra: Self = serde_yaml::from_value(value).context("deserializing config YAML")?;
+        if extra.manager.audience.as_deref() == Some("") {
+            anyhow::bail!("channel-manager.audience cannot be empty");
         }
-        audience => Ok(audience),
+        if extra.manager.operators.iter().any(String::is_empty) {
+            anyhow::bail!("channel-manager.operators cannot contain an empty entry");
+        }
+        Ok(extra)
     }
 }
 
@@ -291,7 +300,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load configuration
     let config = Config::load(&args.config_file)?;
-    let audience = load_audience(&args.config_file)?;
+    let extra = ExtraConfig::load(&args.config_file)?;
     info!(config_file = %args.config_file.display(), "Configuration loaded");
 
     // Peers that check identities against an allow-list (e.g. SHADI agents)
@@ -433,9 +442,21 @@ async fn main() -> anyhow::Result<()> {
                 Arc::new(approval_app),
                 Some(conn_id),
             )));
-    let audience = audience.unwrap_or_else(|| config.manager.local_name.clone());
+    let audience = extra
+        .manager
+        .audience
+        .unwrap_or_else(|| config.manager.local_name.clone());
     info!(%audience, "Signed create and delete requests must name this audience");
-    server = server.with_audience(audience);
+    if extra.manager.require_signatures {
+        info!("Refusing unsigned creates and changes to channels with no owner");
+    }
+    for operator in &extra.manager.operators {
+        info!(%operator, "Operator: may delete any channel");
+    }
+    server = server
+        .with_audience(audience)
+        .with_signatures_required(extra.manager.require_signatures)
+        .with_operators(extra.manager.operators);
 
     // Ownership and grant replay state persist exactly when sessions do: a
     // restored channel without its owner would accept changes from anyone.

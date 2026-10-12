@@ -17,11 +17,19 @@ Every change to an owned channel needs its owner's signature, including changes 
 - **Participants:** each addition or removal needs a grant, a statement signed by the owner authorizing one specific change, passed with `--grant-file`. If the request carries no grant and the owner gave `--owner-callback-name` when creating the channel, the Channel Manager asks the owner for one, as described below.
 - **Deleting the channel:** needs the owner's signed delete request, passed with `--owner-proof-file`.
 
-A grant must name the channel, the participant and the action (`add` or `delete`) of the request it is used for. Grants and signed requests must not be expired, and each is accepted only once. On a channel with no owner, participants are added and removed, and the channel deleted, without any of them.
+A grant must name the channel, the participant and the action (`add` or `delete`) of the request it is used for. Grants and signed requests must not be expired, and each is accepted only once. On a channel with no owner, participants are added and removed, and the channel deleted, without any of them. With [`require-signatures`](#requiring-signatures), they can't be at all.
 
 ### Channels owned by a login identity
 
-Earlier versions recorded the creator's authenticated identity as the owner. Such a channel keeps that owner, but no signature can be checked against an OIDC subject or a SPIFFE ID, so its participants can no longer be changed and it can't be deleted through the API. It still expires if it was created with a time to live.
+Earlier versions recorded the creator's authenticated identity as the owner. Such a channel keeps that owner, but no signature can be checked against an OIDC subject or a SPIFFE ID, so its participants can no longer be changed. An [operator](#operators) can delete it, and it still expires if it was created with a time to live.
+
+## Requiring signatures
+
+By default a channel can still be created without a signature, and then has no owner, so existing clients keep working while they move to signed requests. With [`require-signatures`](./config.md#require-signatures) set, the Channel Manager refuses an unsigned create, and refuses every change to a channel that has no owner, such as one created before it was set. Only an operator can delete such a channel.
+
+## Operators
+
+An operator is a did:key listed in the Channel Manager's [`operators`](./config.md#operators). Their signed delete request, in the same format as an owner's and passed the same way with `--owner-proof-file`, deletes any channel: one whose owner's key is lost, one frozen by a login identity owner, or one with no owner. Operators don't own channels, and can't add or remove participants.
 
 ## Signed formats
 
@@ -81,7 +89,7 @@ Signed bytes: `SLIM-CHANNEL-CREATE/1`, `audience`, `channel`, `owner`, `mls_enab
 }
 ```
 
-Signed bytes: `SLIM-CHANNEL-DELETE/1`, `audience`, `channel`, `not_after`, `nonce`. The signature is checked against the channel's owner. As for a create request, `audience` must name this Channel Manager and `not_after` may be at most 24 hours ahead.
+Signed bytes: `SLIM-CHANNEL-DELETE/1`, `audience`, `channel`, `not_after`, `nonce`. The signature is checked against the channel's owner, then against each operator. As for a create request, `audience` must name this Channel Manager and `not_after` may be at most 24 hours ahead.
 
 ### Other verifiers
 

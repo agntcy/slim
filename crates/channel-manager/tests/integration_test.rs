@@ -1658,6 +1658,55 @@ async fn test_a_configured_audience_replaces_the_local_name() {
     assert!(resp.success, "create failed: {:?}", resp.error_msg);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_required_signatures_and_an_operator_delete() {
+    let (slim_port, _node, _service, _conn_id) = start_node("strict-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+    let operator = Owner::new();
+    let cm_port = reserve_local_port();
+    let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
+    let extra = serde_json::json!({ "require-signatures": true, "operators": [operator.did] });
+    let _process = ChannelManagerProcess::start_with(
+        slim_port,
+        cm_port,
+        state_dir.path(),
+        jwt_api(cm_port),
+        auth,
+        extra,
+    )
+    .await;
+    let owner = Owner::new();
+    let mut client = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+
+    let channel = "org/ns/strict-channel";
+    let resp = client
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "requires a create request signed");
+    let resp = client
+        .create_channel(owner.sign_create(create_request(channel, None)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "signed create failed: {:?}", resp.error_msg);
+
+    // Neither a stranger's signature nor none deletes it; an operator's does.
+    let resp = client
+        .delete_channel(Owner::new().delete_request(channel))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "invalid signed delete request");
+    let resp = client
+        .delete_channel(operator.delete_request(channel))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "operator delete failed: {:?}", resp.error_msg);
+}
+
 // --- A did:key (JWT) identity for the channel manager's SLIM apps ---
 
 /// An Ed25519 identity, generated when the test starts: its PKCS#8 PEM, its
