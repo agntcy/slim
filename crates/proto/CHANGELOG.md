@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agntcy/slim/compare/slim-proto-v0.7.2...slim-proto-v0.8.0) - 2026-10-12
+
+### Added
+
+- *(channel-manager)* ownership from the owner's signature, not the caller's identity ([#2233](https://github.com/agntcy/slim/pull/2233))
+
 ## [0.7.2](https://github.com/agntcy/slim/compare/slim-proto-v0.7.1...slim-proto-v0.7.2) - 2026-10-11
 
 ### Other
