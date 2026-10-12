@@ -117,9 +117,7 @@
   {
     "version": "slim-version-v3.3.0",
     "title": "slim-version-v3.3.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-version-v3.2.1",
@@ -1325,6 +1323,13 @@
     "version": "slim-bindings-v2.0.0-alpha.4",
     "title": "slim-bindings-v2.0.0-alpha.4",
     "aliases": []
+  },
+  {
+    "version": "slim-auth-v0.17.2",
+    "title": "slim-auth-v0.17.2",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-auth-v0.17.1",
