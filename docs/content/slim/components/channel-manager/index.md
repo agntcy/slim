@@ -37,7 +37,7 @@ The Channel Manager holds the moderator role for every channel it creates. When 
 
 **Startup channel provisioning** — channels and their initial participants can be declared in the configuration file. The Channel Manager creates them and completes all invitation handshakes automatically when it starts.
 
-**Two management modes** — the Channel Manager operates in either config-mode or API-mode, mirroring the Controller's topology model. When channels are declared in the configuration file (config-mode), `slimctl channel-manager` commands are read-only. When no channels are pre-configured (API-mode), channels and participants can be created and modified at any time using `slimctl channel-manager` commands without restarting the service.
+**Two management modes** — the Channel Manager operates in either config-mode or API-mode, mirroring the Controller's topology model. When channels are declared in the configuration file (config-mode), the API refuses changes to them. When no channels are pre-configured (API-mode), applications create channels and change their participants at any time through the Channel Manager's gRPC API, with the channel owner's signature, without restarting the service.
 
 **MLS encryption** — channels are created with MLS end-to-end encryption enabled by default. Each membership change triggers a key rotation, so former members cannot read future messages and new members cannot read past messages. MLS can be disabled per-channel if not required.
 
@@ -45,25 +45,25 @@ The Channel Manager holds the moderator role for every channel it creates. When 
 
 ## Managing Channels with slimctl
 
-Once the Channel Manager is running, use `slimctl channel-manager` (alias `cm`) to manage channels and participants. The default API endpoint is `127.0.0.1:10356`.
+Applications holding a channel owner's key, such as SHADI, use the Channel Manager's gRPC API. Without one, the Channel Manager's admin uses `slimctl channel-manager` (alias `cm`) with an Ed25519 key, which signs every change: see [Channel Ownership, Grants and Expiry](./ownership.md). The default API endpoint is `127.0.0.1:10356`.
 
 ```bash
-# Create a channel (MLS enabled by default)
-slimctl channel-manager create-channel agntcy/ns/team-chat
+# The admin key's did:key, to list in the config's operators
+slimctl channel-manager did-key --key admin.pem
 
-# Add participants
-slimctl channel-manager add-participant agntcy/ns/team-chat agntcy/ns/agent-1
-slimctl channel-manager add-participant agntcy/ns/team-chat agntcy/ns/agent-2
+# Create a channel owned by the admin key (MLS enabled by default)
+slimctl channel-manager create-channel agntcy/ns/team-chat --key admin.pem --audience agntcy/ns/channel-manager
 
-# List channels and participants
+# Invite and remove participants, with grants signed by the same key
+slimctl channel-manager add-participant agntcy/ns/team-chat agntcy/ns/agent-1 --key admin.pem
+slimctl channel-manager delete-participant agntcy/ns/team-chat agntcy/ns/agent-1 --key admin.pem
+
+# List channels, with their owners and expiry times, and participants
 slimctl channel-manager list-channels
 slimctl channel-manager list-participants agntcy/ns/team-chat
 
-# Remove a participant
-slimctl channel-manager delete-participant agntcy/ns/team-chat agntcy/ns/agent-2
-
-# Delete a channel
-slimctl channel-manager delete-channel agntcy/ns/team-chat
+# Delete the channel
+slimctl channel-manager delete-channel agntcy/ns/team-chat --key admin.pem --audience agntcy/ns/channel-manager
 ```
 
 Connect to a non-default endpoint with `--endpoint`:

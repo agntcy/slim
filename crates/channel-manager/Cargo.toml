@@ -10,10 +10,6 @@ repository = "https://github.com/agntcy/slim"
 name = "channel-manager"
 path = "src/bin/channel_manager.rs"
 
-[[bin]]
-name = "cmctl"
-path = "src/bin/cmctl.rs"
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-auth = { workspace = true }
 agntcy-slim-config = { workspace = true }

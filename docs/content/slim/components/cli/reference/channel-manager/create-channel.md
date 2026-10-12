@@ -1,35 +1,29 @@
 # slimctl channel-manager create-channel
 
-Create a new group channel. With a create request signed by its owner, the channel has that owner; without one it has none. Your login to the Channel Manager never makes you an owner. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
+Create a group channel. Whoever signs the create request owns the channel: sign it here with `--key`, or forward one signed elsewhere with `--signed-request-file`. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
 
 **Aliases:** `cc`
 
 ## Usage
 
 ```
-slimctl channel-manager create-channel <CHANNEL> [OPTIONS]
+slimctl channel-manager create-channel <CHANNEL> (--key <PATH> --audience <AUDIENCE> | --signed-request-file <PATH>) [OPTIONS]
 ```
 
 ## Examples
 
-Create a channel with MLS encryption enabled (default):
+Create a channel owned by the admin key, with MLS (the default):
 
 ```bash
-slimctl channel-manager create-channel agntcy/team/general
+slimctl channel-manager create-channel agntcy/team/general --key admin.pem --audience agntcy/prod/channel-manager
 ```
 
-Create a channel without MLS encryption:
-
-```bash
-slimctl channel-manager create-channel agntcy/team/broadcast --disable-mls
-```
-
-Create an owned task channel that is deleted after an hour, and that asks its owner to approve participant changes others request. `create.json` is the owner's signed create request for exactly these settings:
+A task channel deleted after an hour, whose owner is asked to approve participant changes others request:
 
 ```bash
 slimctl channel-manager create-channel agntcy/tasks/review-42 \
   --ttl-seconds 3600 --owner-callback-name agntcy/people/alice \
-  --owner-proof-file create.json
+  --key admin.pem --audience agntcy/prod/channel-manager
 ```
 
 ## Options
@@ -37,10 +31,12 @@ slimctl channel-manager create-channel agntcy/tasks/review-42 \
 | Argument / Flag | Default | Required | Description |
 |-----------------|---------|----------|-------------|
 | `<CHANNEL>` | — | **Yes** | Channel name in `org/namespace/channel` format |
-| `--disable-mls` | `false` | No | Disable MLS end-to-end encryption for this channel (MLS is enabled by default) |
-| `--owner-callback-name <NAME>` | — | No | SLIM name (`org/namespace/app`) at which the owner is asked to approve participant changes others request without a grant. Needs `--owner-proof-file` |
+| `--key <PATH>` | — | One of these two | Ed25519 private key (PKCS#8 PEM) to sign the request with. Its did:key becomes the owner |
+| `--signed-request-file <PATH>` | — | One of these two | File holding a create request signed elsewhere, covering these exact settings; `-` reads standard input |
+| `--audience <AUDIENCE>` | `$SLIMCTL_CM_AUDIENCE` | With `--key` | The Channel Manager the request is for: its [`audience`](../../../channel-manager/config.md#audience), its `local-name` by default |
+| `--disable-mls` | `false` | No | Disable MLS end-to-end encryption for this channel |
+| `--owner-callback-name <NAME>` | — | No | SLIM name (`org/namespace/app`) at which the owner is asked to approve participant changes others request without a grant |
 | `--ttl-seconds <SECONDS>` | — | No | Delete the channel automatically this many seconds after creation |
-| `--owner-proof-file <PATH>` | — | No | File holding the create request signed by the channel's owner, covering these exact settings; `-` reads standard input. Its signer becomes the owner |
 
 ## Inherited Options
 

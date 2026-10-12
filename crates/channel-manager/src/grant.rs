@@ -17,7 +17,7 @@
 
 use std::fmt;
 
-use aws_lc_rs::signature::{self, UnparsedPublicKey};
+use aws_lc_rs::signature::{self, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 use serde::{Deserialize, Serialize};
 
 /// Which change a grant authorizes. Part of what's signed, so a grant to
@@ -104,8 +104,10 @@ impl fmt::Display for GrantError {
             GrantError::UnsupportedOwnerFormat(owner) => {
                 write!(f, "unsupported owner identifier format: {owner}")
             }
-            GrantError::MalformedGrant(reason) => write!(f, "malformed grant: {reason}"),
-            GrantError::InvalidSignature => write!(f, "invalid grant signature"),
+            GrantError::MalformedGrant(reason) => write!(f, "malformed: {reason}"),
+            GrantError::InvalidSignature => {
+                write!(f, "the signature does not verify against the signer's key")
+            }
         }
     }
 }
@@ -309,6 +311,87 @@ fn decode_ed25519_did_key(owner: &str) -> Result<[u8; 32], GrantError> {
             Ok(pubkey)
         }
         _ => Err(unsupported()),
+    }
+}
+
+/// An Ed25519 key that signs grants and create and delete requests in the
+/// formats [`DidKeyEd25519Verifier`] checks: a channel owner's key, or an
+/// operator's. Kept beside the verifier so the two can't drift apart.
+pub struct SigningKey {
+    key_pair: Ed25519KeyPair,
+    did_key: String,
+}
+
+impl SigningKey {
+    /// Loads an Ed25519 private key from a PKCS#8 PEM document, as
+    /// `openssl genpkey -algorithm ed25519` writes.
+    pub fn from_pkcs8_pem(pem: &str) -> Result<Self, slim_auth::errors::AuthError> {
+        let key_pair = slim_auth::did_key::ed25519_key_pair_from_pkcs8_pem(pem)?;
+        let did_key = slim_auth::did_key::ed25519_did_key(key_pair.public_key().as_ref());
+        Ok(SigningKey { key_pair, did_key })
+    }
+
+    /// The key's `did:key`: the owner its create requests name, and how
+    /// `operators` lists it.
+    pub fn did_key(&self) -> &str {
+        &self.did_key
+    }
+
+    fn signature(&self, message: &[u8]) -> String {
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            self.key_pair.sign(message).as_ref(),
+        )
+    }
+
+    /// `grant`, signed: the bytes a request's `grant` field carries.
+    pub fn sign_grant(&self, grant: &Grant) -> Vec<u8> {
+        let signed = SignedGrant {
+            channel: grant.channel.clone(),
+            invitee: grant.invitee.clone(),
+            action: grant.action,
+            role: grant.role.clone(),
+            not_after: grant.not_after,
+            nonce: grant.nonce.clone(),
+            signature: self.signature(&canonical_bytes(grant)),
+        };
+        serde_json::to_vec(&signed).expect("a signed grant serializes")
+    }
+
+    /// `creation`, signed: the bytes `CreateChannelRequest.owner_proof`
+    /// carries. Its `owner` must be this key's did:key, since a signed
+    /// create names its signer.
+    pub fn sign_create(&self, creation: &ChannelCreation) -> Result<Vec<u8>, GrantError> {
+        if creation.owner != self.did_key {
+            return Err(GrantError::MalformedGrant(
+                "a signed create request's owner must be the signing key's did:key".to_string(),
+            ));
+        }
+        let signed = SignedCreate {
+            audience: creation.audience.clone(),
+            channel: creation.channel.clone(),
+            owner: creation.owner.clone(),
+            mls_enabled: creation.mls_enabled,
+            ttl_seconds: creation.ttl_seconds,
+            owner_callback_name: creation.owner_callback_name.clone(),
+            not_after: creation.not_after,
+            nonce: creation.nonce.clone(),
+            signature: self.signature(&create_canonical_bytes(creation)),
+        };
+        Ok(serde_json::to_vec(&signed).expect("a signed create request serializes"))
+    }
+
+    /// `deletion`, signed: the bytes `DeleteChannelRequest.owner_proof`
+    /// carries.
+    pub fn sign_delete(&self, deletion: &ChannelDeletion) -> Vec<u8> {
+        let signed = SignedDelete {
+            audience: deletion.audience.clone(),
+            channel: deletion.channel.clone(),
+            not_after: deletion.not_after,
+            nonce: deletion.nonce.clone(),
+            signature: self.signature(&delete_canonical_bytes(deletion)),
+        };
+        serde_json::to_vec(&signed).expect("a signed delete request serializes")
     }
 }
 
@@ -819,6 +902,61 @@ mod tests {
         assert!(matches!(
             DidKeyEd25519Verifier.verify(&owner, &bytes),
             Err(GrantError::UnsupportedOwnerFormat(_))
+        ));
+    }
+
+    // ── SigningKey ────────────────────────────────────────────────────
+
+    /// A fresh key as a PKCS#8 PEM document.
+    fn new_pem() -> String {
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+        let body =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, pkcs8.as_ref());
+        format!("-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----\n")
+    }
+
+    #[test]
+    fn a_signing_key_loads_a_pem_and_knows_its_did_key() {
+        let pem = new_pem();
+        let key = SigningKey::from_pkcs8_pem(&pem).unwrap();
+        assert_eq!(
+            key.did_key(),
+            slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap()
+        );
+        assert!(SigningKey::from_pkcs8_pem("not a key").is_err());
+    }
+
+    #[test]
+    fn what_a_signing_key_signs_the_default_verifier_accepts() {
+        let key = SigningKey::from_pkcs8_pem(&new_pem()).unwrap();
+        let owner = key.did_key().to_string();
+
+        let grant_bytes = key.sign_grant(&grant());
+        assert_eq!(
+            DidKeyEd25519Verifier.verify(&owner, &grant_bytes),
+            Ok(grant())
+        );
+
+        let create_bytes = key.sign_create(&creation(&owner)).unwrap();
+        assert_eq!(
+            DidKeyEd25519Verifier.verify_create(&create_bytes),
+            Ok(creation(&owner))
+        );
+
+        let delete_bytes = key.sign_delete(&deletion());
+        assert_eq!(
+            DidKeyEd25519Verifier.verify_delete(&owner, &delete_bytes),
+            Ok(deletion())
+        );
+    }
+
+    #[test]
+    fn a_signing_key_refuses_a_create_naming_another_owner() {
+        let key = SigningKey::from_pkcs8_pem(&new_pem()).unwrap();
+        let (_, someone_else) = new_owner();
+        assert!(matches!(
+            key.sign_create(&creation(&someone_else)),
+            Err(GrantError::MalformedGrant(_))
         ));
     }
 }

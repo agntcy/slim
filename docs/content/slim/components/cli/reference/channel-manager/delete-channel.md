@@ -1,25 +1,27 @@
 # slimctl channel-manager delete-channel
 
-Delete a group channel. A channel with an owner can only be deleted with a delete request its owner signed: see [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
+Delete a group channel, with a delete request signed by its owner or by an operator: signed here with `--key`, or signed elsewhere and forwarded with `--signed-request-file`. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md#delete-request).
 
 **Aliases:** `dc`
 
 ## Usage
 
 ```
-slimctl channel-manager delete-channel <CHANNEL> [OPTIONS]
+slimctl channel-manager delete-channel <CHANNEL> (--key <PATH> --audience <AUDIENCE> | --signed-request-file <PATH>)
 ```
 
 ## Examples
 
+Signed with the admin's key:
+
 ```bash
-slimctl channel-manager delete-channel agntcy/team/general
+slimctl channel-manager delete-channel agntcy/team/general --key admin.pem --audience agntcy/prod/channel-manager
 ```
 
-With the owner's signed delete request, read from a file or from standard input:
+With a delete request signed elsewhere, read from a file:
 
 ```bash
-slimctl channel-manager delete-channel agntcy/team/general --owner-proof-file delete.json
+slimctl channel-manager delete-channel agntcy/team/general --signed-request-file delete.json
 ```
 
 ## Options
@@ -27,7 +29,9 @@ slimctl channel-manager delete-channel agntcy/team/general --owner-proof-file de
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `<CHANNEL>` | **Yes** | Channel name in `org/namespace/channel` format |
-| `--owner-proof-file <PATH>` | No | File holding a delete request signed by the channel's owner; `-` reads standard input. Needed when the channel has an owner |
+| `--key <PATH>` | One of these two | Ed25519 private key (PKCS#8 PEM) of the channel's owner or an operator, to sign the request with |
+| `--signed-request-file <PATH>` | One of these two | File holding a delete request signed elsewhere; `-` reads standard input |
+| `--audience <AUDIENCE>` | With `--key` | The Channel Manager the request is for: its [`audience`](../../../channel-manager/config.md#audience), its `local-name` by default. Defaults to `$SLIMCTL_CM_AUDIENCE` |
 
 ## Inherited Options
 
