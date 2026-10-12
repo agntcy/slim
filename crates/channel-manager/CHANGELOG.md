@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.3.0...slim-channel-manager-v3.3.1) - 2026-10-12
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [3.3.0](https://github.com/agntcy/slim/compare/slim-channel-manager-v3.2.1...slim-channel-manager-v3.3.0) - 2026-10-12
 
 ### Added

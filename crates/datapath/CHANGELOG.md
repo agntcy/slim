@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.7](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.6...slim-datapath-v0.19.7) - 2026-10-12
+
+### Fixed
+
+- *(test)* reserve test ports below the ephemeral range ([#2252](https://github.com/agntcy/slim/pull/2252))
+
 ## [0.19.6](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.5...slim-datapath-v0.19.6) - 2026-10-12
 
 ### Other

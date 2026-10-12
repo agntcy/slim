@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.3](https://github.com/agntcy/slim/compare/slim-config-v0.17.2...slim-config-v0.17.3) - 2026-10-12
+
+### Fixed
+
+- *(test)* reserve test ports below the ephemeral range ([#2252](https://github.com/agntcy/slim/pull/2252))
+
 ## [0.17.2](https://github.com/agntcy/slim/compare/slim-config-v0.17.1...slim-config-v0.17.2) - 2026-10-12
 
 ### Other
