@@ -482,18 +482,10 @@ mod tests {
     use crate::server::AuthenticationConfig as ServerAuthConfig;
     use crate::tls::client::TlsClientConfig;
     use crate::tls::server::TlsServerConfig;
-    use std::net::TcpListener as StdTcpListener;
+    use slim_testing::common::reserve_local_port;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream as TokioTcpStream;
-
-    fn available_port() -> u16 {
-        StdTcpListener::bind("127.0.0.1:0")
-            .expect("bind")
-            .local_addr()
-            .expect("local_addr")
-            .port()
-    }
 
     /// Poll for server readiness with exponential backoff (max ~2s) to avoid
     /// flaky sleep-based readiness checks.
@@ -536,7 +528,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_starts() {
-        let port = available_port();
+        let port = reserve_local_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure());
 
@@ -546,7 +538,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_rejects_non_websocket_transport() {
-        let port = available_port();
+        let port = reserve_local_port();
         // Default transport is gRPC.
         let cfg = ServerConfig::with_endpoint(&format!("127.0.0.1:{port}"));
         let (signal, watch) = drain::channel();
@@ -597,7 +589,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_404_on_unknown_path() {
-        let port = available_port();
+        let port = reserve_local_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
@@ -622,7 +614,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_400_when_not_upgrade() {
-        let port = available_port();
+        let port = reserve_local_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
@@ -640,7 +632,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_401_on_failed_basic_auth() {
-        let port = available_port();
+        let port = reserve_local_port();
         let test_user = format!("user-{}", std::process::id());
         let test_pass = format!("pw-{}-{}", std::process::id(), port);
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
@@ -681,7 +673,7 @@ mod tests {
         use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
         use slim_auth::traits::Signer;
 
-        let port = available_port();
+        let port = reserve_local_port();
         let claims = Claims::new(
             Some(vec!["audience".to_string()]),
             Some("issuer".to_string()),
@@ -759,7 +751,7 @@ mod tests {
         use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
         use slim_auth::traits::Signer;
 
-        let port = available_port();
+        let port = reserve_local_port();
         let claims = Claims::new(
             Some(vec!["audience".to_string()]),
             Some("issuer".to_string()),
@@ -832,7 +824,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_full_handshake_via_client() {
-        let port = available_port();
+        let port = reserve_local_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
@@ -856,7 +848,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_cancellation_stops_listener() {
-        let port = available_port();
+        let port = reserve_local_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure());
         let token = start_ws_server(cfg).await;
@@ -878,7 +870,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_enforces_max_connections() {
-        let port = available_port();
+        let port = reserve_local_port();
         let cfg = ServerConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_settings(TlsServerConfig::insecure())
             .with_max_concurrent_streams(Some(1));

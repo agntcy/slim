@@ -8,7 +8,6 @@
 //! 2. Propagate subscriptions to all peers (but not remote connections)
 //! 3. Route messages correctly across peers (app on peer A → app on peer B)
 
-use std::net::TcpListener;
 use std::time::Duration;
 
 use slim_auth::shared_secret::SharedSecret;
@@ -23,18 +22,12 @@ use slim_datapath::peer_discovery::{
 };
 use slim_datapath::tables::{ConnType, SubscriptionTable};
 use slim_service::{Service, ServiceConfiguration};
+use slim_testing::common::reserve_local_port;
 use slim_testing::utils::TEST_VALID_SECRET;
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-fn reserve_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
-    let port = listener.local_addr().expect("failed to read port").port();
-    drop(listener);
-    port
-}
 
 /// Wait for a TCP endpoint to become reachable.
 async fn wait_for_server(addr: &str, max_attempts: u32) {
@@ -61,7 +54,7 @@ struct PeerNode {
 /// Build a set of peer nodes with full-mesh topology.
 /// Each node gets a server on a unique port, and peers listing all other nodes.
 fn build_peer_configs(count: usize) -> Vec<(u16, String, PeerConfig)> {
-    let ports: Vec<u16> = (0..count).map(|_| reserve_port()).collect();
+    let ports: Vec<u16> = (0..count).map(|_| reserve_local_port()).collect();
     // Use port-based node IDs for deterministic tie-breaking in tests
     let node_ids: Vec<String> = (0..count).map(|i| format!("peer-{}", ports[i])).collect();
 
@@ -352,7 +345,7 @@ async fn test_subscription_not_propagated_to_remote() {
     }
 
     // Start a "remote" node that connects to node 0 as a regular (non-peer) client
-    let remote_port = reserve_port();
+    let remote_port = reserve_local_port();
     let remote_server = ServerConfig::with_endpoint(&format!("127.0.0.1:{remote_port}"))
         .with_tls_settings(TlsServerConfig::default().with_insecure(true));
 
@@ -656,8 +649,8 @@ async fn test_explicit_unsubscribe_propagated_to_peers() {
 async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
     // We need 2 nodes where node 0 dials node 1. Since the smaller ID dials,
     // we control IDs so that "node-a" < "node-b" → node-a dials node-b.
-    let port_a = reserve_port();
-    let port_b = reserve_port();
+    let port_a = reserve_local_port();
+    let port_b = reserve_local_port();
 
     let peers = vec![
         StaticPeerEntry {
@@ -755,8 +748,8 @@ async fn test_no_duplicate_subscriptions_on_peer_reconnect() {
 /// This test verifies with multiple subscriptions.
 #[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_subscriptions_restored_on_reconnect() {
-    let port_a = reserve_port();
-    let port_b = reserve_port();
+    let port_a = reserve_local_port();
+    let port_b = reserve_local_port();
 
     let peers = vec![
         StaticPeerEntry {

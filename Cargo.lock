@@ -93,6 +93,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
+ "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
  "cfg-if",

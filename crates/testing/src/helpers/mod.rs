@@ -3,15 +3,14 @@
 mod command;
 mod config;
 mod log;
-mod ports;
 mod process;
 mod routing;
 mod spawn;
 
+pub use crate::common::reserve_local_port as reserve_port;
 pub use command::{run_combined_output_until, run_combined_output_with_retry, run_slimctl_cm};
 pub use config::{new_temp_dir, write_temp_config};
 pub use log::{ProcessLogWatcher, contains_semver_fragment, wait_for_log};
-pub use ports::reserve_port;
 pub use process::{session_still_running, terminate_session};
 pub use routing::{
     run_slimctl_controller_retry, run_slimctl_node_add_route_via, run_slimctl_node_output,

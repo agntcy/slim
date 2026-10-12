@@ -232,19 +232,11 @@ mod tests {
     use slim_config::tls::server::TlsServerConfig;
     use slim_config::websocket::common::UpgradedWebSocket;
     use slim_config::websocket::server::OnAcceptedWebSocket;
-    use std::net::TcpListener as StdTcpListener;
+    use slim_testing::common::reserve_local_port;
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::net::TcpStream as TokioTcpStream;
     use tokio_util::sync::CancellationToken;
-
-    fn available_port() -> u16 {
-        StdTcpListener::bind("127.0.0.1:0")
-            .expect("bind")
-            .local_addr()
-            .expect("local_addr")
-            .port()
-    }
 
     async fn wait_for_server_ready(addr: &str, max_attempts: u32) -> bool {
         for attempt in 0..max_attempts {
@@ -306,7 +298,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_ping_pong_exchange() {
-        let port = available_port();
+        let port = reserve_local_port();
         let server_token = start_server_with_transport_tasks(port).await;
 
         let mut channel = connect_ws_client(port).await;
@@ -342,7 +334,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_close_frame_echo() {
-        let port = available_port();
+        let port = reserve_local_port();
         let server_token = start_server_with_transport_tasks(port).await;
 
         let mut channel = connect_ws_client(port).await;
@@ -374,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_multiple_sequential_connections() {
-        let port = available_port();
+        let port = reserve_local_port();
         let server_token = start_server_with_transport_tasks(port).await;
 
         for i in 0..3 {
@@ -388,7 +380,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_websocket_server_cancellation_blocks_new_clients() {
-        let port = available_port();
+        let port = reserve_local_port();
         let server_token = start_server_with_transport_tasks(port).await;
 
         // Sanity-check: server is up.
