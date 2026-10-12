@@ -109,7 +109,7 @@ Deployments embedding the Channel Manager can plug in a different verifier for o
 
 To ask the owner, the Channel Manager sends an `ApprovalRequest` over SLIM, using SlimRPC, to the owner's callback name: service `channel_manager.proto.v1.ChannelOwnerApproval`, method `RequestApproval`. The owner's endpoint replies with an `ApprovalResponse` carrying either a grant or a denial. Both messages are defined in the Channel Manager's protobuf definitions.
 
-The request comes from the SLIM name `<local-name>-approval`, which the Channel Manager registers with the same credentials as its `local-name`.
+The request comes from the SLIM name `<local-name>-approval`. The Channel Manager registers it with the credentials in [`approval-auth`](./config.md#approval-auth) if set, and otherwise with the same credentials as its `local-name`. With a `jwt` `approval-auth`, owner endpoints can recognize the Channel Manager by its did:key even when it connects to SLIM as a SPIRE workload; it logs that did:key at startup as its owner approval identity.
 
 An owner endpoint should accept a request only from the Channel Manager, checked by its verified identity rather than by the sender's name or the request's `requester` field. In a SlimRPC handler that is `ctx.session().peer_identity()` (`peer_subject()` in the bindings): the subject of the identity token the Channel Manager's approval app set up the session with. It is set only for sessions using MLS, which SlimRPC calls do.
 
