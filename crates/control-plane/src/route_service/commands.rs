@@ -300,20 +300,8 @@ impl super::RouteService {
                     .await;
             }
             Ok(None) => {
-                // claim_link is a no-op when the link is already claimed. The
-                // important case is a node reconnecting over a link whose claim
-                // survived its crash: its dependent routes were dropped when it
-                // went away, and nothing re-expands them (the reconciler marks
-                // the link Applied but is not an expansion trigger). If this node
-                // still holds the claim, re-run the idempotent wildcard expansion
-                // so the recovered node's routes come back.
-                //
-                // The link need not be Applied yet: the restore on re-registration
-                // reset it to Pending, and this report can beat the source's ACK.
-                // Expansion skips links that aren't Applied, and the ACK doesn't
-                // re-expand, so mark it Applied here, as claim_link does for a
-                // first claim: the destination seeing the connection is what
-                // establishes a link.
+                // The node reconnected over a link it already claimed: mark the
+                // link Applied (it may still be Pending) and restore its routes.
                 let link = self
                     .0
                     .db
@@ -390,9 +378,7 @@ mod tests {
     use crate::db::LinkStatus;
     use crate::db::inmemory::InMemoryDb;
 
-    /// A node that reconnects over a link it still holds the claim on can
-    /// report the connection before the source's ACK marks the link Applied.
-    /// The report alone must establish the link and bring its routes back.
+    /// A reconnecting node's report restores its routes, even before the ACK.
     #[tokio::test]
     async fn reconnect_report_before_the_ack_restores_routes() {
         let db = InMemoryDb::shared();
@@ -406,7 +392,7 @@ mod tests {
         let all_nodes = db.list_nodes().await.unwrap();
         svc.rebuild_link_graph(&all_nodes).await;
 
-        // As restored after node-b crashed: still claimed by node-b, but Pending.
+        // Still claimed by node-b after its restart, but Pending.
         db.add_link(crate::db::Link {
             link_id: "link-ab".to_string(),
             source_node_id: "node-a".to_string(),
@@ -423,7 +409,7 @@ mod tests {
         .await
         .unwrap();
 
-        // An app on node-a; its wildcard route can't expand over a Pending link.
+        // No route over a Pending link yet.
         let route = ProtoRoute {
             name: Some(ProtoName::from_strings(["org", "ns", "svc"])),
             ..Default::default()
