@@ -1467,6 +1467,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#approval-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        approval-auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#channels" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5141,6 +5152,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#approval-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        approval-auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#channels" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5415,6 +5437,18 @@
 <span class="w">    </span><span class="c1">#                                       # including this app&#39;s own</span>
 
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="w">  </span><span class="c1"># approval-auth (optional): identity of the app that asks channel owners</span>
+<span class="w">  </span><span class="c1"># for approval, in place of auth. Same types as auth. A jwt identity lets</span>
+<span class="w">  </span><span class="c1"># owner endpoints recognize this Channel Manager by its did:key.</span>
+<span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="w">  </span><span class="c1"># approval-auth:</span>
+<span class="w">  </span><span class="c1">#   type: jwt</span>
+<span class="w">  </span><span class="c1">#   private_key:</span>
+<span class="w">  </span><span class="c1">#     file: &quot;/path/to/cm-approval-ed25519.pem&quot;</span>
+<span class="w">  </span><span class="c1">#   trusted_keys:</span>
+<span class="w">  </span><span class="c1">#     file: &quot;/path/to/owners.jwks.json&quot;  # owner endpoints&#39; keys, and its own</span>
+
+<span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># channels: list of channels to create automatically on startup.</span>
 <span class="w">  </span><span class="c1"># The Channel Manager creates each channel and invites all listed</span>
 <span class="w">  </span><span class="c1"># participants before the gRPC API begins accepting connections.</span>
@@ -5514,6 +5548,8 @@
 </tr>
 </tbody>
 </table>
+<h3 id="approval-auth"><code>approval-auth</code></h3>
+<p>Optional. The identity of the app that asks channel owners for approval, <code>&lt;local-name&gt;-approval</code>, in place of <code>auth</code>. It takes the same types as <code>auth</code>. Use <code>jwt</code> to have owner endpoints recognize the Channel Manager by a did:key, logged at startup as its owner approval identity, while <code>auth</code> keeps, for example, its SPIRE identity. <code>trusted_keys</code> must then include the owner endpoints' keys as well as its own. See <a href="../ownership/#owner-approval">Owner approval</a>.</p>
 <h3 id="channels"><code>channels</code></h3>
 <p>Channels listed here are created at startup. For each channel:</p>
 <ul>
