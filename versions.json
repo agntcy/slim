@@ -2,9 +2,7 @@
   {
     "version": "slimctl-v3.3.0",
     "title": "slimctl-v3.3.0",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slimctl-v3.2.1",
@@ -380,6 +378,13 @@
     "version": "slim-tracing-v0.4.1",
     "title": "slim-tracing-v0.4.1",
     "aliases": []
+  },
+  {
+    "version": "slim-testutils-v0.7.3",
+    "title": "slim-testutils-v0.7.3",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-testutils-v0.7.2",
