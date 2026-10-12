@@ -227,6 +227,16 @@ struct ExtraConfig {
 
 #[derive(serde::Deserialize)]
 struct ExtraManagerConfig {
+    /// What signed create and delete requests must name, in place of
+    /// `local-name`.
+    #[serde(default)]
+    audience: Option<String>,
+    /// Refuse unsigned creates, and changes to channels with no owner.
+    #[serde(default, rename = "require-signatures")]
+    require_signatures: bool,
+    /// did:keys whose signed delete request deletes any channel.
+    #[serde(default)]
+    operators: Vec<String>,
     /// Identity of the app that asks owners for approval, `<local-name>-approval`,
     /// in place of `auth`. A `jwt` identity lets owner endpoints recognize
     /// the channel manager by its did:key while it connects to SLIM as,
@@ -245,6 +255,12 @@ impl ExtraConfig {
             .resolve(&mut value)
             .context("resolving config values")?;
         let extra: Self = serde_yaml::from_value(value).context("deserializing config YAML")?;
+        if extra.manager.audience.as_deref() == Some("") {
+            anyhow::bail!("channel-manager.audience cannot be empty");
+        }
+        if extra.manager.operators.iter().any(String::is_empty) {
+            anyhow::bail!("channel-manager.operators cannot contain an empty entry");
+        }
         if let Some(auth) = &extra.manager.approval_auth {
             auth.validate()
                 .context("invalid approval-auth configuration")?;
@@ -448,6 +464,21 @@ async fn main() -> anyhow::Result<()> {
                 Arc::new(approval_app),
                 Some(conn_id),
             )));
+    let audience = extra
+        .manager
+        .audience
+        .unwrap_or_else(|| config.manager.local_name.clone());
+    info!(%audience, "Signed create and delete requests must name this audience");
+    if extra.manager.require_signatures {
+        info!("Refusing unsigned creates and changes to channels with no owner");
+    }
+    for operator in &extra.manager.operators {
+        info!(%operator, "Operator: may delete any channel");
+    }
+    server = server
+        .with_audience(audience)
+        .with_signatures_required(extra.manager.require_signatures)
+        .with_operators(extra.manager.operators);
 
     // Ownership and grant replay state persist exactly when sessions do: a
     // restored channel without its owner would accept changes from anyone.

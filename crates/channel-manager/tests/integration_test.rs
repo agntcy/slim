@@ -255,7 +255,7 @@ async fn create_cm_client(cm_port: u16) -> ChannelManagerServiceClient<tonic::tr
 }
 
 /// Create a gRPC client for the channel-manager API from a full client
-/// config (TLS, auth), the way `cmctl --client-config` does.
+/// config (TLS, auth).
 async fn create_cm_client_with(
     config: ClientConfig,
 ) -> ChannelManagerServiceClient<
@@ -325,7 +325,7 @@ impl TestPki {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_channel_manager_via_cmctl() {
+async fn test_channel_manager_api_end_to_end() {
     let slim_port = reserve_local_port();
     let cm_port = reserve_local_port();
 
@@ -366,6 +366,7 @@ async fn test_channel_manager_via_cmctl() {
             mls_enabled: true,
             owner_callback_name: None,
             ttl_seconds: None,
+            owner_proof: None,
         })
         .await
         .expect("create-channel failed")
@@ -437,6 +438,7 @@ async fn test_channel_manager_via_cmctl() {
             mls_enabled: true,
             owner_callback_name: None,
             ttl_seconds: None,
+            owner_proof: None,
         })
         .await
         .expect("create-channel invalid request failed")
@@ -498,6 +500,7 @@ async fn test_channel_manager_via_cmctl() {
             mls_enabled: true,
             owner_callback_name: None,
             ttl_seconds: None,
+            owner_proof: None,
         })
         .await
         .expect("duplicate create-channel request failed")
@@ -614,6 +617,7 @@ async fn test_channel_manager_via_cmctl() {
     let resp = client
         .delete_channel(DeleteChannelRequest {
             channel_name: "org/ns/missing".to_string(),
+            owner_proof: None,
         })
         .await
         .expect("delete-channel missing request failed")
@@ -632,6 +636,7 @@ async fn test_channel_manager_via_cmctl() {
     let resp = client
         .delete_channel(DeleteChannelRequest {
             channel_name: "org/ns/ch1".to_string(),
+            owner_proof: None,
         })
         .await
         .expect("delete-channel failed")
@@ -680,6 +685,7 @@ async fn test_add_participant_uses_default_gateway_with_separate_services() {
             mls_enabled: true,
             owner_callback_name: None,
             ttl_seconds: None,
+            owner_proof: None,
         })
         .await
         .expect("create-channel failed")
@@ -745,6 +751,7 @@ async fn test_channel_expires_after_its_ttl() {
         mls_enabled: false,
         owner_callback_name: None,
         ttl_seconds,
+        owner_proof: None,
     };
 
     // A zero TTL is rejected rather than creating an already-expired channel.
@@ -804,7 +811,7 @@ async fn test_channel_expires_after_its_ttl() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_mtls_client_certificate_identifies_the_caller() {
+async fn test_an_mtls_caller_is_not_an_owner_by_its_certificate() {
     let slim_port = reserve_local_port();
     let cm_port = reserve_local_port();
 
@@ -840,26 +847,23 @@ async fn test_mtls_client_certificate_identifies_the_caller() {
                 .with_cert_and_key_pem(&cert, &key),
         )
     };
-    let mut owner = create_cm_client_with(client_as("spiffe://example.org/owner")).await;
-    let mut agent = create_cm_client_with(client_as("spiffe://example.org/agent")).await;
+    let mut creator = create_cm_client_with(client_as("spiffe://example.org/creator")).await;
 
-    let _participant = start_receiver(&service, "org/ns/mtls-participant", conn_id).await;
+    let participant = "org/ns/mtls-participant";
+    let _participant = start_receiver(&service, participant, conn_id).await;
 
+    // The creator's connection carries its owner's signed create request.
+    let owner = Owner::new();
     let channel = "org/ns/mtls-channel";
-    let resp = owner
-        .create_channel(CreateChannelRequest {
-            channel_name: channel.to_string(),
-            mls_enabled: false,
-            owner_callback_name: None,
-            ttl_seconds: None,
-        })
+    let resp = creator
+        .create_channel(owner.sign_create(create_request(channel, None)))
         .await
         .expect("create-channel request failed")
         .into_inner();
     assert!(resp.success, "create failed: {:?}", resp.error_msg);
 
-    // The creator's certificate SPIFFE ID is recorded as the owner.
-    let channels = owner
+    // The signer owns the channel, not the certificate's SPIFFE ID.
+    let channels = creator
         .list_channels(ListChannelsRequest {})
         .await
         .expect("list-channels failed")
@@ -869,38 +873,25 @@ async fn test_mtls_client_certificate_identifies_the_caller() {
         .iter()
         .find(|c| c.channel_name == channel)
         .expect("channel not listed");
-    assert_eq!(listed.owner.as_deref(), Some("spiffe://example.org/owner"));
+    assert_eq!(listed.owner.as_deref(), Some(owner.did.as_str()));
 
-    let add = || AddParticipantRequest {
-        channel_name: channel.to_string(),
-        participant_name: "org/ns/mtls-participant".to_string(),
-        grant: None,
-    };
-
-    // A caller with a different certificate isn't the owner: no grant, no
-    // change.
-    let resp = agent
-        .add_participant(add())
+    // So the creator's connection changes members only with a grant.
+    let resp = creator
+        .add_participant(add_request(channel, participant, None))
         .await
         .expect("add-participant request failed")
         .into_inner();
-    assert!(!resp.success);
-    assert!(
-        resp.error_msg
-            .as_deref()
-            .unwrap_or_default()
-            .contains("requires a grant"),
-        "unexpected error: {:?}",
-        resp.error_msg
-    );
-
-    // The owner needs no grant for their own channel.
-    let resp = owner
-        .add_participant(add())
+    assert_refused(&resp, "requires a grant");
+    let resp = creator
+        .add_participant(add_request(
+            channel,
+            participant,
+            Some(owner.grant(channel, participant, "add")),
+        ))
         .await
         .expect("add-participant request failed")
         .into_inner();
-    assert!(resp.success, "owner add failed: {:?}", resp.error_msg);
+    assert!(resp.success, "granted add failed: {:?}", resp.error_msg);
 }
 
 // --- Owned channels end to end: grants, owner approval, restarts ---
@@ -944,11 +935,24 @@ fn jwt_caller(cm_port: u16, subject: &str) -> ClientConfig {
         )))
 }
 
-/// A channel owner: an Ed25519 key whose `did:key` is the subject they
-/// authenticate as, so the default verifier can check grants they sign.
+/// A channel owner: an Ed25519 key, identified by its `did:key`, that signs
+/// the channel's create request, its grants and its delete request.
 struct Owner {
     key_pair: Ed25519KeyPair,
     did: String,
+}
+
+/// The channel manager both test setups run, and so the audience signed
+/// create and delete requests name.
+const CHANNEL_MANAGER: &str = "org/ns/channel-manager";
+
+/// An hour from now, in unix seconds: when signed statements expire.
+fn in_an_hour() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3600
 }
 
 impl Owner {
@@ -961,15 +965,84 @@ impl Owner {
         Owner { key_pair, did }
     }
 
+    fn sign(&self, fields: &[&str]) -> String {
+        let signature = self.key_pair.sign(fields.join("\0").as_bytes());
+        base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            signature.as_ref(),
+        )
+    }
+
+    /// `req`, signed by this owner so that they own the channel it creates.
+    /// Like the other statements, built from the documented wire format.
+    fn sign_create(&self, req: CreateChannelRequest) -> CreateChannelRequest {
+        self.sign_create_for(CHANNEL_MANAGER, req)
+    }
+
+    /// Like [`Self::sign_create`], for the channel manager named `audience`.
+    fn sign_create_for(
+        &self,
+        audience: &str,
+        mut req: CreateChannelRequest,
+    ) -> CreateChannelRequest {
+        let not_after = in_an_hour();
+        let nonce = uuid::Uuid::new_v4().to_string();
+        let ttl = req.ttl_seconds.map(|t| t.to_string()).unwrap_or_default();
+        let signature = self.sign(&[
+            "SLIM-CHANNEL-CREATE/1",
+            audience,
+            &req.channel_name,
+            &self.did,
+            if req.mls_enabled { "true" } else { "false" },
+            &ttl,
+            req.owner_callback_name.as_deref().unwrap_or_default(),
+            &not_after.to_string(),
+            &nonce,
+        ]);
+        let proof = serde_json::json!({
+            "audience": audience,
+            "channel": req.channel_name,
+            "owner": self.did,
+            "mls_enabled": req.mls_enabled,
+            "ttl_seconds": req.ttl_seconds,
+            "owner_callback_name": req.owner_callback_name,
+            "not_after": not_after,
+            "nonce": nonce,
+            "signature": signature,
+        });
+        req.owner_proof = Some(proof.to_string().into_bytes());
+        req
+    }
+
+    /// This owner's signed request to delete `channel`.
+    fn delete_request(&self, channel: &str) -> DeleteChannelRequest {
+        let not_after = in_an_hour();
+        let nonce = uuid::Uuid::new_v4().to_string();
+        let signature = self.sign(&[
+            "SLIM-CHANNEL-DELETE/1",
+            CHANNEL_MANAGER,
+            channel,
+            &not_after.to_string(),
+            &nonce,
+        ]);
+        let proof = serde_json::json!({
+            "audience": CHANNEL_MANAGER,
+            "channel": channel,
+            "not_after": not_after,
+            "nonce": nonce,
+            "signature": signature,
+        });
+        DeleteChannelRequest {
+            channel_name: channel.to_string(),
+            owner_proof: Some(proof.to_string().into_bytes()),
+        }
+    }
+
     /// A grant for `action` ("add" or "delete") on `invitee` in `channel`,
     /// valid for an hour. Built from the documented wire format rather than
     /// the crate's internals, so these tests pin that format too.
     fn grant(&self, channel: &str, invitee: &str, action: &str) -> Vec<u8> {
-        let not_after = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + 3600;
+        let not_after = in_an_hour();
         let nonce = uuid::Uuid::new_v4().to_string();
         let signed = [
             "SLIM-CHANNEL-GRANT/1",
@@ -1005,6 +1078,7 @@ fn create_request(channel: &str, owner_callback_name: Option<&str>) -> CreateCha
         mls_enabled: true,
         owner_callback_name: owner_callback_name.map(str::to_string),
         ttl_seconds: None,
+        owner_proof: None,
     }
 }
 
@@ -1059,19 +1133,22 @@ async fn test_grants_gate_participant_changes() {
     let _participant = start_receiver(&service, participant, conn_id).await;
 
     let resp = as_owner
-        .create_channel(create_request(channel, None))
+        .create_channel(owner.sign_create(create_request(channel, None)))
         .await
         .unwrap()
         .into_inner();
     assert!(resp.success, "create failed: {:?}", resp.error_msg);
 
-    // Not the owner, no grant, and no callback to ask the owner through.
-    let resp = as_agent
-        .add_participant(add_request(channel, participant, None))
-        .await
-        .unwrap()
-        .into_inner();
-    assert_refused(&resp, "requires a grant");
+    // No grant, and no callback to ask the owner through: refused, even on
+    // a connection authenticated as the owner's did:key.
+    for client in [&mut as_agent, &mut as_owner] {
+        let resp = client
+            .add_participant(add_request(channel, participant, None))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_refused(&resp, "requires a grant");
+    }
 
     // With the owner's grant the participant really joins.
     let grant = owner.grant(channel, participant, "add");
@@ -1113,6 +1190,61 @@ async fn test_grants_gate_participant_changes() {
         .unwrap()
         .into_inner();
     assert!(resp.success, "granted delete failed: {:?}", resp.error_msg);
+
+    // Deleting the channel takes the owner's signed request, whoever sends it.
+    let unsigned = DeleteChannelRequest {
+        channel_name: channel.to_string(),
+        owner_proof: None,
+    };
+    let resp = as_owner
+        .delete_channel(unsigned)
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "signed by its owner");
+    let resp = as_agent
+        .delete_channel(owner.delete_request(channel))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "signed delete failed: {:?}", resp.error_msg);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_an_unsigned_create_makes_no_owner() {
+    let (_slim_port, _node, service, conn_id) = start_node("unsigned-service").await;
+    let cm_port = start_jwt_channel_manager(&service, conn_id).await;
+
+    // The caller is authenticated, but that only says who connected.
+    let owner = Owner::new();
+    let mut client = create_cm_client_with(jwt_caller(cm_port, &owner.did)).await;
+    let channel = "org/ns/unowned-channel";
+    let resp = client
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+
+    let channels = client
+        .list_channels(ListChannelsRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .channels;
+    let listed = channels
+        .iter()
+        .find(|c| c.channel_name == channel)
+        .expect("channel not listed");
+    assert_eq!(listed.owner, None);
+
+    // A callback without an owner would have no one to ask.
+    let resp = client
+        .create_channel(create_request("org/ns/callback-channel", Some("org/ns/cb")))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "needs a signed create request");
 }
 
 /// The owner's approval endpoint, in its own service on the node: answers
@@ -1232,7 +1364,7 @@ async fn test_owner_approves_and_denies_over_slimrpc() {
     let channel = "org/ns/approval-channel";
 
     let resp = as_owner
-        .create_channel(create_request(channel, Some(callback)))
+        .create_channel(owner.sign_create(create_request(channel, Some(callback))))
         .await
         .unwrap()
         .into_inner();
@@ -1303,10 +1435,10 @@ async fn test_inviting_an_offline_participant_in_api_mode() {
     let (_slim_port, _node, service, conn_id) = start_node("offline-service").await;
     let cm_port = start_jwt_channel_manager(&service, conn_id).await;
 
-    let owner = Owner::new();
-    let mut as_owner = create_cm_client_with(jwt_caller(cm_port, &owner.did)).await;
+    // Unsigned, so the channel has no owner and invites need no grant.
+    let mut client = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
     let channel = "org/ns/offline-channel";
-    let resp = as_owner
+    let resp = client
         .create_channel(create_request(channel, None))
         .await
         .unwrap()
@@ -1315,14 +1447,14 @@ async fn test_inviting_an_offline_participant_in_api_mode() {
 
     // Nobody is subscribed under this name: the invite fails rather than
     // hanging or leaving a phantom member.
-    let resp = as_owner
+    let resp = client
         .add_participant(add_request(channel, "org/ns/nobody-home", None))
         .await
         .unwrap()
         .into_inner();
     assert_refused(&resp, "failed to invite participant org/ns/nobody-home");
 
-    let members = as_owner
+    let members = client
         .list_participants(ListParticipantsRequest {
             channel_name: channel.to_string(),
         })
@@ -1338,7 +1470,7 @@ async fn test_inviting_an_offline_participant_in_api_mode() {
     // The channel is still usable: an online participant joins.
     let online = "org/ns/online-participant";
     let _online = start_receiver(&service, online, conn_id).await;
-    let resp = as_owner
+    let resp = client
         .add_participant(add_request(channel, online, None))
         .await
         .unwrap()
@@ -1451,7 +1583,7 @@ async fn test_ownership_and_used_grants_survive_a_restart() {
     let mut as_agent = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
 
     let resp = as_owner
-        .create_channel(create_request(channel, None))
+        .create_channel(owner.sign_create(create_request(channel, None)))
         .await
         .unwrap()
         .into_inner();
@@ -1513,6 +1645,93 @@ async fn test_ownership_and_used_grants_survive_a_restart() {
         "granted add after restart failed: {:?}",
         resp.error_msg
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_a_configured_audience_replaces_the_local_name() {
+    let (slim_port, _node, _service, _conn_id) = start_node("audience-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+    let cm_port = reserve_local_port();
+    let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
+    let extra = serde_json::json!({ "audience": "org/prod/channel-manager" });
+    let _process = ChannelManagerProcess::start_with(
+        slim_port,
+        cm_port,
+        state_dir.path(),
+        jwt_api(cm_port),
+        auth,
+        extra,
+    )
+    .await;
+    let owner = Owner::new();
+    let mut client = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+
+    // Signed for the local-name, which is no longer the audience.
+    let resp = client
+        .create_channel(owner.sign_create(create_request("org/ns/a-channel", None)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "not this channel manager");
+
+    let resp = client
+        .create_channel(owner.sign_create_for(
+            "org/prod/channel-manager",
+            create_request("org/ns/a-channel", None),
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "create failed: {:?}", resp.error_msg);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_required_signatures_and_an_operator_delete() {
+    let (slim_port, _node, _service, _conn_id) = start_node("strict-service").await;
+    let state_dir = tempfile::tempdir().unwrap();
+    let operator = Owner::new();
+    let cm_port = reserve_local_port();
+    let auth = serde_json::json!({ "type": "shared_secret", "secret": SHARED_SECRET });
+    let extra = serde_json::json!({ "require-signatures": true, "operators": [operator.did] });
+    let _process = ChannelManagerProcess::start_with(
+        slim_port,
+        cm_port,
+        state_dir.path(),
+        jwt_api(cm_port),
+        auth,
+        extra,
+    )
+    .await;
+    let owner = Owner::new();
+    let mut client = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
+
+    let channel = "org/ns/strict-channel";
+    let resp = client
+        .create_channel(create_request(channel, None))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "requires a create request signed");
+    let resp = client
+        .create_channel(owner.sign_create(create_request(channel, None)))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "signed create failed: {:?}", resp.error_msg);
+
+    // Neither a stranger's signature nor none deletes it; an operator's does.
+    let resp = client
+        .delete_channel(Owner::new().delete_request(channel))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_refused(&resp, "invalid signed delete request");
+    let resp = client
+        .delete_channel(operator.delete_request(channel))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(resp.success, "operator delete failed: {:?}", resp.error_msg);
 }
 
 // --- A did:key (JWT) identity for the channel manager's SLIM apps ---
@@ -1663,16 +1882,16 @@ async fn test_channel_manager_with_a_jwt_did_key_identity() {
             Duration::from_secs(3600),
             owner.signing_key(),
         )));
-    let mut as_owner = create_cm_client_with(caller).await;
+    let mut client = create_cm_client_with(caller).await;
 
     let channel = "org/ns/jwt-channel";
-    let resp = as_owner
+    let resp = client
         .create_channel(create_request(channel, None))
         .await
         .unwrap()
         .into_inner();
     assert!(resp.success, "create failed: {:?}", resp.error_msg);
-    let channels = as_owner
+    let channels = client
         .list_channels(ListChannelsRequest {})
         .await
         .unwrap()
@@ -1682,10 +1901,12 @@ async fn test_channel_manager_with_a_jwt_did_key_identity() {
         .iter()
         .find(|c| c.channel_name == channel)
         .expect("channel not listed");
-    assert_eq!(listed.owner.as_deref(), Some(owner.did.as_str()));
+    // Authenticating as a did:key no longer makes it the owner: only a
+    // signed create request does. Unowned, the invites below need no grant.
+    assert_eq!(listed.owner, None);
 
     // A participant whose key the channel manager trusts joins.
-    let resp = as_owner
+    let resp = client
         .add_participant(add_request(channel, "org/ns/jwt-member", None))
         .await
         .unwrap()
@@ -1693,7 +1914,7 @@ async fn test_channel_manager_with_a_jwt_did_key_identity() {
     assert!(resp.success, "member add failed: {:?}", resp.error_msg);
 
     // One whose key isn't in its JWKS doesn't.
-    let resp = as_owner
+    let resp = client
         .add_participant(add_request(channel, "org/ns/jwt-outsider", None))
         .await
         .unwrap()
@@ -1760,7 +1981,7 @@ async fn test_owner_approval_comes_from_the_approval_auth_identity() {
     let mut as_agent = create_cm_client_with(jwt_caller(cm_port, "org/ns/requester")).await;
     let channel = "org/ns/approval-auth-channel";
     let resp = as_owner
-        .create_channel(create_request(channel, Some(callback)))
+        .create_channel(owner.sign_create(create_request(channel, Some(callback))))
         .await
         .unwrap()
         .into_inner();

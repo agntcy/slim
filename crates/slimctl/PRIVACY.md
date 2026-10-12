@@ -14,8 +14,10 @@ operates them.
   `%USERPROFILE%`. `${env:VAR}` and `${file:/path}` references in it are
   expanded when it is loaded.
 - `~/.slimctl/token`, the bearer token written by `slimctl login`.
-- Files you name: TLS CA, client certificate and key files, channel grant
-  files (or stdin), and node configs for `slimctl slim start`.
+- Files you name: TLS CA, client certificate and key files, channel grants
+  and signed requests (or stdin), Ed25519 private keys passed to
+  `slimctl channel-manager` with `--key`, and node configs for
+  `slimctl slim start`.
 
 ## What it writes locally
 
@@ -50,6 +52,9 @@ Windows they inherit the permissions of your user profile folder.
   client certificate. A `host:port` with no scheme and no TLS settings is
   reached over plain HTTP, so credentials sent to it are unencrypted. Use
   `https://` or the TLS options for remote endpoints.
+- **Channel-manager commands given `--key`** sign the request on your
+  machine with that Ed25519 private key, and send the signature and the
+  key's public did:key. The private key itself is never sent anywhere.
 - **`slimctl login`** talks only to the OpenID Connect provider you name with
   `--discovery-uri`:
   - It fetches the discovery document and the signing keys, all over HTTPS.

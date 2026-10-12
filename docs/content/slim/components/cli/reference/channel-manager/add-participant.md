@@ -1,24 +1,24 @@
 # slimctl channel-manager add-participant
 
-Add a participant to an existing channel. The Channel Manager performs discovery and the full invitation handshake for the new member.
+Add a participant to a group channel. On a channel with an owner, the change needs the owner's grant: signed here with `--key`, or signed elsewhere and passed with `--grant-file`. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
 
 **Aliases:** `ap`
 
 ## Usage
 
 ```
-slimctl channel-manager add-participant <CHANNEL> <PARTICIPANT> [OPTIONS]
+slimctl channel-manager add-participant <CHANNEL> <PARTICIPANT> (--key <PATH> | --grant-file <PATH>)
 ```
-
-On a channel with an owner, anyone other than the owner needs the owner's authorization: a grant passed with `--grant-file`, or, without one, the owner's approval, which the Channel Manager requests if the owner gave a callback name. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
 
 ## Examples
 
+Invite a client with a grant signed by the admin key:
+
 ```bash
-slimctl channel-manager add-participant agntcy/team/general agntcy/agents/assistant-1
+slimctl channel-manager add-participant agntcy/team/general agntcy/agents/assistant-1 --key admin.pem
 ```
 
-With a grant from the channel's owner, read from a file or from standard input:
+With a grant from the channel's owner, read from a file:
 
 ```bash
 slimctl channel-manager add-participant agntcy/team/general agntcy/agents/assistant-1 --grant-file grant.json
@@ -29,8 +29,9 @@ slimctl channel-manager add-participant agntcy/team/general agntcy/agents/assist
 | Argument / Flag | Required | Description |
 |-----------------|----------|-------------|
 | `<CHANNEL>` | **Yes** | Channel name in `org/namespace/channel` format |
-| `<PARTICIPANT>` | **Yes** | Participant application name in `org/namespace/app` format |
-| `--grant-file <PATH>` | No | File holding a grant signed by the channel's owner authorizing this change, with action `add`; `-` reads standard input |
+| `<PARTICIPANT>` | **Yes** | Participant name in `org/namespace/app` format |
+| `--key <PATH>` | One of these two | The channel owner's Ed25519 private key (PKCS#8 PEM), to sign a grant for this change with |
+| `--grant-file <PATH>` | One of these two | File holding a grant signed elsewhere for this change, with action `add`; `-` reads standard input |
 
 ## Inherited Options
 
