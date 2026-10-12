@@ -31,18 +31,7 @@ Build the Channel Manager binary in release mode:
 cargo build --release -p agntcy-slim-channel-manager
 ```
 
-This produces two binaries in `target/release/`:
-
-| Binary | Description |
-|--------|-------------|
-| `channel-manager` | The Channel Manager server |
-| `cmctl` | Standalone gRPC client for the Channel Manager API |
-
-To build both in one command:
-
-```bash
-cargo build --release -p agntcy-slim-channel-manager --bins
-```
+This produces the `channel-manager` server binary in `target/release/`. To manage channels from the command line, use [`slimctl channel-manager`](../cli/reference/channel-manager/index.md).
 
 ## Running the Channel Manager
 
@@ -61,19 +50,13 @@ INFO channel_manager: gRPC API listening on 127.0.0.1:10356
 
 ## Verifying the Installation
 
-Use `slimctl channel-manager` (or the standalone `cmctl` binary) to confirm the Channel Manager is responding:
+Use `slimctl channel-manager` to confirm the Channel Manager is responding:
 
 ```bash
 slimctl channel-manager list-channels
 ```
 
-Or using `cmctl` directly:
-
-```bash
-./target/release/cmctl list-channels
-```
-
-Both connect to `127.0.0.1:10356` by default. Use `--server` to point at a different address.
+It connects to `127.0.0.1:10356` by default. Use `--server` to point at a different address.
 
 ## Installing slimctl
 

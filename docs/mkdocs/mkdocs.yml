@@ -202,6 +202,7 @@ nav:
                       - delete-participant: slim/components/cli/reference/channel-manager/delete-participant.md
                       - list-channels: slim/components/cli/reference/channel-manager/list-channels.md
                       - list-participants: slim/components/cli/reference/channel-manager/list-participants.md
+                      - did-key: slim/components/cli/reference/channel-manager/did-key.md
                   - slimctl bench:
                       - slim/components/cli/reference/bench/index.md
                       - sub: slim/components/cli/reference/bench/sub.md

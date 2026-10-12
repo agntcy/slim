@@ -60,7 +60,7 @@ channel-manager:
 
   # ---------------------------------------------------------------------------
   # api-server: the gRPC server the Channel Manager exposes for management
-  # commands (slimctl channel-manager / cmctl).
+  # commands (slimctl channel-manager).
   # ---------------------------------------------------------------------------
   api-server:
     endpoint: "127.0.0.1:10356"
@@ -87,6 +87,22 @@ channel-manager:
   local-name: "agntcy/ns/channel-manager"
 
   # ---------------------------------------------------------------------------
+  # audience (optional): what owners' signed create and delete requests must
+  # name as the Channel Manager they are meant for. Defaults to local-name.
+  # ---------------------------------------------------------------------------
+  # audience: "agntcy/prod/channel-manager"
+
+  # ---------------------------------------------------------------------------
+  # require-signatures (optional, default false): refuse unsigned creates,
+  # and changes to channels that have no owner.
+  # operators (optional): did:keys whose signed delete request deletes any
+  # channel. They can't change a channel's participants.
+  # ---------------------------------------------------------------------------
+  # require-signatures: true
+  # operators:
+  #   - "did:key:z6Mk..."
+
+  # ---------------------------------------------------------------------------
   # auth: how this Channel Manager authenticates its own SLIM application
   # identity to the SLIM node.
   # ---------------------------------------------------------------------------
@@ -107,6 +123,18 @@ channel-manager:
     # trusted_keys:
     #   file: "/path/to/members.jwks.json"  # public keys of trusted peers,
     #                                       # including this app's own
+
+  # ---------------------------------------------------------------------------
+  # approval-auth (optional): identity of the app that asks channel owners
+  # for approval, in place of auth. Same types as auth. A jwt identity lets
+  # owner endpoints recognize this Channel Manager by its did:key.
+  # ---------------------------------------------------------------------------
+  # approval-auth:
+  #   type: jwt
+  #   private_key:
+  #     file: "/path/to/cm-approval-ed25519.pem"
+  #   trusted_keys:
+  #     file: "/path/to/owners.jwks.json"  # owner endpoints' keys, and its own
 
   # ---------------------------------------------------------------------------
   # channels: list of channels to create automatically on startup.
@@ -157,11 +185,23 @@ Controls how the Channel Manager connects to the SLIM data plane node. The endpo
 
 ### `api-server`
 
-The gRPC server address where `slimctl channel-manager` and `cmctl` send management commands. Bind to `0.0.0.0:<port>` to accept connections from other hosts.
+The gRPC server address where `slimctl channel-manager` and applications send management commands. Bind to `0.0.0.0:<port>` to accept connections from other hosts.
 
 ### `local-name`
 
 The SLIM name the Channel Manager registers as. Use a unique three-component name (`org/namespace/service`) per deployment to avoid conflicts if running multiple Channel Manager instances.
+
+### `audience`
+
+Optional. The value an owner's signed create and delete requests must name as their `audience` ([Channel Ownership, Grants and Expiry](./ownership.md#create-request)), so a request signed for one Channel Manager can't be replayed against another. Defaults to `local-name`. Set it to a value unique to the deployment when several deployments share a `local-name`, for example development and production.
+
+### `require-signatures`
+
+Optional, `false` by default. When `true`, the Channel Manager refuses a create request without the owner's signature, and refuses changes to channels that have no owner. Turn it on once every client signs its creates. See [Requiring signatures](./ownership.md#requiring-signatures).
+
+### `operators`
+
+Optional. A list of did:keys whose signed delete request deletes any channel, for example one whose owner's key is lost. Operators can't add or remove participants. See [Operators](./ownership.md#operators).
 
 ### `auth`
 
@@ -172,6 +212,10 @@ Authentication options for the Channel Manager's SLIM application identity:
 | `shared_secret` | `secret` | Symmetric key. Sufficient for development and trusted networks. |
 | `spire` | `socket_path` | SPIRE Workload API socket. Recommended for production deployments. |
 | `jwt` | `private_key`, `trusted_keys` | Ed25519 private key (PKCS#8 PEM) and a JWKS of trusted peers' public keys, each as `file:` or inline `data:`. The Channel Manager signs as the key's `did:key` and logs it at startup, for peers' allow-lists. `trusted_keys` must include its own key (MLS checks its own token against it); it refuses to start otherwise. |
+
+### `approval-auth`
+
+Optional. The identity of the app that asks channel owners for approval, `<local-name>-approval`, in place of `auth`. It takes the same types as `auth`. Use `jwt` to have owner endpoints recognize the Channel Manager by a did:key, logged at startup as its owner approval identity, while `auth` keeps, for example, its SPIRE identity. `trusted_keys` must then include the owner endpoints' keys as well as its own. See [Owner approval](./ownership.md#owner-approval).
 
 ### `channels`
 

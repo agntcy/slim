@@ -61,95 +61,21 @@ Start the channel manager with a configuration file:
 ./channel-manager --config-file config.yaml
 ```
 
-# Channel Manager CTL (cmctl)
+## Managing Channels
 
-A command-line client for interacting with the Channel Manager gRPC service.
-
-## Usage
+Use `slimctl channel-manager` (alias `cm`). Every change is signed by a channel's owner or an operator, with their Ed25519 key (`--key`) or elsewhere and forwarded:
 
 ```bash
-cmctl [OPTIONS] <COMMAND>
+# The did:key of the admin key, to list in the config's operators
+slimctl cm did-key --key admin.pem
+
+# Create a channel owned by the admin, and invite a client
+slimctl cm create-channel org/ns/team-chat --key admin.pem --audience org/ns/channel-manager
+slimctl cm add-participant org/ns/team-chat org/ns/client-1 --key admin.pem
+
+# Inspect
+slimctl cm list-channels
+slimctl cm list-participants org/ns/team-chat
 ```
 
-### Options
-
-- `--server <ADDRESS>`: Simple gRPC server address (default: `http://localhost:10356`)
-- `--client-config <FILE>`: Path to a YAML file with full gRPC client configuration (TLS, auth, keepalive, proxy, etc.). The Channel Manager API is gRPC, so websocket transport is not supported for `cmctl`. When provided, `--server` is ignored.
-- `--disable-mls`: Disable MLS for channel creation (MLS is enabled by default)
-
-### Available Commands
-
-#### Create a new channel
-```bash
-cmctl create-channel org/ns/channel
-```
-
-Create a channel with MLS disabled:
-```bash
-cmctl --disable-mls create-channel org/ns/channel
-```
-
-#### Delete a channel
-```bash
-cmctl delete-channel org/ns/channel
-```
-
-#### Add a participant to a channel
-```bash
-cmctl add-participant org/ns/channel agntcy/ns/participant
-```
-
-#### Remove a participant from a channel
-```bash
-cmctl delete-participant org/ns/channel agntcy/ns/participant
-```
-
-#### List all channels
-```bash
-cmctl list-channels
-```
-
-#### List participants in a channel
-```bash
-cmctl list-participants org/ns/channel
-```
-
-### Examples
-
-Connect to a different server:
-```bash
-cmctl --server "http://192.168.1.100:10356" list-channels
-```
-
-Connect using full client config (with TLS, auth, etc.):
-```bash
-cmctl --client-config client-config.yaml list-channels
-```
-
-Example `client-config.yaml`:
-```yaml
-endpoint: "https://channel-manager.example.com:10356"
-tls:
-  insecure: false
-  ca_file: "/path/to/ca.pem"
-auth:
-  type: static_jwt
-  token_file: "/path/to/token"
-keepalive:
-  tcp_keepalive: "60s"
-  http2_keepalive: "60s"
-  timeout: "10s"
-```
-
-Create a channel and add participants:
-```bash
-# Create channel with MLS enabled (default)
-cmctl create-channel org/ns/team-chat
-
-# Add participants
-cmctl add-participant org/ns/team-chat org/ns/participant-1
-cmctl add-participant org/ns/team-chat org/ns/participant-2
-
-# List participants
-cmctl list-participants org/ns/team-chat
-```
+See the [ownership documentation](../../docs/content/slim/components/channel-manager/ownership.md).
