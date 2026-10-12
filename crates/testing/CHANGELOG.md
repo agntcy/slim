@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.2...slim-testutils-v0.7.3) (2026-10-12)
+
+
+### Bug Fixes
+
+* **test:** reserve test ports below the ephemeral range ([#2252](https://github.com/agntcy/slim/issues/2252)) ([bc27cb1](https://github.com/agntcy/slim/commit/bc27cb11f662594364be930605fc6c219c84fb05)), closes [#2250](https://github.com/agntcy/slim/issues/2250)
+
 ## [0.7.2](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.1...slim-testutils-v0.7.2) (2026-10-01)
 
 
