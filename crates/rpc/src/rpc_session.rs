@@ -15,14 +15,17 @@ use tokio::sync::mpsc;
 use slim_datapath::api::ProtoName as Name;
 
 use super::{
-    Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler, STATUS_CODE_KEY,
-    SessionTx, StreamRpcHandler, StreamSource,
+    Context, RPC_DIR_KEY, RPC_DIR_RESP, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError,
+    RpcHandler, STATUS_CODE_KEY, SessionTx, SharedRpcHandler, SharedStreamRpcHandler, StreamRpcHandler,
+    StreamSource, stream_types::PeerResponseReceiver,
 };
 
 /// Handler information retrieved from registry
 pub enum HandlerInfo {
     Stream(StreamRpcHandler),
     Unary(RpcHandler),
+    SharedUnary(SharedRpcHandler),
+    SharedStream(SharedStreamRpcHandler),
 }
 
 /// RPC session handler for all four interaction patterns.
@@ -70,7 +73,15 @@ impl<'a> RpcSession<'a> {
     }
 
     /// Handle the session, dispatching to the appropriate interaction pattern.
-    pub async fn handle(self, handler_info: HandlerInfo, rpc_id: Arc<str>) -> Result<(), RpcError> {
+    ///
+    /// `peer_stream` is only `Some` for `SharedUnary` / `SharedStream` handler
+    /// variants; it is `None` for standard handlers.
+    pub async fn handle(
+        self,
+        handler_info: HandlerInfo,
+        rpc_id: Arc<str>,
+        peer_stream: Option<PeerResponseReceiver>,
+    ) -> Result<(), RpcError> {
         let Self {
             session_tx,
             session_rx,
@@ -103,13 +114,26 @@ impl<'a> RpcSession<'a> {
 
         let result = tokio::select! {
             result = async move {
-                match &handler_info {
+                match handler_info {
                     HandlerInfo::Unary(handler) => {
                         handler(payload, ctx, session_tx.clone(), source, rpc_id).await
                     }
                     HandlerInfo::Stream(handler) => {
                         let stream_source = StreamSource { session_rx, payload, first_is_eos, first_code };
                         handler(stream_source, ctx, session_tx.clone(), source, rpc_id).await
+                    }
+                    HandlerInfo::SharedUnary(handler) => {
+                        let ps = peer_stream.unwrap_or_else(|| PeerResponseReceiver::new(
+                            tokio::sync::mpsc::unbounded_channel::<crate::PeerMessage>().1
+                        ));
+                        handler(payload, ctx, session_tx.clone(), source, rpc_id, ps).await
+                    }
+                    HandlerInfo::SharedStream(handler) => {
+                        let ps = peer_stream.unwrap_or_else(|| PeerResponseReceiver::new(
+                            tokio::sync::mpsc::unbounded_channel::<crate::PeerMessage>().1
+                        ));
+                        let stream_source = StreamSource { session_rx, payload, first_is_eos, first_code };
+                        handler(stream_source, ctx, session_tx.clone(), source, rpc_id, ps).await
                     }
                 }
             } => result,
@@ -196,6 +220,7 @@ fn create_status_metadata(code: RpcCode, rpc_id: &str) -> HashMap<String, String
     let mut metadata = HashMap::new();
     let code_i32: i32 = code.into();
     metadata.insert(STATUS_CODE_KEY.to_string(), code_i32.to_string());
+    metadata.insert(RPC_DIR_KEY.to_string(), RPC_DIR_RESP.to_string());
     if !rpc_id.is_empty() {
         metadata.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
     }
@@ -210,6 +235,7 @@ fn create_status_metadata(code: RpcCode, rpc_id: &str) -> HashMap<String, String
 /// where `first_msg_metadata` / `continuation_metadata` already omit it.
 fn create_data_metadata(rpc_id: &str) -> HashMap<String, String> {
     let mut metadata = HashMap::new();
+    metadata.insert(RPC_DIR_KEY.to_string(), RPC_DIR_RESP.to_string());
     if !rpc_id.is_empty() {
         metadata.insert(RPC_ID_KEY.to_string(), rpc_id.to_string());
     }
