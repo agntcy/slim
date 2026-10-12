@@ -2827,6 +2827,8 @@
       
         
       
+        
+      
     
     
     
@@ -3034,6 +3036,34 @@
     
   
     list-participants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="did-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    did-key
   
 
     
@@ -4994,7 +5024,7 @@
 
 
 <h1 id="slimctl-channel-manager">slimctl channel-manager</h1>
-<p>Interact with the SLIM Channel Manager service to create and manage group channels and their participants.</p>
+<p>Manage the group channels of a SLIM Channel Manager. Every change is signed by a channel's owner or an operator: here with their Ed25519 key (<code>--key</code>), or elsewhere and forwarded. <code>slimctl</code> never sends an unsigned change. See <a href="../../../channel-manager/ownership/#clients">Channel Ownership, Grants and Expiry</a>.</p>
 <p><strong>Aliases:</strong> <code>cm</code></p>
 <p><strong>Default server:</strong> <code>127.0.0.1:10356</code></p>
 <h2 id="usage">Usage</h2>
@@ -5013,22 +5043,22 @@
 <tr>
 <td><a href="create-channel/"><code>create-channel</code></a></td>
 <td><code>cc</code></td>
-<td>Create a new channel</td>
+<td>Create a channel, owned by whoever signs the request</td>
 </tr>
 <tr>
 <td><a href="delete-channel/"><code>delete-channel</code></a></td>
 <td><code>dc</code></td>
-<td>Delete a channel</td>
+<td>Delete a channel, with a delete request its owner or an operator signed</td>
 </tr>
 <tr>
 <td><a href="add-participant/"><code>add-participant</code></a></td>
 <td><code>ap</code></td>
-<td>Add a participant to a channel</td>
+<td>Add a participant, with a grant from the channel's owner</td>
 </tr>
 <tr>
 <td><a href="delete-participant/"><code>delete-participant</code></a></td>
 <td><code>dp</code></td>
-<td>Remove a participant from a channel</td>
+<td>Remove a participant, with a grant from the channel's owner</td>
 </tr>
 <tr>
 <td><a href="list-channels/"><code>list-channels</code></a></td>
@@ -5039,6 +5069,11 @@
 <td><a href="list-participants/"><code>list-participants</code></a></td>
 <td><code>lp</code></td>
 <td>List participants in a channel</td>
+</tr>
+<tr>
+<td><a href="did-key/"><code>did-key</code></a></td>
+<td>—</td>
+<td>Print the did:key of an Ed25519 key</td>
 </tr>
 </tbody>
 </table>

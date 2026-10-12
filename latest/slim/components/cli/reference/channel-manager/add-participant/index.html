@@ -2827,6 +2827,8 @@
       
         
       
+        
+      
     
     
     
@@ -3125,6 +3127,34 @@
     
   
     list-participants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../did-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    did-key
   
 
     
@@ -5096,16 +5126,16 @@
 
 
 <h1 id="slimctl-channel-manager-add-participant">slimctl channel-manager add-participant</h1>
-<p>Add a participant to an existing channel. The Channel Manager performs discovery and the full invitation handshake for the new member.</p>
+<p>Add a participant to a group channel. On a channel with an owner, the change needs the owner's grant: signed here with <code>--key</code>, or signed elsewhere and passed with <code>--grant-file</code>. See <a href="../../../../channel-manager/ownership/">Channel Ownership, Grants and Expiry</a>.</p>
 <p><strong>Aliases:</strong> <code>ap</code></p>
 <h2 id="usage">Usage</h2>
-<div class="highlight"><pre><span></span><code>slimctl channel-manager add-participant &lt;CHANNEL&gt; &lt;PARTICIPANT&gt; [OPTIONS]
+<div class="highlight"><pre><span></span><code>slimctl channel-manager add-participant &lt;CHANNEL&gt; &lt;PARTICIPANT&gt; (--key &lt;PATH&gt; | --grant-file &lt;PATH&gt;)
 </code></pre></div>
-<p>On a channel with an owner, anyone other than the owner needs the owner's authorization: a grant passed with <code>--grant-file</code>, or, without one, the owner's approval, which the Channel Manager requests if the owner gave a callback name. See <a href="../../../../channel-manager/ownership/">Channel Ownership, Grants and Expiry</a>.</p>
 <h2 id="examples">Examples</h2>
-<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>add-participant<span class="w"> </span>agntcy/team/general<span class="w"> </span>agntcy/agents/assistant-1
+<p>Invite a client with a grant signed by the admin key:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>add-participant<span class="w"> </span>agntcy/team/general<span class="w"> </span>agntcy/agents/assistant-1<span class="w"> </span>--key<span class="w"> </span>admin.pem
 </code></pre></div>
-<p>With a grant from the channel's owner, read from a file or from standard input:</p>
+<p>With a grant from the channel's owner, read from a file:</p>
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>add-participant<span class="w"> </span>agntcy/team/general<span class="w"> </span>agntcy/agents/assistant-1<span class="w"> </span>--grant-file<span class="w"> </span>grant.json
 </code></pre></div>
 <h2 id="options">Options</h2>
@@ -5126,12 +5156,17 @@
 <tr>
 <td><code>&lt;PARTICIPANT&gt;</code></td>
 <td><strong>Yes</strong></td>
-<td>Participant application name in <code>org/namespace/app</code> format</td>
+<td>Participant name in <code>org/namespace/app</code> format</td>
+</tr>
+<tr>
+<td><code>--key &lt;PATH&gt;</code></td>
+<td>One of these two</td>
+<td>The channel owner's Ed25519 private key (PKCS#8 PEM), to sign a grant for this change with</td>
 </tr>
 <tr>
 <td><code>--grant-file &lt;PATH&gt;</code></td>
-<td>No</td>
-<td>File holding a grant signed by the channel's owner authorizing this change, with action <code>add</code>; <code>-</code> reads standard input</td>
+<td>One of these two</td>
+<td>File holding a grant signed elsewhere for this change, with action <code>add</code>; <code>-</code> reads standard input</td>
 </tr>
 </tbody>
 </table>
