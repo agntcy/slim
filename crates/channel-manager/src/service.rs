@@ -35,6 +35,12 @@ use crate::store::StateStore;
 /// A human typically answers it, so this errs long.
 const DEFAULT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How far ahead a signed create or delete request's `not_after` may be.
+/// Bounds how long a leaked, unused request stays valid, and how long its
+/// nonce must be remembered. Grants aren't capped: an owner hands those out
+/// for later use.
+const MAX_SIGNED_REQUEST_LIFETIME: u64 = 24 * 60 * 60;
+
 /// Current time in unix seconds.
 fn unix_now() -> u64 {
     std::time::SystemTime::now()
@@ -67,19 +73,120 @@ struct GrantPolicy<'a> {
     verifier: &'a dyn GrantVerifier,
     approver: &'a dyn OwnerApprover,
     approval_timeout: Duration,
+    /// What signed create and delete requests must name as their audience.
+    audience: &'a str,
 }
 
 impl GrantPolicy<'_> {
+    /// Authorizes a create request, returning the owner it makes, if any.
+    ///
+    /// Unsigned, the channel has no owner: the caller's authenticated
+    /// identity says who connected, not which application owns the channel,
+    /// so it never makes anyone an owner. Signed, the proof must verify, be
+    /// meant for this channel manager, describe exactly this request, not be
+    /// expired or valid for too long, and not have been used before; its
+    /// signer becomes the owner.
+    fn authorize_create(&self, req: &CreateChannelRequest) -> Result<Option<String>, String> {
+        let Some(proof) = &req.owner_proof else {
+            if req.owner_callback_name.is_some() {
+                return Err(
+                    "owner-callback-name needs a signed create request: a channel with no owner \
+                     has no one to ask"
+                        .to_string(),
+                );
+            }
+            return Ok(None);
+        };
+        let creation = self
+            .verifier
+            .verify_create(proof)
+            .map_err(|e| format!("invalid signed create request: {e}"))?;
+
+        if creation.channel != req.channel_name
+            || creation.mls_enabled != req.mls_enabled
+            || creation.ttl_seconds != req.ttl_seconds
+            || creation.owner_callback_name != req.owner_callback_name
+        {
+            return Err("signed create request does not match this request".to_string());
+        }
+        self.check_signed_request(
+            &creation.audience,
+            creation.not_after,
+            "signed create request",
+        )?;
+        self.spend(
+            &creation.channel,
+            &creation.nonce,
+            creation.not_after,
+            "signed create request",
+        )?;
+        Ok(Some(creation.owner))
+    }
+
+    /// Authorizes deleting a channel: free for a channel with no owner on
+    /// record, otherwise only with a delete request its owner signed.
+    async fn authorize_delete(&self, channel: &str, proof: &Option<Vec<u8>>) -> Result<(), String> {
+        let Some(owner) = self.ownership.get_owner(channel).await else {
+            return Ok(());
+        };
+        let Some(proof) = proof else {
+            return Err(format!(
+                "channel {channel} can only be deleted with a request signed by its owner"
+            ));
+        };
+        let deletion = self
+            .verifier
+            .verify_delete(&owner.subject, proof)
+            .map_err(|e| format!("invalid signed delete request: {e}"))?;
+
+        if deletion.channel != channel {
+            return Err("signed delete request is for a different channel".to_string());
+        }
+        self.check_signed_request(
+            &deletion.audience,
+            deletion.not_after,
+            "signed delete request",
+        )?;
+        self.spend(
+            channel,
+            &deletion.nonce,
+            deletion.not_after,
+            "signed delete request",
+        )
+    }
+
+    /// Checks a signed create or delete request (`what`) is meant for this
+    /// channel manager and isn't valid for longer than
+    /// [`MAX_SIGNED_REQUEST_LIFETIME`].
+    fn check_signed_request(
+        &self,
+        audience: &str,
+        not_after: u64,
+        what: &str,
+    ) -> Result<(), String> {
+        if audience != self.audience {
+            return Err(format!(
+                "{what} is for {audience:?}, not this channel manager ({:?})",
+                self.audience
+            ));
+        }
+        if not_after > unix_now().saturating_add(MAX_SIGNED_REQUEST_LIFETIME) {
+            return Err(format!(
+                "{what} is valid for too long: not_after may be at most 24 hours ahead"
+            ));
+        }
+        Ok(())
+    }
+
     /// Enforces the grant contract for a mutating participant-change RPC.
     ///
     /// A channel with no owner on record needs no grant -- unchanged,
-    /// pre-ownership behavior. The owner needs no grant for their own
-    /// channel. Anyone else needs one: presented on the request, or -- when
-    /// none is and the owner left a callback name -- obtained by asking the
-    /// owner, with no answer within `approval_timeout` counting as a denial.
-    /// Either way, the grant must verify, name this exact channel,
-    /// participant and action, not be expired, and not have been used
-    /// before.
+    /// pre-ownership behavior. Otherwise every change needs one, the
+    /// owner's own included: presented on the request, or -- when none is
+    /// and the owner left a callback name -- obtained by asking the owner,
+    /// with no answer within `approval_timeout` counting as a denial. Either
+    /// way, the grant must verify, name this exact channel, participant and
+    /// action, not be expired, and not have been used before.
     async fn enforce(
         &self,
         change: &ParticipantChange<'_>,
@@ -89,9 +196,6 @@ impl GrantPolicy<'_> {
         let Some(owner) = self.ownership.get_owner(change.channel).await else {
             return Ok(());
         };
-        if caller.as_ref().is_some_and(|c| c.subject == owner.subject) {
-            return Ok(());
-        }
 
         match grant {
             Some(grant) => self.verify(&owner.subject, change, grant),
@@ -153,23 +257,28 @@ impl GrantPolicy<'_> {
         {
             return Err("grant does not authorize this change".to_string());
         }
+        self.spend(&parsed.channel, &parsed.nonce, parsed.not_after, "grant")
+    }
 
+    /// Checks a verified, matching signed statement (`what`) hasn't expired,
+    /// then records its nonce as used.
+    ///
+    /// Last, so a statement rejected for any other reason isn't burned. If
+    /// its use can't be recorded durably, refuse it rather than accept one
+    /// that would be replayable after a restart.
+    fn spend(&self, channel: &str, nonce: &str, not_after: u64, what: &str) -> Result<(), String> {
         let now = unix_now();
-        if parsed.not_after < now {
-            return Err("grant has expired".to_string());
+        if not_after < now {
+            return Err(format!("{what} has expired"));
         }
 
-        // Last, so a grant rejected for any other reason isn't burned. If
-        // its use can't be recorded durably, refuse it rather than accept a
-        // grant that would be replayable after a restart.
         let first_use = self
             .nonces
-            .consume(&parsed.channel, &parsed.nonce, parsed.not_after, now)
-            .map_err(|e| format!("could not record the grant's use: {e}"))?;
+            .consume(channel, nonce, not_after, now)
+            .map_err(|e| format!("could not record the {what}'s use: {e}"))?;
         if !first_use {
-            return Err("grant has already been used".to_string());
+            return Err(format!("{what} has already been used"));
         }
-
         Ok(())
     }
 }
@@ -184,6 +293,8 @@ pub struct ChannelManagerServer {
     grant_verifier: Arc<dyn GrantVerifier>,
     owner_approver: Arc<dyn OwnerApprover>,
     approval_timeout: Duration,
+    /// What signed create and delete requests must name as their audience.
+    audience: String,
     /// When true, channels are owned by the config file and mutating APIs are disabled.
     config_mode: bool,
 }
@@ -198,15 +309,18 @@ impl ChannelManagerServer {
     /// `conn_id` pins the default gateway, so invites keep working on a
     /// multi-uplink service where auto-detection would be ambiguous.
     ///
-    /// Grants presented by non-owners are verified with
-    /// [`DidKeyEd25519Verifier`]; use [`Self::with_grant_verifier`] to swap in
-    /// a different grant format or key scheme. Owners are asked for approval
+    /// Grants and the owner's signed create and delete requests are verified
+    /// with [`DidKeyEd25519Verifier`]; use [`Self::with_grant_verifier`] to
+    /// swap in a different format or key scheme. Owners are asked for approval
     /// over SLIM with [`SlimOwnerApprover`] (on `conn_id`), given
     /// [`DEFAULT_APPROVAL_TIMEOUT`] to answer; see
     /// [`Self::with_owner_approver`] and [`Self::with_approval_timeout`].
     /// The default approver sends from `app`, which a moderator app with
     /// `Direction::None` can't do: pass one built on a separate,
     /// bidirectional app, as the `channel-manager` binary does.
+    ///
+    /// Signed create and delete requests must name `app`'s SLIM name
+    /// (`org/namespace/app`) as their audience; see [`Self::with_audience`].
     pub fn new(
         app: Arc<App<AuthProvider, AuthVerifier>>,
         conn_id: u64,
@@ -216,6 +330,8 @@ impl ChannelManagerServer {
         if let Err(e) = app.set_default_gateway(conn_id) {
             warn!("failed to pin default gateway to conn {conn_id}: {e}");
         }
+        let (org, namespace, name) = app.app_name().str_components();
+        let audience = format!("{org}/{namespace}/{name}");
 
         Self {
             owner_approver: Arc::new(SlimOwnerApprover::new(app.clone(), Some(conn_id))),
@@ -226,8 +342,18 @@ impl ChannelManagerServer {
             nonces: NonceStore::new(),
             grant_verifier: Arc::new(DidKeyEd25519Verifier),
             approval_timeout: DEFAULT_APPROVAL_TIMEOUT,
+            audience,
             config_mode,
         }
+    }
+
+    /// Sets the audience signed create and delete requests must name, in
+    /// place of the app's SLIM name: a value unique to this deployment, so a
+    /// request signed for one channel manager can't be replayed against
+    /// another that shares its name.
+    pub fn with_audience(mut self, audience: impl Into<String>) -> Self {
+        self.audience = audience.into();
+        self
     }
 
     /// Replaces the default grant verifier (see `crate::grant::GrantVerifier`).
@@ -413,6 +539,15 @@ impl ChannelManagerServer {
             return self.error_response(format!("invalid owner callback name: {e}"));
         }
 
+        // Before any SLIM work, so a refused request leaves nothing behind.
+        let owner = match self.grant_policy().authorize_create(&req) {
+            Ok(owner) => owner.map(|subject| ChannelOwner {
+                subject,
+                callback_name: req.owner_callback_name.clone(),
+            }),
+            Err(msg) => return self.error_response(msg),
+        };
+
         // Create a new session for the channel
         let session_config = SessionConfig {
             session_type: ProtoSessionType::Multicast,
@@ -460,13 +595,6 @@ impl ChannelManagerServer {
             return self.error_response(format!("channel {channel_name} already exists"));
         }
 
-        // The creator becomes the owner. No caller identity means no auth
-        // middleware is configured, so the channel is created with no owner
-        // on record rather than failing the request.
-        let owner = caller.as_ref().map(|c| ChannelOwner {
-            subject: c.subject.clone(),
-            callback_name: req.owner_callback_name.clone(),
-        });
         let expires_at = req.ttl_seconds.map(|ttl| unix_now().saturating_add(ttl));
         if let Err(e) = self
             .record_new_channel(channel_name, expires_at, owner)
@@ -498,6 +626,14 @@ impl ChannelManagerServer {
         }
         let channel_name = &req.channel_name;
 
+        if let Err(msg) = self
+            .grant_policy()
+            .authorize_delete(channel_name, &req.owner_proof)
+            .await
+        {
+            return self.error_response(msg);
+        }
+
         if let Err(e) = self.sessions.remove_session(channel_name, &self.app).await {
             error!("Failed to delete channel {channel_name}: {e}");
             return self.error_response(format!("{e}"));
@@ -508,6 +644,17 @@ impl ChannelManagerServer {
         self.success_response()
     }
 
+    fn grant_policy(&self) -> GrantPolicy<'_> {
+        GrantPolicy {
+            ownership: &self.ownership,
+            nonces: &self.nonces,
+            verifier: self.grant_verifier.as_ref(),
+            approver: self.owner_approver.as_ref(),
+            approval_timeout: self.approval_timeout,
+            audience: &self.audience,
+        }
+    }
+
     /// See `GrantPolicy::enforce`.
     async fn check_grant(
         &self,
@@ -515,14 +662,7 @@ impl ChannelManagerServer {
         caller: &Option<CallerIdentity>,
         grant: &Option<Vec<u8>>,
     ) -> Result<(), CommandResponse> {
-        let policy = GrantPolicy {
-            ownership: &self.ownership,
-            nonces: &self.nonces,
-            verifier: self.grant_verifier.as_ref(),
-            approver: self.owner_approver.as_ref(),
-            approval_timeout: self.approval_timeout,
-        };
-        policy
+        self.grant_policy()
             .enforce(change, caller, grant)
             .await
             .map_err(|msg| self.error_response(msg))
@@ -963,6 +1103,7 @@ mod tests {
             mls_enabled: true,
             owner_callback_name: None,
             ttl_seconds: None,
+            owner_proof: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert!(request.mls_enabled);
@@ -975,6 +1116,7 @@ mod tests {
             mls_enabled: false,
             owner_callback_name: None,
             ttl_seconds: None,
+            owner_proof: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
         assert!(!request.mls_enabled);
@@ -984,6 +1126,7 @@ mod tests {
     fn test_delete_channel_request() {
         let request = DeleteChannelRequest {
             channel_name: "org/namespace/channel".to_string(),
+            owner_proof: None,
         };
         assert_eq!(request.channel_name, "org/namespace/channel");
     }
@@ -1180,6 +1323,7 @@ mod tests {
             verifier: &DidKeyEd25519Verifier,
             approver,
             approval_timeout: Duration::from_millis(100),
+            audience: AUDIENCE,
         }
     }
 
@@ -1221,16 +1365,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn allows_the_owner_without_a_grant() {
+    async fn a_caller_authenticated_as_the_owner_still_needs_a_grant() {
+        // The connection's identity says who connected, not who owns the
+        // channel: only the owner's signature counts.
         let nonces = NonceStore::new();
-        let (ownership, _key, subject) = owned_channel(true).await;
+        let (ownership, _key, subject) = owned_channel(false).await;
         let approver = FakeApprover::silent();
         let caller = Some(CallerIdentity { subject });
         let result = policy(&ownership, &nonces, &approver)
             .enforce(&add(), &caller, &None)
             .await;
+        assert!(result.unwrap_err().contains("requires a grant"));
+    }
+
+    #[tokio::test]
+    async fn the_owner_changes_members_with_a_grant_they_signed() {
+        let nonces = NonceStore::new();
+        let (ownership, key, subject) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let caller = Some(CallerIdentity { subject });
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+        let result = policy(&ownership, &nonces, &approver)
+            .enforce(&add(), &caller, &grant)
+            .await;
         assert!(result.is_ok());
-        assert!(approver.calls().is_empty());
     }
 
     #[tokio::test]
@@ -1519,5 +1677,391 @@ mod tests {
         let wrong_invitee = policy.enforce(&someone_else, &None, &grant).await;
         assert!(wrong_invitee.unwrap_err().contains("does not authorize"));
         assert!(policy.enforce(&add(), &None, &grant).await.is_ok());
+    }
+
+    // ── signed create and delete requests ─────────────────────────────
+
+    /// The policy's audience in these tests.
+    const AUDIENCE: &str = "org/ns/channel-manager";
+
+    /// An hour from now: within the cap on signed requests.
+    fn soon() -> u64 {
+        unix_now() + 3600
+    }
+
+    /// A create request signed for [`AUDIENCE`].
+    fn sign_create(
+        key_pair: &Ed25519KeyPair,
+        owner: &str,
+        req: &CreateChannelRequest,
+        not_after: u64,
+    ) -> Vec<u8> {
+        sign_create_for(AUDIENCE, key_pair, owner, req, not_after)
+    }
+
+    /// Builds the default verifier's signed create request by hand, like
+    /// `sign_grant_for`, so these tests pin its wire format.
+    fn sign_create_for(
+        audience: &str,
+        key_pair: &Ed25519KeyPair,
+        owner: &str,
+        req: &CreateChannelRequest,
+        not_after: u64,
+    ) -> Vec<u8> {
+        let ttl = req.ttl_seconds.map(|t| t.to_string()).unwrap_or_default();
+        let payload = [
+            "SLIM-CHANNEL-CREATE/1",
+            audience,
+            &req.channel_name,
+            owner,
+            if req.mls_enabled { "true" } else { "false" },
+            &ttl,
+            req.owner_callback_name.as_deref().unwrap_or(""),
+            &not_after.to_string(),
+            "nonce-c",
+        ]
+        .join("\0");
+        let signature = key_pair.sign(payload.as_bytes());
+        serde_json::json!({
+            "audience": audience,
+            "channel": req.channel_name,
+            "owner": owner,
+            "mls_enabled": req.mls_enabled,
+            "ttl_seconds": req.ttl_seconds,
+            "owner_callback_name": req.owner_callback_name,
+            "not_after": not_after,
+            "nonce": "nonce-c",
+            "signature": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature.as_ref()),
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    /// A delete request signed for [`AUDIENCE`].
+    fn sign_delete(key_pair: &Ed25519KeyPair, channel: &str, not_after: u64) -> Vec<u8> {
+        sign_delete_for(AUDIENCE, key_pair, channel, not_after)
+    }
+
+    fn sign_delete_for(
+        audience: &str,
+        key_pair: &Ed25519KeyPair,
+        channel: &str,
+        not_after: u64,
+    ) -> Vec<u8> {
+        let payload = [
+            "SLIM-CHANNEL-DELETE/1",
+            audience,
+            channel,
+            &not_after.to_string(),
+            "nonce-d",
+        ]
+        .join("\0");
+        let signature = key_pair.sign(payload.as_bytes());
+        serde_json::json!({
+            "audience": audience,
+            "channel": channel,
+            "not_after": not_after,
+            "nonce": "nonce-d",
+            "signature": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature.as_ref()),
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    fn create_request() -> CreateChannelRequest {
+        CreateChannelRequest {
+            channel_name: CHANNEL.to_string(),
+            mls_enabled: true,
+            owner_callback_name: Some(CALLBACK.to_string()),
+            ttl_seconds: Some(3600),
+            owner_proof: None,
+        }
+    }
+
+    #[test]
+    fn an_unsigned_create_makes_no_owner() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let req = CreateChannelRequest {
+            owner_callback_name: None,
+            ..create_request()
+        };
+        assert_eq!(
+            policy(&ownership, &nonces, &approver).authorize_create(&req),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn an_unsigned_create_with_a_callback_is_refused() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_create(&create_request())
+            .unwrap_err();
+        assert!(err.contains("needs a signed create request"), "{err}");
+    }
+
+    #[test]
+    fn a_signed_create_makes_its_signer_the_owner() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let (key, owner) = new_owner();
+        let req = CreateChannelRequest {
+            owner_proof: Some(sign_create(&key, &owner, &create_request(), soon())),
+            ..create_request()
+        };
+        assert_eq!(
+            policy(&ownership, &nonces, &approver).authorize_create(&req),
+            Ok(Some(owner))
+        );
+    }
+
+    #[test]
+    fn a_signed_create_must_cover_the_request_as_sent() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let (key, owner) = new_owner();
+        let proof = sign_create(&key, &owner, &create_request(), soon());
+        // The proof, sent with a request that differs in one field.
+        let altered = [
+            CreateChannelRequest {
+                channel_name: "org/ns/other".to_string(),
+                ..create_request()
+            },
+            CreateChannelRequest {
+                mls_enabled: false,
+                ..create_request()
+            },
+            CreateChannelRequest {
+                ttl_seconds: Some(1),
+                ..create_request()
+            },
+            CreateChannelRequest {
+                owner_callback_name: Some("org/ns/elsewhere".to_string()),
+                ..create_request()
+            },
+        ];
+        for req in altered {
+            let req = CreateChannelRequest {
+                owner_proof: Some(proof.clone()),
+                ..req
+            };
+            let err = policy(&ownership, &nonces, &approver)
+                .authorize_create(&req)
+                .unwrap_err();
+            assert!(err.contains("does not match"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_signed_create_is_accepted_once() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let (key, owner) = new_owner();
+        let req = CreateChannelRequest {
+            owner_proof: Some(sign_create(&key, &owner, &create_request(), soon())),
+            ..create_request()
+        };
+        let policy = policy(&ownership, &nonces, &approver);
+        assert!(policy.authorize_create(&req).is_ok());
+        let err = policy.authorize_create(&req).unwrap_err();
+        assert!(err.contains("already been used"), "{err}");
+    }
+
+    #[test]
+    fn an_expired_signed_create_is_refused() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let (key, owner) = new_owner();
+        let req = CreateChannelRequest {
+            owner_proof: Some(sign_create(&key, &owner, &create_request(), 1)),
+            ..create_request()
+        };
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_create(&req)
+            .unwrap_err();
+        assert!(err.contains("expired"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn deleting_a_channel_with_no_owner_needs_no_signature() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let result = policy(&ownership, &nonces, &approver)
+            .authorize_delete(CHANNEL, &None)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn deleting_an_owned_channel_needs_the_owners_signature() {
+        let nonces = NonceStore::new();
+        let (ownership, _key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_delete(CHANNEL, &None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("signed by its owner"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_owners_signed_delete_is_accepted_once() {
+        let nonces = NonceStore::new();
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let policy = policy(&ownership, &nonces, &approver);
+        let proof = Some(sign_delete(&key, CHANNEL, soon()));
+
+        assert!(policy.authorize_delete(CHANNEL, &proof).await.is_ok());
+        let err = policy.authorize_delete(CHANNEL, &proof).await.unwrap_err();
+        assert!(err.contains("already been used"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_delete_signed_by_someone_else_is_refused() {
+        let nonces = NonceStore::new();
+        let (ownership, _key, _) = owned_channel(false).await;
+        let (stranger, _) = new_owner();
+        let approver = FakeApprover::silent();
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_delete(CHANNEL, &Some(sign_delete(&stranger, CHANNEL, soon())))
+            .await
+            .unwrap_err();
+        assert!(err.contains("invalid signed delete request"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_delete_signed_for_another_channel_is_refused() {
+        let nonces = NonceStore::new();
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_delete(CHANNEL, &Some(sign_delete(&key, "org/ns/other", soon())))
+            .await
+            .unwrap_err();
+        assert!(err.contains("different channel"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_channel_owned_by_a_login_identity_is_frozen() {
+        // Recorded before owners came from signatures: no signature can be
+        // checked against a SPIFFE ID or an OIDC subject, so neither its
+        // members nor the channel itself can be changed through the API.
+        let nonces = NonceStore::new();
+        let ownership = ChannelOwnership::new();
+        let subject = "spiffe://example.org/ns/default/sa/creator".to_string();
+        ownership
+            .set_owner(
+                CHANNEL.to_string(),
+                ChannelOwner {
+                    subject: subject.clone(),
+                    callback_name: None,
+                },
+            )
+            .await
+            .unwrap();
+        let (key, _) = new_owner();
+        let approver = FakeApprover::silent();
+        let policy = policy(&ownership, &nonces, &approver);
+
+        let as_creator = Some(CallerIdentity { subject });
+        let grant = Some(sign_grant(&key, CHANNEL, AGENT, FAR_FUTURE));
+        assert!(policy.enforce(&add(), &as_creator, &None).await.is_err());
+        assert!(policy.enforce(&add(), &as_creator, &grant).await.is_err());
+        let delete = Some(sign_delete(&key, CHANNEL, soon()));
+        assert!(policy.authorize_delete(CHANNEL, &delete).await.is_err());
+    }
+
+    #[test]
+    fn a_signed_create_for_another_channel_manager_is_refused() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let (key, owner) = new_owner();
+        let proof = sign_create_for(
+            "org/prod/channel-manager",
+            &key,
+            &owner,
+            &create_request(),
+            soon(),
+        );
+        let req = CreateChannelRequest {
+            owner_proof: Some(proof),
+            ..create_request()
+        };
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_create(&req)
+            .unwrap_err();
+        assert!(err.contains("not this channel manager"), "{err}");
+    }
+
+    #[test]
+    fn a_signed_create_valid_for_more_than_a_day_is_refused() {
+        let (nonces, ownership, approver) = (
+            NonceStore::new(),
+            ChannelOwnership::new(),
+            FakeApprover::silent(),
+        );
+        let (key, owner) = new_owner();
+        let too_late = unix_now() + MAX_SIGNED_REQUEST_LIFETIME + 60;
+        let req = CreateChannelRequest {
+            owner_proof: Some(sign_create(&key, &owner, &create_request(), too_late)),
+            ..create_request()
+        };
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_create(&req)
+            .unwrap_err();
+        assert!(err.contains("valid for too long"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_signed_delete_for_another_channel_manager_is_refused() {
+        let nonces = NonceStore::new();
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let proof = sign_delete_for("org/prod/channel-manager", &key, CHANNEL, soon());
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_delete(CHANNEL, &Some(proof))
+            .await
+            .unwrap_err();
+        assert!(err.contains("not this channel manager"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_signed_delete_valid_for_more_than_a_day_is_refused() {
+        let nonces = NonceStore::new();
+        let (ownership, key, _) = owned_channel(false).await;
+        let approver = FakeApprover::silent();
+        let proof = sign_delete(&key, CHANNEL, unix_now() + MAX_SIGNED_REQUEST_LIFETIME + 60);
+        let err = policy(&ownership, &nonces, &approver)
+            .authorize_delete(CHANNEL, &Some(proof))
+            .await
+            .unwrap_err();
+        assert!(err.contains("valid for too long"), "{err}");
     }
 }

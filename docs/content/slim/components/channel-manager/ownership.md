@@ -4,27 +4,32 @@ Channels created through the Channel Manager API can have an owner who controls 
 
 ## Owners
 
-When the Channel Manager's API server authenticates callers, whoever creates a channel becomes its owner, identified by the subject their credential verifies:
+A channel's owner is whoever signs its create request, identified by the key they sign with: a `did:key` encoding an Ed25519 public key. The signed request is passed with `--owner-proof-file`, and must cover the exact settings the channel is created with.
 
-- with token authentication (JWT, OIDC or SPIRE), the token's `sub` claim;
-- with mTLS, the SPIFFE ID in the client certificate's URI SAN, as in an X.509-SVID.
-
-A token takes precedence over a client certificate. Without either there is no caller to identify, so channels have no owner and anyone who can reach the API can change them.
+The caller's authenticated identity never makes anyone an owner. The API server's authentication (a token's `sub`, or the SPIFFE ID of an mTLS client certificate) says which user or workload opened the connection, not which application owns the channel. That identity is still logged, and passed to owners as the requester of an approval. A channel created without a signed request has no owner, and anyone who can reach the API can change it.
 
 `slimctl channel-manager list-channels` shows each channel's owner.
 
-## Changing participants on an owned channel
+## Changing an owned channel
 
-The owner adds and removes participants directly. Anyone else needs the owner's authorization, in one of two forms:
+Every change to an owned channel needs its owner's signature, including changes the owner makes:
 
-- **A grant**: a statement signed by the owner authorizing one specific change, passed with `--grant-file`.
-- **Approval on request**: if the request carries no grant and the owner gave `--owner-callback-name` when creating the channel, the Channel Manager asks the owner, as described below.
+- **Participants:** each addition or removal needs a grant, a statement signed by the owner authorizing one specific change, passed with `--grant-file`. If the request carries no grant and the owner gave `--owner-callback-name` when creating the channel, the Channel Manager asks the owner for one, as described below.
+- **Deleting the channel:** needs the owner's signed delete request, passed with `--owner-proof-file`.
 
-A grant must name the channel, the participant and the action (`add` or `delete`) of the request it is used for, must not be expired, and is accepted only once. On a channel with no owner, participants are added and removed without a grant.
+A grant must name the channel, the participant and the action (`add` or `delete`) of the request it is used for. Grants and signed requests must not be expired, and each is accepted only once. On a channel with no owner, participants are added and removed, and the channel deleted, without any of them.
 
-## Grant format
+### Channels owned by a login identity
 
-The default verifier expects the owner's subject to be a `did:key` encoding an Ed25519 public key, and a grant to be this JSON document:
+Earlier versions recorded the creator's authenticated identity as the owner. Such a channel keeps that owner, but no signature can be checked against an OIDC subject or a SPIFFE ID, so its participants can no longer be changed and it can't be deleted through the API. It still expires if it was created with a time to live.
+
+## Signed formats
+
+The default verifier expects an owner to be a `did:key` encoding an Ed25519 public key. Every signed statement is a JSON document whose `signature` is the standard, padded base64 encoding of an Ed25519 signature over its signed bytes: the UTF-8 bytes of a literal tag, then the fields listed, in that order, joined with a NUL byte, with no trailing NUL. Numbers are in decimal. `not_after` is in Unix seconds. `nonce` must be unique per statement. No field may contain a NUL byte.
+
+### Grant
+
+A grant is this JSON document:
 
 ```json
 {
@@ -38,12 +43,49 @@ The default verifier expects the owner's subject to be a `did:key` encoding an E
 }
 ```
 
-- `not_after` is in Unix seconds. `nonce` must be unique per grant. `role` is carried but not enforced.
-- `signature` is the standard, padded base64 encoding of an Ed25519 signature over the UTF-8 bytes of the literal `SLIM-CHANNEL-GRANT/1`, then `channel`, `invitee`, `action`, `role`, `not_after` (in decimal) and `nonce`, in that order, joined with a NUL byte. There is no trailing NUL.
+Signed bytes: `SLIM-CHANNEL-GRANT/1`, `channel`, `invitee`, `action`, `role`, `not_after`, `nonce`. `role` is carried but not enforced.
 
-An owner identified by a SPIFFE ID changes their own channel directly, but the default verifier can't check grants for that channel, since their subject isn't a `did:key`.
+### Create request
 
-Deployments embedding the Channel Manager can plug in a different verifier for other grant formats or key schemes, for example one that resolves an agent's binding certificate to its human owner.
+A signed create request names its signer as `owner`, and the Channel Manager it is meant for as `audience`:
+
+```json
+{
+  "audience": "agntcy/prod/channel-manager",
+  "channel": "agntcy/team/general",
+  "owner": "did:key:z6Mk...",
+  "mls_enabled": true,
+  "ttl_seconds": 86400,
+  "owner_callback_name": "agntcy/owners/alice-desktop",
+  "not_after": 1767225600,
+  "nonce": "b81d4f0c9e",
+  "signature": "<base64>"
+}
+```
+
+Signed bytes: `SLIM-CHANNEL-CREATE/1`, `audience`, `channel`, `owner`, `mls_enabled` (`true` or `false`), `ttl_seconds`, `owner_callback_name`, `not_after`, `nonce`.
+
+`ttl_seconds` and `owner_callback_name` are optional. When unset, omit them from the JSON, and sign each as the empty string. The signature is checked with the key in `owner`, and `channel`, `mls_enabled`, `ttl_seconds` and `owner_callback_name` must equal the request's settings.
+
+`audience` is the Channel Manager's [`audience`](./config.md#audience), its `local-name` by default, so a request signed for one Channel Manager is refused by another. `not_after` may be at most 24 hours ahead.
+
+### Delete request
+
+```json
+{
+  "audience": "agntcy/prod/channel-manager",
+  "channel": "agntcy/team/general",
+  "not_after": 1767225600,
+  "nonce": "07a3e5d2f1",
+  "signature": "<base64>"
+}
+```
+
+Signed bytes: `SLIM-CHANNEL-DELETE/1`, `audience`, `channel`, `not_after`, `nonce`. The signature is checked against the channel's owner. As for a create request, `audience` must name this Channel Manager and `not_after` may be at most 24 hours ahead.
+
+### Other verifiers
+
+Deployments embedding the Channel Manager can plug in a different verifier for other formats or key schemes, for example one that resolves an agent's binding certificate to its human owner.
 
 ## Owner approval
 

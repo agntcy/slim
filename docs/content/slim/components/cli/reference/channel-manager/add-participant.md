@@ -10,7 +10,7 @@ Add a participant to an existing channel. The Channel Manager performs discovery
 slimctl channel-manager add-participant <CHANNEL> <PARTICIPANT> [OPTIONS]
 ```
 
-On a channel with an owner, anyone other than the owner needs the owner's authorization: a grant passed with `--grant-file`, or, without one, the owner's approval, which the Channel Manager requests if the owner gave a callback name. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
+On a channel with an owner, every change needs the owner's authorization, the owner's own changes included: a grant passed with `--grant-file`, or, without one, the owner's approval, which the Channel Manager requests if the owner gave a callback name. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
 
 ## Examples
 

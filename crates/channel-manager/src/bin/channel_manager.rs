@@ -215,6 +215,40 @@ async fn create_channels_from_config(
     Ok(())
 }
 
+/// The config's optional `channel-manager.audience`: what signed create and
+/// delete requests must name, in place of `local-name`. Read beside
+/// `Config` rather than through it: `ManagerConfig`'s fields are all
+/// public, so adding one would break the library's API.
+#[derive(serde::Deserialize)]
+struct AudienceConfig {
+    #[serde(rename = "channel-manager")]
+    manager: AudienceSection,
+}
+
+#[derive(serde::Deserialize)]
+struct AudienceSection {
+    #[serde(default)]
+    audience: Option<String>,
+}
+
+fn load_audience(path: &std::path::Path) -> anyhow::Result<Option<String>> {
+    let data = std::fs::read_to_string(path)
+        .with_context(|| format!("reading config file {}", path.display()))?;
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(&data).context("parsing config YAML")?;
+    slim_config::provider::ConfigResolver::new()
+        .resolve(&mut value)
+        .context("resolving config values")?;
+    let config: AudienceConfig =
+        serde_yaml::from_value(value).context("deserializing channel-manager.audience")?;
+    match config.manager.audience {
+        Some(audience) if audience.is_empty() => {
+            anyhow::bail!("channel-manager.audience cannot be empty")
+        }
+        audience => Ok(audience),
+    }
+}
+
 /// Builds and initializes the configured identity provider and verifier for
 /// a SLIM app named `name`.
 async fn identity(config: &Config, name: &str) -> anyhow::Result<(AuthProvider, AuthVerifier)> {
@@ -257,6 +291,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load configuration
     let config = Config::load(&args.config_file)?;
+    let audience = load_audience(&args.config_file)?;
     info!(config_file = %args.config_file.display(), "Configuration loaded");
 
     // Peers that check identities against an allow-list (e.g. SHADI agents)
@@ -398,6 +433,9 @@ async fn main() -> anyhow::Result<()> {
                 Arc::new(approval_app),
                 Some(conn_id),
             )));
+    let audience = audience.unwrap_or_else(|| config.manager.local_name.clone());
+    info!(%audience, "Signed create and delete requests must name this audience");
+    server = server.with_audience(audience);
 
     // Ownership and grant replay state persist exactly when sessions do: a
     // restored channel without its owner would accept changes from anyone.

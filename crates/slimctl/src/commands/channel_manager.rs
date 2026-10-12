@@ -31,14 +31,19 @@ pub enum ChannelManagerCommand {
         /// Disable MLS for this channel (MLS is enabled by default)
         #[arg(long = "disable-mls", default_value_t = false)]
         disable_mls: bool,
-        /// SLIM name (org/namespace/app) at which you, as the channel's
-        /// owner, can be asked to approve participant changes others request
-        /// without a grant
+        /// SLIM name (org/namespace/app) at which the channel's owner can be
+        /// asked to approve participant changes others request without a
+        /// grant. Needs --owner-proof-file
         #[arg(long = "owner-callback-name", value_name = "NAME")]
         owner_callback_name: Option<String>,
         /// Delete the channel automatically this many seconds after creation
         #[arg(long = "ttl-seconds", value_name = "SECONDS")]
         ttl_seconds: Option<u64>,
+        /// File holding the create request signed by the channel's owner,
+        /// covering these exact settings ("-" reads stdin). Its signer
+        /// becomes the owner; without it the channel has no owner
+        #[arg(long = "owner-proof-file", value_name = "PATH")]
+        owner_proof_file: Option<PathBuf>,
     },
 
     /// Delete a channel
@@ -46,6 +51,10 @@ pub enum ChannelManagerCommand {
     DeleteChannel {
         /// Channel name (org/namespace/channel)
         channel: String,
+        /// File holding a delete request signed by the channel's owner ("-"
+        /// reads stdin). Needed when the channel has an owner
+        #[arg(long = "owner-proof-file", value_name = "PATH")]
+        owner_proof_file: Option<PathBuf>,
     },
 
     /// Add a participant to a channel
@@ -56,8 +65,8 @@ pub enum ChannelManagerCommand {
         /// Participant name (org/namespace/app)
         participant: String,
         /// File holding a grant signed by the channel's owner authorizing
-        /// this change ("-" reads stdin). Needed on an owned channel unless
-        /// you're its owner or it can ask the owner to approve
+        /// this change ("-" reads stdin). Needed on an owned channel, by its
+        /// owner too, unless the channel can ask its owner to approve
         #[arg(long = "grant-file", value_name = "PATH")]
         grant_file: Option<PathBuf>,
     },
@@ -70,8 +79,8 @@ pub enum ChannelManagerCommand {
         /// Participant name (org/namespace/app)
         participant: String,
         /// File holding a grant signed by the channel's owner authorizing
-        /// this change ("-" reads stdin). Needed on an owned channel unless
-        /// you're its owner or it can ask the owner to approve
+        /// this change ("-" reads stdin). Needed on an owned channel, by its
+        /// owner too, unless the channel can ask its owner to approve
         #[arg(long = "grant-file", value_name = "PATH")]
         grant_file: Option<PathBuf>,
     },
@@ -90,19 +99,25 @@ pub enum ChannelManagerCommand {
 
 /// Reads a grant from `path` ("-" for stdin), if one was given.
 fn read_grant(path: Option<&Path>) -> Result<Option<Vec<u8>>> {
+    read_signed(path, "grant")
+}
+
+/// Reads a signed statement (`what`: a grant, or the owner's signed create
+/// or delete request) from `path` ("-" for stdin), if one was given.
+fn read_signed(path: Option<&Path>, what: &str) -> Result<Option<Vec<u8>>> {
     let Some(path) = path else {
         return Ok(None);
     };
-    let mut grant = Vec::new();
+    let mut signed = Vec::new();
     if path == Path::new("-") {
         std::io::stdin()
-            .read_to_end(&mut grant)
-            .context("failed to read grant from stdin")?;
+            .read_to_end(&mut signed)
+            .with_context(|| format!("failed to read {what} from stdin"))?;
     } else {
-        grant = std::fs::read(path)
-            .with_context(|| format!("failed to read grant file: {}", path.display()))?;
+        signed = std::fs::read(path)
+            .with_context(|| format!("failed to read {what} file: {}", path.display()))?;
     }
-    Ok(Some(grant))
+    Ok(Some(signed))
 }
 
 /// One line of `list-channels` output: the name, then owner and expiry when
@@ -151,20 +166,26 @@ pub async fn run(args: &ChannelManagerArgs, opts: &ClientConfig) -> Result<()> {
             disable_mls,
             owner_callback_name,
             ttl_seconds,
+            owner_proof_file,
         } => {
             let request = CreateChannelRequest {
                 channel_name: channel.clone(),
                 mls_enabled: !disable_mls,
                 owner_callback_name: owner_callback_name.clone(),
                 ttl_seconds: *ttl_seconds,
+                owner_proof: read_signed(owner_proof_file.as_deref(), "signed create request")?,
             };
             let response = rpc!(client, create_channel, request);
             check_command_response(response, &format!("Channel {channel} created successfully"))
         }
 
-        ChannelManagerCommand::DeleteChannel { channel } => {
+        ChannelManagerCommand::DeleteChannel {
+            channel,
+            owner_proof_file,
+        } => {
             let request = DeleteChannelRequest {
                 channel_name: channel.clone(),
+                owner_proof: read_signed(owner_proof_file.as_deref(), "signed delete request")?,
             };
             let response = rpc!(client, delete_channel, request);
             check_command_response(response, &format!("Channel {channel} deleted successfully"))
@@ -519,6 +540,7 @@ mod tests {
                 disable_mls: false,
                 owner_callback_name: None,
                 ttl_seconds: None,
+                owner_proof_file: None,
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -533,6 +555,7 @@ mod tests {
                 disable_mls: true,
                 owner_callback_name: None,
                 ttl_seconds: None,
+                owner_proof_file: None,
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -544,6 +567,7 @@ mod tests {
         let args = ChannelManagerArgs {
             command: ChannelManagerCommand::DeleteChannel {
                 channel: "org/ns/chan".to_string(),
+                owner_proof_file: None,
             },
         };
         run(&args, &make_opts(&addr)).await.unwrap();
@@ -606,6 +630,7 @@ mod tests {
                 disable_mls: false,
                 owner_callback_name: None,
                 ttl_seconds: None,
+                owner_proof_file: None,
             },
         };
         assert!(run(&args, &make_opts(&addr)).await.is_err());
@@ -617,6 +642,7 @@ mod tests {
         let args = ChannelManagerArgs {
             command: ChannelManagerCommand::DeleteChannel {
                 channel: "c".to_string(),
+                owner_proof_file: None,
             },
         };
         assert!(run(&args, &make_opts(&addr)).await.is_err());
@@ -679,6 +705,7 @@ mod tests {
                 disable_mls: false,
                 owner_callback_name: None,
                 ttl_seconds: None,
+                owner_proof_file: None,
             },
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
@@ -691,6 +718,7 @@ mod tests {
         let args = ChannelManagerArgs {
             command: ChannelManagerCommand::DeleteChannel {
                 channel: "c".to_string(),
+                owner_proof_file: None,
             },
         };
         let err = run(&args, &make_opts(&addr)).await.unwrap_err();
@@ -789,5 +817,18 @@ mod tests {
     fn a_missing_grant_file_is_an_error() {
         let err = read_grant(Some(Path::new("/nonexistent/grant.json"))).unwrap_err();
         assert!(err.to_string().contains("failed to read grant file"));
+    }
+
+    #[test]
+    fn a_missing_owner_proof_file_says_what_was_being_read() {
+        let err = read_signed(
+            Some(Path::new("/nonexistent/create.json")),
+            "signed create request",
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("failed to read signed create request file")
+        );
     }
 }
