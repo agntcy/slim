@@ -42,4 +42,5 @@ uuid = { workspace = true }
 agntcy-slim-config = { workspace = true }
 bincode = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing-subscriber = { workspace = true }
 tracing-test = { workspace = true }

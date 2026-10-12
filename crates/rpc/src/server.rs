@@ -30,7 +30,7 @@ use super::{RPC_DIR_KEY, RPC_DIR_REQ};
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcSession,
-    SERVICE_KEY, send_error_for_rpc,
+    SERVICE_KEY, send_error_to,
     session_wrapper::{SessionRx, SessionTx, new_session},
     stream_types::StreamSource,
 };
@@ -357,6 +357,7 @@ fn spawn_handler_task(
     };
 
     tokio::spawn(async move {
+        let caller = msg.source.clone();
         let session = match stream_rx {
             Some(rx) => RpcSession::new_stream(&session_tx, rx, &method_path, msg),
             None => RpcSession::new_unary(&session_tx, &method_path, msg),
@@ -378,7 +379,7 @@ fn spawn_handler_task(
             }
         };
         if let Some(e) = error {
-            let _ = send_error_for_rpc(&session_tx, e, &rpc_id).await;
+            let _ = send_error_to(&session_tx, &caller, e, &rpc_id).await;
         }
     });
 }
@@ -435,7 +436,7 @@ async fn run_session_demux(
             // responses in a GROUP session and responses from peer servers) do not carry
             // this key.  Drop anything that isn't tagged as a client request.
             if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ) {
-                tracing::trace!(%rpc_id_str, "Skipping server response for active stream");
+                tracing::trace!(%rpc_id_str, src = %msg.source, "Skipping server response for active stream");
                 continue;
             }
             // Remove before send so rpc_id_str (borrows msg.metadata) is last used
@@ -455,7 +456,7 @@ async fn run_session_demux(
         // STATUS_CODE_KEY, which no longer holds now that response data frames
         // carry no status.)
         if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) != Some(RPC_DIR_REQ) {
-            tracing::trace!("Skipping server response (no pending stream)");
+            tracing::trace!(src = %msg.source, "Skipping server response (no pending stream)");
             continue;
         }
 
@@ -482,8 +483,9 @@ async fn run_session_demux(
 
         let Some(handler_info) = registry.get_handler_info(&method_path) else {
             tracing::error!(%method_path, "No handler registered");
-            let _ = send_error_for_rpc(
+            let _ = send_error_to(
                 &session_tx,
+                &msg.source,
                 RpcError::unimplemented(format!("Method not found: {method_path}")),
                 &rpc_id,
             )
