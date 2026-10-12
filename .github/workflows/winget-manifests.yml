@@ -257,7 +257,12 @@ jobs:
           gh auth setup-git >/dev/null
           gh repo clone "$FORK_OWNER/winget-pkgs" "$RUNNER_TEMP/winget-pkgs" -- --depth 1
           cd "$RUNNER_TEMP/winget-pkgs"
-          git remote add upstream https://github.com/microsoft/winget-pkgs.git
+          # gh repo clone already adds the parent as `upstream` for a fork.
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/microsoft/winget-pkgs.git
+          else
+            git remote add upstream https://github.com/microsoft/winget-pkgs.git
+          fi
           git fetch --depth 1 upstream master
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
