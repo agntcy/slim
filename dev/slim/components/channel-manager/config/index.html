@@ -1423,6 +1423,39 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#audience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        audience
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#require-signatures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        require-signatures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#auth" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2986,6 +3019,8 @@
       
         
       
+        
+      
     
     
     
@@ -3193,6 +3228,34 @@
     
   
     list-participants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/reference/channel-manager/did-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    did-key
   
 
     
@@ -5034,6 +5097,39 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#audience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        audience
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#require-signatures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        require-signatures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#auth" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5254,7 +5350,7 @@
 
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># api-server: the gRPC server the Channel Manager exposes for management</span>
-<span class="w">  </span><span class="c1"># commands (slimctl channel-manager / cmctl).</span>
+<span class="w">  </span><span class="c1"># commands (slimctl channel-manager).</span>
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="nt">api-server</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;127.0.0.1:10356&quot;</span>
@@ -5279,6 +5375,22 @@
 <span class="w">  </span><span class="c1"># Format: org/namespace/service  (three components — no clientId).</span>
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="nt">local-name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/ns/channel-manager&quot;</span>
+
+<span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="w">  </span><span class="c1"># audience (optional): what owners&#39; signed create and delete requests must</span>
+<span class="w">  </span><span class="c1"># name as the Channel Manager they are meant for. Defaults to local-name.</span>
+<span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="w">  </span><span class="c1"># audience: &quot;agntcy/prod/channel-manager&quot;</span>
+
+<span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="w">  </span><span class="c1"># require-signatures (optional, default false): refuse unsigned creates,</span>
+<span class="w">  </span><span class="c1"># and changes to channels that have no owner.</span>
+<span class="w">  </span><span class="c1"># operators (optional): did:keys whose signed delete request deletes any</span>
+<span class="w">  </span><span class="c1"># channel. They can&#39;t change a channel&#39;s participants.</span>
+<span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="w">  </span><span class="c1"># require-signatures: true</span>
+<span class="w">  </span><span class="c1"># operators:</span>
+<span class="w">  </span><span class="c1">#   - &quot;did:key:z6Mk...&quot;</span>
 
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># auth: how this Channel Manager authenticates its own SLIM application</span>
@@ -5365,9 +5477,15 @@
 </tbody>
 </table>
 <h3 id="api-server"><code>api-server</code></h3>
-<p>The gRPC server address where <code>slimctl channel-manager</code> and <code>cmctl</code> send management commands. Bind to <code>0.0.0.0:&lt;port&gt;</code> to accept connections from other hosts.</p>
+<p>The gRPC server address where <code>slimctl channel-manager</code> and applications send management commands. Bind to <code>0.0.0.0:&lt;port&gt;</code> to accept connections from other hosts.</p>
 <h3 id="local-name"><code>local-name</code></h3>
 <p>The SLIM name the Channel Manager registers as. Use a unique three-component name (<code>org/namespace/service</code>) per deployment to avoid conflicts if running multiple Channel Manager instances.</p>
+<h3 id="audience"><code>audience</code></h3>
+<p>Optional. The value an owner's signed create and delete requests must name as their <code>audience</code> (<a href="../ownership/#create-request">Channel Ownership, Grants and Expiry</a>), so a request signed for one Channel Manager can't be replayed against another. Defaults to <code>local-name</code>. Set it to a value unique to the deployment when several deployments share a <code>local-name</code>, for example development and production.</p>
+<h3 id="require-signatures"><code>require-signatures</code></h3>
+<p>Optional, <code>false</code> by default. When <code>true</code>, the Channel Manager refuses a create request without the owner's signature, and refuses changes to channels that have no owner. Turn it on once every client signs its creates. See <a href="../ownership/#requiring-signatures">Requiring signatures</a>.</p>
+<h3 id="operators"><code>operators</code></h3>
+<p>Optional. A list of did:keys whose signed delete request deletes any channel, for example one whose owner's key is lost. Operators can't add or remove participants. See <a href="../ownership/#operators">Operators</a>.</p>
 <h3 id="auth"><code>auth</code></h3>
 <p>Authentication options for the Channel Manager's SLIM application identity:</p>
 <table>

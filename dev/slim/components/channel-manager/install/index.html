@@ -2964,6 +2964,8 @@
       
         
       
+        
+      
     
     
     
@@ -3171,6 +3173,34 @@
     
   
     list-participants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/reference/channel-manager/did-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    did-key
   
 
     
@@ -5175,28 +5205,7 @@ docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </
 <p>Build the Channel Manager binary in release mode:</p>
 <div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>agntcy-slim-channel-manager
 </code></pre></div>
-<p>This produces two binaries in <code>target/release/</code>:</p>
-<table>
-<thead>
-<tr>
-<th>Binary</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>channel-manager</code></td>
-<td>The Channel Manager server</td>
-</tr>
-<tr>
-<td><code>cmctl</code></td>
-<td>Standalone gRPC client for the Channel Manager API</td>
-</tr>
-</tbody>
-</table>
-<p>To build both in one command:</p>
-<div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>agntcy-slim-channel-manager<span class="w"> </span>--bins
-</code></pre></div>
+<p>This produces the <code>channel-manager</code> server binary in <code>target/release/</code>. To manage channels from the command line, use <a href="../../cli/reference/channel-manager/"><code>slimctl channel-manager</code></a>.</p>
 <h2 id="running-the-channel-manager">Running the Channel Manager</h2>
 <p>Create a configuration file (see <a href="../config/">Configuration Reference</a>) and start the server:</p>
 <div class="highlight"><pre><span></span><code>./target/release/channel-manager<span class="w"> </span>--config-file<span class="w"> </span>config.yaml
@@ -5206,13 +5215,10 @@ docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </
 INFO channel_manager: gRPC API listening on 127.0.0.1:10356
 </code></pre></div>
 <h2 id="verifying-the-installation">Verifying the Installation</h2>
-<p>Use <code>slimctl channel-manager</code> (or the standalone <code>cmctl</code> binary) to confirm the Channel Manager is responding:</p>
+<p>Use <code>slimctl channel-manager</code> to confirm the Channel Manager is responding:</p>
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>list-channels
 </code></pre></div>
-<p>Or using <code>cmctl</code> directly:</p>
-<div class="highlight"><pre><span></span><code>./target/release/cmctl<span class="w"> </span>list-channels
-</code></pre></div>
-<p>Both connect to <code>127.0.0.1:10356</code> by default. Use <code>--server</code> to point at a different address.</p>
+<p>It connects to <code>127.0.0.1:10356</code> by default. Use <code>--server</code> to point at a different address.</p>
 <h2 id="installing-slimctl">Installing slimctl</h2>
 <p><code>slimctl</code> is required to manage the Channel Manager from the command line. See the <a href="../../cli/install/">SLIM CLI Installation</a> guide.</p>
 <h2 id="next-steps">Next Steps</h2>

@@ -2827,6 +2827,8 @@
       
         
       
+        
+      
     
     
     
@@ -3125,6 +3127,34 @@
     
   
     list-participants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../did-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    did-key
   
 
     
@@ -5096,13 +5126,17 @@
 
 
 <h1 id="slimctl-channel-manager-delete-channel">slimctl channel-manager delete-channel</h1>
-<p>Delete a group channel.</p>
+<p>Delete a group channel, with a delete request signed by its owner or by an operator: signed here with <code>--key</code>, or signed elsewhere and forwarded with <code>--signed-request-file</code>. See <a href="../../../../channel-manager/ownership/#delete-request">Channel Ownership, Grants and Expiry</a>.</p>
 <p><strong>Aliases:</strong> <code>dc</code></p>
 <h2 id="usage">Usage</h2>
-<div class="highlight"><pre><span></span><code>slimctl channel-manager delete-channel &lt;CHANNEL&gt;
+<div class="highlight"><pre><span></span><code>slimctl channel-manager delete-channel &lt;CHANNEL&gt; (--key &lt;PATH&gt; --audience &lt;AUDIENCE&gt; | --signed-request-file &lt;PATH&gt;)
 </code></pre></div>
 <h2 id="examples">Examples</h2>
-<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-channel<span class="w"> </span>agntcy/team/general
+<p>Signed with the admin's key:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-channel<span class="w"> </span>agntcy/team/general<span class="w"> </span>--key<span class="w"> </span>admin.pem<span class="w"> </span>--audience<span class="w"> </span>agntcy/prod/channel-manager
+</code></pre></div>
+<p>With a delete request signed elsewhere, read from a file:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-channel<span class="w"> </span>agntcy/team/general<span class="w"> </span>--signed-request-file<span class="w"> </span>delete.json
 </code></pre></div>
 <h2 id="options">Options</h2>
 <table>
@@ -5118,6 +5152,21 @@
 <td><code>&lt;CHANNEL&gt;</code></td>
 <td><strong>Yes</strong></td>
 <td>Channel name in <code>org/namespace/channel</code> format</td>
+</tr>
+<tr>
+<td><code>--key &lt;PATH&gt;</code></td>
+<td>One of these two</td>
+<td>Ed25519 private key (PKCS#8 PEM) of the channel's owner or an operator, to sign the request with</td>
+</tr>
+<tr>
+<td><code>--signed-request-file &lt;PATH&gt;</code></td>
+<td>One of these two</td>
+<td>File holding a delete request signed elsewhere; <code>-</code> reads standard input</td>
+</tr>
+<tr>
+<td><code>--audience &lt;AUDIENCE&gt;</code></td>
+<td>With <code>--key</code></td>
+<td>The Channel Manager the request is for: its <a href="../../../../channel-manager/config/#audience"><code>audience</code></a>, its <code>local-name</code> by default. Defaults to <code>$SLIMCTL_CM_AUDIENCE</code></td>
 </tr>
 </tbody>
 </table>
