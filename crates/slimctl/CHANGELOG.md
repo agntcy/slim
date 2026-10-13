@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1](https://github.com/agntcy/slim/compare/slimctl-v3.3.0...slimctl-v3.3.1) - 2026-10-13
+
+### Fixed
+
+- *(slimctl)* print the help and exit 0 when run without a command ([#2258](https://github.com/agntcy/slim/pull/2258))
+
 ## [3.3.0](https://github.com/agntcy/slim/compare/slimctl-v3.2.1...slimctl-v3.3.0) - 2026-10-12
 
 ### Added
