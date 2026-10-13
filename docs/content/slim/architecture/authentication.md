@@ -46,6 +46,8 @@ Tokens can come from:
 - **An external identity provider** — any OIDC-compatible IdP issues tokens; SLIM verifies them against the provider's public key or JWKS endpoint.
 - **SLIM-issued tokens** — a SLIM node can sign and issue tokens directly if provided with a private signing key, useful when no external IdP is available.
 
+With a trust list of peer keys, such as a JWKS of `did:key` identities, every listed key can sign a valid token. SLIM therefore also checks that a token's `sub` belongs to the key that signed it: it must be that key's `kid` or, for an Ed25519 key, its `did:key`. The `jwt` app identity always runs this check, in the mode set by the `SLIM_IDENTITY_BINDING` environment variable: `warn` (the default) logs a mismatch, `enforce` rejects the token, and `off` turns the check off. A JWT verifier configured by hand runs it when `subject_binding` is set. Tokens from an identity provider's keys aren't checked, because the provider vouches for each `sub`.
+
 **Properties:**
 - Tokens are short-lived and can be revoked at expiry
 - Each application has a distinct identity tied to the `sub` claim set by the issuer

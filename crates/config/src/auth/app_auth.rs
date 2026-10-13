@@ -12,6 +12,7 @@ use base64::Engine;
 use serde::Deserialize;
 use slim_auth::did_key::{ed25519_did_key, ed25519_public_key_from_pkcs8_pem};
 use slim_auth::errors::AuthError as SlimAuthError;
+use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
 
 use super::ConfigAuthError;
@@ -202,11 +203,12 @@ impl AuthConfig {
                         JWT_TOKEN_LIFETIME,
                         signing_key,
                     )),
-                    IdentityVerifierConfig::Jwt(JwtConfig::new(
-                        Claims::default(),
-                        JWT_TOKEN_LIFETIME,
-                        verifying_keys,
-                    )),
+                    // A trust list: each key is one peer's, so a token's `sub`
+                    // must be its signer's own `did:key`.
+                    IdentityVerifierConfig::Jwt(
+                        JwtConfig::new(Claims::default(), JWT_TOKEN_LIFETIME, verifying_keys)
+                            .with_subject_binding(IdentityBinding::from_env()),
+                    ),
                 )
             }
         })
@@ -329,6 +331,18 @@ mod tests {
 
     fn expected_did_key() -> String {
         slim_auth::did_key::ed25519_did_key(&hex(ED25519_PUBLIC))
+    }
+
+    #[test]
+    fn the_trust_list_holds_each_sub_to_its_key() {
+        let (_, verifier) = jwt_config().to_identity_configs("app").unwrap();
+        let IdentityVerifierConfig::Jwt(verifier) = verifier else {
+            panic!("expected a JWT verifier");
+        };
+        assert_eq!(
+            verifier.subject_binding(),
+            Some(IdentityBinding::from_env())
+        );
     }
 
     #[test]

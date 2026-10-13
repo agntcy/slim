@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use crate::auth::ConfigAuthError;
 use slim_auth::errors::AuthError;
+use slim_auth::identity_binding::IdentityBinding;
 
 use super::{ClientAuthenticator, PolicyConfig, ServerAuthenticator};
 use slim_auth::jwt::{Key, SignerJwt, VerifierJwt};
@@ -127,6 +128,13 @@ pub struct Config {
     /// Absent means all authenticated requests are allowed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicyConfig>,
+
+    /// For a decoding key that is a list of peer keys (a JWKS where each key is
+    /// one peer's): whether a token's `sub` must be the `kid`, or the `did:key`,
+    /// of the key that signed it. `off`, `warn` or `enforce`; absent means not
+    /// checked, as for an identity provider's keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    subject_binding: Option<IdentityBinding>,
 }
 
 fn default_duration() -> DurationString {
@@ -141,6 +149,7 @@ impl Config {
             duration: duration.into(),
             key,
             policy: None,
+            subject_binding: None,
         }
     }
 
@@ -162,6 +171,12 @@ impl Config {
         self
     }
 
+    /// Hold each token's `sub` to the peer key that signed it; see the field.
+    pub fn with_subject_binding(mut self, mode: IdentityBinding) -> Self {
+        self.subject_binding = Some(mode);
+        self
+    }
+
     /// Set claims
     pub fn with_claims(self, claims: Claims) -> Self {
         Config { claims, ..self }
@@ -180,6 +195,11 @@ impl Config {
     /// Get the key
     pub fn key(&self) -> &JwtKey {
         &self.key
+    }
+
+    /// How a token's `sub` is held to the peer key that signed it, if at all.
+    pub fn subject_binding(&self) -> Option<IdentityBinding> {
+        self.subject_binding
     }
 
     /// Get the duration
@@ -225,7 +245,13 @@ impl Config {
     /// Returns an error if neither a decoding key nor autoresolve=true are configured.
     pub fn get_verifier(&self) -> Result<VerifierJwt, AuthError> {
         match self.key() {
-            JwtKey::Decoding(key) => self.jwt_builder().public_key(key).build(),
+            JwtKey::Decoding(key) => {
+                let verifier = self.jwt_builder().public_key(key).build()?;
+                Ok(match self.subject_binding {
+                    Some(mode) => verifier.with_subject_binding(mode),
+                    None => verifier,
+                })
+            }
             JwtKey::Autoresolve => self.jwt_builder().auto_resolve_keys(true).build(),
             _ => Err(AuthError::JwtMissingDecodingKeyOrKeyResolver),
         }
@@ -364,6 +390,17 @@ mod tests {
                     .unwrap(),
             )
             .service(HeaderCheckService);
+    }
+
+    #[test]
+    fn subject_binding_is_read_from_config_and_absent_by_default() {
+        let json = r#"{ "key": { "type": "autoresolve" }, "subject_binding": "enforce" }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.subject_binding(), Some(IdentityBinding::Enforce));
+
+        let json = r#"{ "key": { "type": "autoresolve" } }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.subject_binding(), None);
     }
 
     #[test]
