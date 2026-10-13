@@ -279,6 +279,20 @@ where
         Ok(ret)
     }
 
+    /// The verified identity (`sub`) of a key package, read without adding it
+    /// to the group, so a caller can check whom it is about to add.
+    pub async fn key_package_identity(
+        &self,
+        key_package_bytes: &[u8],
+    ) -> Result<MlsIdentity, MlsError> {
+        let key_package = MlsMessage::from_bytes(key_package_bytes)?
+            .into_key_package()
+            .ok_or(MlsError::UnknownPayloadType)?;
+        SlimIdentityProvider::new(self.identity_verifier.clone())
+            .identity(key_package.signing_identity(), &ExtensionList::default())
+            .await
+    }
+
     pub async fn add_member(
         &mut self,
         key_package_bytes: &[u8],

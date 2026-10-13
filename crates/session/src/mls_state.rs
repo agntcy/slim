@@ -516,6 +516,17 @@ where
     P: TokenProvider + Send + Sync + Clone + 'static,
     V: Verifier + Send + Sync + Clone + 'static,
 {
+    /// The verified identity in a join reply's key package, read before the
+    /// joiner is added.
+    pub(crate) async fn joiner_identity(&self, msg: &Message) -> Result<Vec<u8>, SessionError> {
+        let payload = msg.extract_join_reply()?;
+        Ok(self
+            .common
+            .mls
+            .key_package_identity(payload.key_package())
+            .await?)
+    }
+
     pub(crate) async fn add_participant(
         &mut self,
         msg: &Message,

@@ -6,9 +6,11 @@ pub mod completion_handle;
 pub mod context;
 pub mod controller_sender;
 pub mod errors;
+pub(crate) mod identity_check;
 
 pub mod mls_state;
 mod moderator_task;
+pub mod name_id;
 pub mod notification;
 pub mod peer_identity;
 mod persistence;

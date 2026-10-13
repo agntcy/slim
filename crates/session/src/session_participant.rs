@@ -1596,6 +1596,7 @@ mod tests {
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };

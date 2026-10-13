@@ -18,6 +18,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug};
 
 use serde_json::Value;
+use slim_auth::errors::AuthError;
+use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -28,6 +30,8 @@ use slim_datapath::{
 };
 
 // Local crate
+use crate::identity_check::binding_mismatch;
+use crate::name_id;
 use crate::peer_identity::PeerIdentity;
 use crate::{
     MessageDirection, SessionError,
@@ -322,25 +326,78 @@ impl SessionController {
         // messages are verified when MLS is enabled.
         let joining = msg_type == ProtoSessionMessageType::JoinRequest;
         let e2e_required = msg_type.is_command_message() && (mls || joining);
+        // With identity binding on, every control message is verified too, so
+        // its sender's name id can be checked against its identity.
+        let binding = settings.identity_binding;
+        let check_binding = msg_type.is_command_message() && binding != IdentityBinding::Off;
 
-        // Return if e2e_required in `false`
-        if !e2e_required {
+        if !e2e_required && !check_binding {
             return Ok(());
         }
 
         // 1. Verify E2E header signature and token
-        let claims =
-            crate::session_controller::verify_identity(msg, &settings.identity_verifier, true)
-                .await?;
+        let claims = match crate::session_controller::verify_identity(
+            msg,
+            &settings.identity_verifier,
+            true,
+        )
+        .await
+        {
+            Ok(claims) => claims,
+            Err(e) if e2e_required => return Err(e),
+            // Without MLS this message used not to be verified at all.
+            Err(e) => {
+                let what = format!("unverified control message: {e}");
+                if binding_mismatch(binding, &what, msg, None) {
+                    return Err(e);
+                }
+                None
+            }
+        };
+        let identity = claims.as_ref().and_then(PeerIdentity::from_claims);
+
+        if check_binding && let Some(identity) = &identity {
+            let sub = identity.subject();
+            // The sender's name id must be the one its identity derives.
+            if msg.get_source().id() != name_id::app_id(sub)
+                && binding_mismatch(
+                    binding,
+                    "control message from a name id its verified identity doesn't derive",
+                    msg,
+                    Some(sub),
+                )
+            {
+                return Err(SessionError::Auth(AuthError::TokenInvalid));
+            }
+            // An invitee joins only a channel its moderator's identity derives.
+            if joining
+                && settings.config.session_type == ProtoSessionType::Multicast
+                && !name_id::is_channel_of(sub, &settings.destination, &settings.control)
+                && binding_mismatch(
+                    binding,
+                    "invite to a channel its moderator's verified identity doesn't derive",
+                    msg,
+                    Some(sub),
+                )
+            {
+                return Err(SessionError::Auth(AuthError::TokenInvalid));
+            }
+        }
 
         // Remember who set up the session. Only with MLS: without it, later
         // data messages aren't authenticated, so they couldn't be attributed
         // to this peer.
         if joining
             && mls
-            && let Some(identity) = claims.as_ref().and_then(PeerIdentity::from_claims)
+            && let Some(identity) = identity
         {
             let _ = peer_identity.set(identity);
+        }
+
+        // Only messages that were already verified before identity binding are
+        // replay-checked, so binding doesn't change how retransmissions are handled.
+        if !e2e_required {
+            return Ok(());
         }
 
         // 2. Replay check for signed control messages (keyed by session message_id).
@@ -2779,6 +2836,7 @@ mod tests {
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };
@@ -2999,6 +3057,173 @@ mod tests {
         assert_eq!(identity.subject(), peer.get_id().unwrap());
     }
 
+    /// `org/ns/peer` with the id `peer`'s identity derives.
+    fn own_name(peer: &SharedSecret) -> ProtoName {
+        ProtoName::from_strings(["org", "ns", "peer"])
+            .with_id(name_id::app_id(&peer.get_id().unwrap()))
+    }
+
+    /// A control message from `source`, carrying `peer`'s token and signed
+    /// with its key.
+    fn signed_from(
+        peer: &SharedSecret,
+        source: ProtoName,
+        message_type: ProtoSessionMessageType,
+        payload: Content,
+    ) -> Message {
+        let mut msg = Message::builder()
+            .source(source)
+            .destination(ProtoName::from_strings(["org", "ns", "test"]).with_id(1))
+            .identity(peer.get_token().unwrap())
+            .forward_to(0)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(message_type)
+            .session_id(1)
+            .message_id(100)
+            .payload(payload)
+            .build_publish()
+            .unwrap();
+        sign_outbound_control_message(&mut msg, peer).unwrap();
+        msg
+    }
+
+    fn join_payload() -> Content {
+        CommandPayload::builder()
+            .join_request(Some(3), Some(Duration::from_secs(1)), None, None, None)
+            .as_content()
+    }
+
+    /// Check `msg` with identity binding `binding`, without MLS, in a
+    /// multicast session on `channel` if given.
+    async fn check_with_binding(
+        msg: &Message,
+        binding: IdentityBinding,
+        channel: Option<(ProtoName, ProtoName)>,
+    ) -> Result<(), SessionError> {
+        let mut settings = create_test_settings(None);
+        settings.identity_binding = binding;
+        if let Some((data, control)) = channel {
+            settings.config.session_type = ProtoSessionType::Multicast;
+            settings.destination = data;
+            settings.control = control;
+        }
+        let mut seen = LruCache::new(NonZeroUsize::new(8).unwrap());
+        SessionController::verify_and_check_replay(msg, &settings, &mut seen, &OnceLock::new())
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_control_message_must_come_from_the_name_id_its_identity_derives() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let honest = signed_from(
+            &peer,
+            own_name(&peer),
+            ProtoSessionMessageType::JoinRequest,
+            join_payload(),
+        );
+        let other_id = signed_from(
+            &peer,
+            ProtoName::from_strings(["org", "ns", "peer"]).with_id(7),
+            ProtoSessionMessageType::JoinRequest,
+            join_payload(),
+        );
+
+        for binding in [
+            IdentityBinding::Off,
+            IdentityBinding::Warn,
+            IdentityBinding::Enforce,
+        ] {
+            let result = check_with_binding(&honest, binding, None).await;
+            assert!(result.is_ok(), "{binding:?}: {result:?}");
+        }
+        assert!(
+            check_with_binding(&other_id, IdentityBinding::Off, None)
+                .await
+                .is_ok()
+        );
+        assert!(
+            check_with_binding(&other_id, IdentityBinding::Warn, None)
+                .await
+                .is_ok()
+        );
+        assert!(
+            check_with_binding(&other_id, IdentityBinding::Enforce, None)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn without_mls_every_control_message_is_checked() {
+        // Before identity binding, a DiscoveryReply was verified only with MLS.
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let reply = |source| {
+            signed_from(
+                &peer,
+                source,
+                ProtoSessionMessageType::DiscoveryReply,
+                CommandPayload::builder().discovery_reply().as_content(),
+            )
+        };
+        let other_id = reply(ProtoName::from_strings(["org", "ns", "peer"]).with_id(7));
+        assert!(
+            check_with_binding(&other_id, IdentityBinding::Off, None)
+                .await
+                .is_ok()
+        );
+        assert!(
+            check_with_binding(&other_id, IdentityBinding::Enforce, None)
+                .await
+                .is_err()
+        );
+
+        let honest = reply(own_name(&peer));
+        assert!(
+            check_with_binding(&honest, IdentityBinding::Enforce, None)
+                .await
+                .is_ok()
+        );
+
+        // Unsigned: refused only under enforce.
+        let mut unsigned = reply(own_name(&peer));
+        unsigned.get_slim_header_mut().e2e_header_sig = None;
+        assert!(
+            check_with_binding(&unsigned, IdentityBinding::Warn, None)
+                .await
+                .is_ok()
+        );
+        assert!(
+            check_with_binding(&unsigned, IdentityBinding::Enforce, None)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_invite_must_be_to_a_channel_its_moderator_derives() {
+        let moderator = SharedSecret::new("moderator", SHARED_SECRET).unwrap();
+        let channel_of = |sub: &str| {
+            let (data, control) = name_id::channel_ids(sub, "org", "ns", "rfq").unwrap();
+            let name = ProtoName::from_strings(["org", "ns", "rfq"]);
+            (name.clone().with_id(data), name.with_id(control))
+        };
+        let invite = signed_from(
+            &moderator,
+            own_name(&moderator),
+            ProtoSessionMessageType::JoinRequest,
+            join_payload(),
+        );
+        let own = channel_of(&moderator.get_id().unwrap());
+        let other = channel_of("someone-else");
+
+        let result = check_with_binding(&invite, IdentityBinding::Enforce, Some(own)).await;
+        assert!(result.is_ok(), "{result:?}");
+        let result = check_with_binding(&invite, IdentityBinding::Warn, Some(other.clone())).await;
+        assert!(result.is_ok(), "{result:?}");
+        let result = check_with_binding(&invite, IdentityBinding::Enforce, Some(other)).await;
+        assert!(result.is_err());
+    }
+
     /// Helper to create test SessionSettings
     fn create_test_settings(
         graceful_shutdown_timeout: Option<Duration>,
@@ -3036,6 +3261,7 @@ mod tests {
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         }

@@ -3,6 +3,7 @@
 
 use std::num::NonZeroUsize;
 
+use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoName;
 
@@ -88,6 +89,9 @@ where
 
     /// Node TLS policy: when true, new MLS groups use hybrid PQ KEM (native only).
     pub(crate) enforce_pqc: bool,
+
+    /// How peers' name ids are held to their verified identities.
+    pub(crate) identity_binding: IdentityBinding,
     /// Encrypted store for persisting this session's record (for restore on
     /// restart). `None` when session persistence is disabled.
     pub(crate) kv_store: Option<slim_persistence::SlimKvStore>,
