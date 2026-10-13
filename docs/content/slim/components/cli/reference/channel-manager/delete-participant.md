@@ -1,6 +1,6 @@
 # slimctl channel-manager delete-participant
 
-Remove a participant from a group channel. On a channel with an owner, the change needs the owner's grant: signed here with `--key`, or signed elsewhere and passed with `--grant-file`. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
+Remove a participant from a group channel. On a channel with an owner, the change needs the owner's grant: signed here with `--key`, or signed elsewhere and passed with `--grant-file`. See [Channel Manager: Concepts and Ownership](../../../channel-manager/ownership.md).
 
 **Aliases:** `dp`
 

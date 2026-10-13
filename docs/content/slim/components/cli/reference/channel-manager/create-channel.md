@@ -1,6 +1,6 @@
 # slimctl channel-manager create-channel
 
-Create a group channel. Whoever signs the create request owns the channel: sign it here with `--key`, or forward one signed elsewhere with `--signed-request-file`. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md).
+Create a group channel. Whoever signs the create request owns the channel: sign it here with `--key`, or forward one signed elsewhere with `--signed-request-file`. See [Channel Manager: Concepts and Ownership](../../../channel-manager/ownership.md).
 
 **Aliases:** `cc`
 
