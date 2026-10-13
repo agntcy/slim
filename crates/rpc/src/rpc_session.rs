@@ -136,8 +136,22 @@ pub async fn send_error(session: &SessionTx, error: RpcError) -> Result<(), RpcE
 
 /// Send an RPC-level error response including the rpc_id so the client can
 /// route it back to the correct waiting caller over the shared session.
+///
+/// Goes to the session's destination, which in a group session is the whole
+/// group; a server replies with [`send_error_to`] instead.
 pub async fn send_error_for_rpc(
     session: &SessionTx,
+    error: RpcError,
+    rpc_id: &str,
+) -> Result<(), RpcError> {
+    send_error_to(session, session.destination(), error, rpc_id).await
+}
+
+/// Send an RPC-level error response to `target` only, as successful
+/// responses are.
+pub async fn send_error_to(
+    session: &SessionTx,
+    target: &Name,
     error: RpcError,
     rpc_id: &str,
 ) -> Result<(), RpcError> {
@@ -145,7 +159,7 @@ pub async fn send_error_for_rpc(
     let metadata = create_status_metadata(error.code(), rpc_id);
     let handle = session
         .publish(
-            session.destination(),
+            target,
             message.into_bytes(),
             Some("msg".to_string()),
             Some(metadata),

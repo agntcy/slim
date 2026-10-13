@@ -160,7 +160,8 @@ pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
 pub use error::{InvalidRpcCode, RpcCode, RpcError};
 pub use rpc_session::{
-    HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc, send_response_stream,
+    HandlerInfo, RpcSession, send_eos, send_error, send_error_for_rpc, send_error_to,
+    send_response_stream,
 };
 pub use server::{HandlerType, RpcHandler, Server, StreamRpcHandler};
 pub use session_wrapper::{ReceivedMessage, SessionRx, SessionTx, new_session};
