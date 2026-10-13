@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1](https://github.com/agntcy/slim/compare/slim-bindings-v3.3.0...slim-bindings-v3.3.1) - 2026-10-13
+
+### Fixed
+
+- *(test)* reserve test ports below the ephemeral range ([#2252](https://github.com/agntcy/slim/pull/2252))
+
 ## [3.2.1](https://github.com/agntcy/slim/compare/slim-bindings-v3.2.0...slim-bindings-v3.2.1) - 2026-10-11
 
 ### Fixed

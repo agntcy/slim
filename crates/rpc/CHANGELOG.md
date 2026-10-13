@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1](https://github.com/agntcy/slim/compare/slim-rpc-v3.3.0...slim-rpc-v3.3.1) - 2026-10-13
+
+### Fixed
+
+- *(rpc)* unicast server RPC errors to the caller in group sessions ([#2256](https://github.com/agntcy/slim/pull/2256))
+
 ## [3.2.0](https://github.com/agntcy/slim/compare/slim-rpc-v3.1.0...slim-rpc-v3.2.0) - 2026-10-09
 
 ### Fixed
