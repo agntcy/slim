@@ -1,6 +1,6 @@
 # slimctl channel-manager list-channels
 
-List all channels managed by this Channel Manager instance, with each channel's owner and expiry time when it has them (see [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md)).
+List all channels managed by this Channel Manager instance, with each channel's owner and expiry time when it has them (see [Channel Manager: Concepts and Ownership](../../../channel-manager/ownership.md)).
 
 **Aliases:** `lc`
 

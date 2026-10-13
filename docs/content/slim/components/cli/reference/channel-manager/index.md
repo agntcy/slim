@@ -1,6 +1,6 @@
 # slimctl channel-manager
 
-Manage the group channels of a SLIM Channel Manager. Every change is signed by a channel's owner or an operator: here with their Ed25519 key (`--key`), or elsewhere and forwarded. `slimctl` never sends an unsigned change. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md#clients).
+Manage the group channels of a SLIM Channel Manager. Every change is signed by a channel's owner or an operator: here with their Ed25519 key (`--key`), or elsewhere and forwarded. `slimctl` never sends an unsigned change. See [Channel Manager: Concepts and Ownership](../../../channel-manager/ownership.md#clients).
 
 **Aliases:** `cm`
 
