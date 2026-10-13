@@ -120,6 +120,13 @@
     "aliases": []
   },
   {
+    "version": "slim-version-v3.3.1",
+    "title": "slim-version-v3.3.1",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-version-v3.3.0",
     "title": "slim-version-v3.3.0",
     "aliases": []
@@ -382,9 +389,7 @@
   {
     "version": "slim-testutils-v0.7.3",
     "title": "slim-testutils-v0.7.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-testutils-v0.7.2",
