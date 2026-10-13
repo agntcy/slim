@@ -32,7 +32,7 @@ use slim_datapath::{
 // Local crate
 use crate::identity_check::binding_mismatch;
 use crate::name_id;
-use crate::peer_identity::PeerIdentity;
+use crate::peer_identity::{PeerIdentities, PeerIdentity};
 use crate::{
     MessageDirection, SessionError,
     common::{OutboundMessage, SessionMessage, SessionOutput},
@@ -181,6 +181,9 @@ pub struct SessionController {
 
     /// who set up the session, once the processing loop has verified them
     peer_identity: Arc<OnceLock<PeerIdentity>>,
+
+    /// the identities invites are pinned to, and members joined with
+    peers: Arc<PeerIdentities>,
 }
 
 impl SessionController {
@@ -226,6 +229,7 @@ impl SessionController {
         );
 
         let peer_identity = Arc::new(OnceLock::new());
+        let peers = Arc::new(PeerIdentities::default());
         let handle = crate::runtime::spawn(
             Self::processing_loop_with(
                 inner,
@@ -233,6 +237,7 @@ impl SessionController {
                 cancellation_token.clone(),
                 settings,
                 peer_identity.clone(),
+                peers.clone(),
             )
             .instrument(span),
         );
@@ -246,6 +251,7 @@ impl SessionController {
             cancellation_token,
             handle: Mutex::new(Some(handle)),
             peer_identity,
+            peers,
         }
     }
 
@@ -311,6 +317,7 @@ impl SessionController {
         settings: &SessionSettings<P, V, M>,
         seen_control_message_ids: &mut LruCache<ProtoName, LruCache<u32, ()>>,
         peer_identity: &OnceLock<PeerIdentity>,
+        peers: &PeerIdentities,
     ) -> Result<(), SessionError>
     where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
@@ -325,7 +332,13 @@ impl SessionController {
         // otherwise, so leaving them out must not skip it. Other control
         // messages are verified when MLS is enabled.
         let joining = msg_type == ProtoSessionMessageType::JoinRequest;
-        let e2e_required = msg_type.is_command_message() && (mls || joining);
+        // A reply to an invite pinned to an identity is always verified.
+        let replying = matches!(
+            msg_type,
+            ProtoSessionMessageType::DiscoveryReply | ProtoSessionMessageType::JoinReply
+        );
+        let pinned = replying.then(|| peers.pinned(&msg.get_source())).flatten();
+        let e2e_required = msg_type.is_command_message() && (mls || joining || pinned.is_some());
         // With identity binding on, every control message is verified too, so
         // its sender's name id can be checked against its identity.
         let binding = settings.identity_binding;
@@ -387,11 +400,32 @@ impl SessionController {
         // Remember who set up the session. Only with MLS: without it, later
         // data messages aren't authenticated, so they couldn't be attributed
         // to this peer.
-        if joining
-            && mls
-            && let Some(identity) = identity
+        // The caller asked for this identity, so a mismatch is always dropped.
+        let subject = identity.as_ref().map(PeerIdentity::subject);
+        if let Some(expected) = &pinned
+            && subject != Some(expected.as_str())
         {
-            let _ = peer_identity.set(identity);
+            tracing::warn!(
+                source = %msg.get_source(),
+                expected = %expected,
+                sub = ?subject,
+                "reply from a peer other than the identity its invite is pinned to"
+            );
+            return Err(SessionError::Auth(AuthError::TokenInvalid));
+        }
+
+        // Remember who set up the session, and whom an invite brought in.
+        // Only with MLS: without it, later data messages aren't authenticated,
+        // so they couldn't be attributed to these peers.
+        if mls && let Some(identity) = identity {
+            if joining {
+                let _ = peer_identity.set(identity);
+            } else if msg_type == ProtoSessionMessageType::JoinReply && settings.config.initiator {
+                peers.record(&msg.get_source(), identity.clone());
+                if settings.config.session_type == ProtoSessionType::PointToPoint {
+                    let _ = peer_identity.set(identity);
+                }
+            }
         }
 
         // Only messages that were already verified before identity binding are
@@ -437,7 +471,15 @@ impl SessionController {
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
         M: crate::subscription_manager::SubscriptionOps,
     {
-        Self::processing_loop_with(inner, rx, cancellation_token, settings, Arc::default()).await
+        Self::processing_loop_with(
+            inner,
+            rx,
+            cancellation_token,
+            settings,
+            Arc::default(),
+            Arc::default(),
+        )
+        .await
     }
 
     /// Processes the session's messages, recording in `peer_identity` who
@@ -448,6 +490,7 @@ impl SessionController {
         cancellation_token: CancellationToken,
         settings: SessionSettings<P, V, M>,
         peer_identity: Arc<OnceLock<PeerIdentity>>,
+        peers: Arc<PeerIdentities>,
     ) where
         P: slim_auth::traits::TokenProvider + Send + Sync + Clone + 'static,
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
@@ -476,7 +519,7 @@ impl SessionController {
                     debug!("consuming pending messages before entering draining state");
                     while let Ok(msg) = rx.try_recv() {
                         if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
-                            && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids, &peer_identity).await {
+                            && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids, &peer_identity, &peers).await {
                                 debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
                                 continue;
                             }
@@ -523,7 +566,7 @@ impl SessionController {
                                 direction: MessageDirection::North,
                                 ..
                             } = &session_message
-                               && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids, &peer_identity).await
+                               && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids, &peer_identity, &peers).await
                             {
                                         debug!(
                                             error = %e.chain(),
@@ -947,6 +990,30 @@ impl SessionController {
             }
             _ => Err(SessionError::SessionTypeUnknown(self.session_type())),
         }
+    }
+
+    /// Invite `destination` and admit it only if it is verified as
+    /// `expected_subject` (its DID, for a `did:key` identity). A reply
+    /// verified as anyone else is dropped, whatever the identity-binding mode.
+    pub async fn invite_participant_pinned(
+        &self,
+        destination: &ProtoName,
+        expected_subject: impl Into<String>,
+    ) -> Result<CompletionHandle, SessionError> {
+        self.peers.pin(destination, expected_subject.into());
+        self.invite_participant(destination).await
+    }
+
+    /// The verified identity the member `name` joined with, when this session
+    /// invited it with MLS. A name without an id matches a member with that
+    /// readable name.
+    pub fn participant_identity(&self, name: &ProtoName) -> Option<PeerIdentity> {
+        self.peers.of(name)
+    }
+
+    /// Admit `name` only if it is verified as `subject`.
+    pub(crate) fn pin_peer(&self, name: &ProtoName, subject: String) {
+        self.peers.pin(name, subject);
     }
 
     pub async fn remove_participant(
@@ -3016,9 +3083,14 @@ mod tests {
         }
         let mut seen = LruCache::new(NonZeroUsize::new(8).unwrap());
         let peer_identity = OnceLock::new();
-        let result =
-            SessionController::verify_and_check_replay(msg, &settings, &mut seen, &peer_identity)
-                .await;
+        let result = SessionController::verify_and_check_replay(
+            msg,
+            &settings,
+            &mut seen,
+            &peer_identity,
+            &PeerIdentities::default(),
+        )
+        .await;
         (result, peer_identity.get().cloned())
     }
 
@@ -3108,8 +3180,14 @@ mod tests {
             settings.control = control;
         }
         let mut seen = LruCache::new(NonZeroUsize::new(8).unwrap());
-        SessionController::verify_and_check_replay(msg, &settings, &mut seen, &OnceLock::new())
-            .await
+        SessionController::verify_and_check_replay(
+            msg,
+            &settings,
+            &mut seen,
+            &OnceLock::new(),
+            &PeerIdentities::default(),
+        )
+        .await
     }
 
     #[tokio::test]

@@ -32,6 +32,8 @@ An application's name id, the last component of its name, is the XXH3-128 hash o
 
 The `SLIM_IDENTITY_BINDING` environment variable sets what happens on a mismatch: `warn` (the default) logs it, `enforce` drops the message, and `off` turns the checks off. Before setting `enforce`, check the logs for mismatches from applications whose identity provider can't report an id, and from channels that aren't created by their moderator.
 
+A caller can also require a specific identity. `App::create_session_pinned`, for a point-to-point session, and `SessionController::invite_participant_pinned`, for a group member, admit the peer only if it is verified as the given `sub`, which is its DID for a `did:key` identity. A peer verified as anyone else is refused, whatever `SLIM_IDENTITY_BINDING` is set to. With MLS, `SessionController::peer_identity` and `participant_identity` return the identity each peer was verified as.
+
 ## Credential Methods
 
 ### Shared Secret
