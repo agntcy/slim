@@ -395,6 +395,13 @@
     "aliases": []
   },
   {
+    "version": "slim-signal-v0.1.33",
+    "title": "slim-signal-v0.1.33",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-signal-v0.1.32",
     "title": "slim-signal-v0.1.32",
     "aliases": []
@@ -772,9 +779,7 @@
   {
     "version": "slim-datapath-v0.19.7",
     "title": "slim-datapath-v0.19.7",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-datapath-v0.19.6",
