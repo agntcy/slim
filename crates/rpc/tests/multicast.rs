@@ -1092,3 +1092,100 @@ async fn test_channel_close_after_rpc() {
 
     env.shutdown().await;
 }
+
+// ============================================================================
+// Test 12 — a member's error goes only to the caller
+// ============================================================================
+
+/// Log output written on the current thread.
+#[derive(Clone, Default)]
+struct LogCapture(Arc<parking_lot::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogCapture {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl LogCapture {
+    /// Whether one line contains every one of `parts`.
+    fn has_line_with(&self, parts: &[&str]) -> bool {
+        String::from_utf8_lossy(&self.0.lock())
+            .lines()
+            .any(|line| parts.iter().all(|p| line.contains(p)))
+    }
+}
+
+/// Member 0's error must reach the caller only. A member that receives
+/// another's response drops it with a "Skipping server response" trace naming
+/// the sender; the servers run on this single-threaded runtime, so capturing
+/// this thread's logs sees it.
+#[tokio::test]
+async fn test_multicast_error_goes_only_to_the_caller() {
+    let logs = LogCapture::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_ansi(false)
+        .with_writer({
+            let logs = logs.clone();
+            move || logs.clone()
+        })
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    const NUM_MEMBERS: usize = 3;
+    let mut env = MulticastTestEnv::new("test-multicast-error-only-to-caller", NUM_MEMBERS).await;
+
+    env.member_servers[0].register_unary_unary(
+        "TestService",
+        "Echo",
+        move |_req: TestRequest, _ctx: Context| async move {
+            Err::<TestResponse, _>(RpcError::internal("member 0 failed"))
+        },
+    );
+    for i in 1..NUM_MEMBERS {
+        env.member_servers[i].register_unary_unary(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "hello".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let results = collect_n_mixed(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "error_only_to_caller",
+    )
+    .await;
+    assert_eq!(results.iter().filter(|r| r.is_err()).count(), 1);
+    assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 2);
+
+    env.shutdown().await;
+    assert!(
+        !logs.has_line_with(&["Skipping server response", "src=org/ns/member-"]),
+        "another member received member 0's error"
+    );
+}
