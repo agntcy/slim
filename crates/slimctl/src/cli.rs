@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use clap::builder::styling::{AnsiColor, Effects, Styles};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 
 use crate::commands::{
     bench::{self, BenchArgs},
@@ -38,8 +38,9 @@ pub(crate) struct Cli {
     #[command(flatten)]
     global: GlobalOpts,
 
+    // None prints the help: a bare `slimctl` succeeds, as `slimctl help` does.
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 /// Global options applied to all commands (may appear before or after the subcommand)
@@ -132,6 +133,11 @@ enum Commands {
 }
 
 pub(crate) async fn run(cli: Cli) -> Result<()> {
+    let Some(command) = cli.command else {
+        Cli::command().print_help()?;
+        return Ok(());
+    };
+
     // Initialize the TLS crypto provider before any operation that may open a
     // gRPC/TLS connection.  This must happen exactly once per process and must
     // precede any rustls call.
@@ -141,7 +147,7 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
     let file_config = load_config(cli.global.config.as_deref())?;
 
     // Determine per-subcommand default endpoint
-    let default_endpoint = match &cli.command {
+    let default_endpoint = match &command {
         Commands::Node(_) => DEFAULT_NODE_ENDPOINT,
         Commands::Controller(_) => DEFAULT_CONTROLLER_ENDPOINT,
         Commands::ChannelManager(_) => DEFAULT_CHANNEL_MANAGER_ENDPOINT,
@@ -161,7 +167,7 @@ pub(crate) async fn run(cli: Cli) -> Result<()> {
         cli.global.basic_auth_creds.as_deref(),
     )?;
 
-    match cli.command {
+    match command {
         Commands::Version => {
             version::run();
         }
@@ -237,7 +243,7 @@ mod tests {
     #[test]
     fn parse_version() {
         let cli = parse_ok(&["slimctl", "version"]);
-        assert!(matches!(cli.command, Commands::Version));
+        assert!(matches!(cli.command.unwrap(), Commands::Version));
     }
 
     #[test]
@@ -260,7 +266,7 @@ mod tests {
     #[test]
     fn parse_config_list() {
         let cli = parse_ok(&["slimctl", "config", "list"]);
-        let Commands::Config(args) = cli.command else {
+        let Commands::Config(args) = cli.command.unwrap() else {
             panic!()
         };
         assert!(matches!(args.command, ConfigCommand::List));
@@ -269,7 +275,7 @@ mod tests {
     #[test]
     fn parse_config_list_alias_ls() {
         let cli = parse_ok(&["slimctl", "config", "ls"]);
-        let Commands::Config(args) = cli.command else {
+        let Commands::Config(args) = cli.command.unwrap() else {
             panic!()
         };
         assert!(matches!(args.command, ConfigCommand::List));
@@ -278,7 +284,7 @@ mod tests {
     #[test]
     fn parse_config_set_server() {
         let cli = parse_ok(&["slimctl", "config", "set", "server", "myhost:9090"]);
-        let Commands::Config(args) = cli.command else {
+        let Commands::Config(args) = cli.command.unwrap() else {
             panic!()
         };
         let ConfigCommand::Set(s) = args.command else {
@@ -293,7 +299,7 @@ mod tests {
     #[test]
     fn parse_config_set_timeout() {
         let cli = parse_ok(&["slimctl", "config", "set", "timeout", "30s"]);
-        let Commands::Config(args) = cli.command else {
+        let Commands::Config(args) = cli.command.unwrap() else {
             panic!()
         };
         let ConfigCommand::Set(s) = args.command else {
@@ -314,7 +320,7 @@ mod tests {
             "tls-insecure-skip-verify",
             "true",
         ]);
-        let Commands::Config(args) = cli.command else {
+        let Commands::Config(args) = cli.command.unwrap() else {
             panic!()
         };
         let ConfigCommand::Set(s) = args.command else {
@@ -329,7 +335,7 @@ mod tests {
     #[test]
     fn parse_config_set_basic_auth_creds() {
         let cli = parse_ok(&["slimctl", "config", "set", "basic-auth-creds", "user:pass"]);
-        let Commands::Config(args) = cli.command else {
+        let Commands::Config(args) = cli.command.unwrap() else {
             panic!()
         };
         let ConfigCommand::Set(s) = args.command else {
@@ -344,7 +350,7 @@ mod tests {
     #[test]
     fn parse_config_set_tls_ca_file() {
         let cli = parse_ok(&["slimctl", "config", "set", "tls-ca-file", "/etc/ca.pem"]);
-        let Commands::Config(args) = cli.command else {
+        let Commands::Config(args) = cli.command.unwrap() else {
             panic!()
         };
         let ConfigCommand::Set(s) = args.command else {
@@ -361,7 +367,7 @@ mod tests {
     #[test]
     fn parse_controller_node_list() {
         let cli = parse_ok(&["slimctl", "controller", "node", "list"]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Node(a) = args.command else {
@@ -373,7 +379,7 @@ mod tests {
     #[test]
     fn parse_controller_connection_list() {
         let cli = parse_ok(&["slimctl", "controller", "connection", "list", "-n", "node1"]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Connection(a) = args.command else {
@@ -386,7 +392,7 @@ mod tests {
     #[test]
     fn parse_controller_route_list() {
         let cli = parse_ok(&["slimctl", "controller", "route", "list", "-n", "node1"]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Route(a) = args.command else {
@@ -399,7 +405,7 @@ mod tests {
     #[test]
     fn parse_controller_route_list_defaults() {
         let cli = parse_ok(&["slimctl", "controller", "route", "list"]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Route(a) = args.command else {
@@ -428,7 +434,7 @@ mod tests {
             "-t",
             "dst-node",
         ]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Route(a) = args.command else {
@@ -446,7 +452,7 @@ mod tests {
     #[test]
     fn parse_controller_domain_list() {
         let cli = parse_ok(&["slimctl", "controller", "domain", "list"]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Domain(a) = args.command else {
@@ -458,7 +464,7 @@ mod tests {
     #[test]
     fn parse_controller_segment_list() {
         let cli = parse_ok(&["slimctl", "controller", "segment", "list"]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Segment(a) = args.command else {
@@ -472,7 +478,7 @@ mod tests {
     #[test]
     fn parse_node_route_list() {
         let cli = parse_ok(&["slimctl", "node", "route", "list"]);
-        let Commands::Node(args) = cli.command else {
+        let Commands::Node(args) = cli.command.unwrap() else {
             panic!()
         };
         let NodeCommand::Route(a) = args.command else {
@@ -484,7 +490,7 @@ mod tests {
     #[test]
     fn parse_node_connection_list() {
         let cli = parse_ok(&["slimctl", "node", "connection", "list"]);
-        let Commands::Node(args) = cli.command else {
+        let Commands::Node(args) = cli.command.unwrap() else {
             panic!()
         };
         let NodeCommand::Connection(a) = args.command else {
@@ -498,7 +504,7 @@ mod tests {
     #[test]
     fn parse_slim_start_with_config() {
         let cli = parse_ok(&["slimctl", "slim", "start", "-c", "/etc/slim/config.yaml"]);
-        let Commands::Slim(args) = cli.command else {
+        let Commands::Slim(args) = cli.command.unwrap() else {
             panic!()
         };
         let SlimCommand::Start(start_args) = args.command;
@@ -508,7 +514,7 @@ mod tests {
     #[test]
     fn parse_slim_start_with_endpoint() {
         let cli = parse_ok(&["slimctl", "slim", "start", "--endpoint", "0.0.0.0:46357"]);
-        let Commands::Slim(args) = cli.command else {
+        let Commands::Slim(args) = cli.command.unwrap() else {
             panic!()
         };
         let SlimCommand::Start(start_args) = args.command;
@@ -522,7 +528,7 @@ mod tests {
             .into_iter()
             .chain(args.iter().copied())
             .collect();
-        let Commands::ChannelManager(cm) = parse_ok(&argv).command else {
+        let Commands::ChannelManager(cm) = parse_ok(&argv).command.unwrap() else {
             panic!()
         };
         cm.command
@@ -705,7 +711,7 @@ mod tests {
     #[test]
     fn alias_channel_manager_cm() {
         let cli = parse_ok(&["slimctl", "cm", "list-channels"]);
-        assert!(matches!(cli.command, Commands::ChannelManager(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::ChannelManager(_)));
     }
 
     #[test]
@@ -737,7 +743,7 @@ mod tests {
     #[test]
     fn alias_channel_manager_lc() {
         let cli = parse_ok(&["slimctl", "cm", "lc"]);
-        let Commands::ChannelManager(args) = cli.command else {
+        let Commands::ChannelManager(args) = cli.command.unwrap() else {
             panic!()
         };
         assert!(matches!(args.command, ChannelManagerCommand::ListChannels));
@@ -746,7 +752,7 @@ mod tests {
     #[test]
     fn alias_channel_manager_lp() {
         let cli = parse_ok(&["slimctl", "cm", "lp", "my/ns/chan"]);
-        let Commands::ChannelManager(args) = cli.command else {
+        let Commands::ChannelManager(args) = cli.command.unwrap() else {
             panic!()
         };
         assert!(matches!(
@@ -760,19 +766,19 @@ mod tests {
     #[test]
     fn parse_bench_sub() {
         let cli = parse_ok(&["slimctl", "bench", "sub"]);
-        assert!(matches!(cli.command, Commands::Bench(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Bench(_)));
     }
 
     #[test]
     fn parse_bench_pub() {
         let cli = parse_ok(&["slimctl", "bench", "pub"]);
-        assert!(matches!(cli.command, Commands::Bench(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Bench(_)));
     }
 
     #[test]
     fn parse_bench_channel_sub() {
         let cli = parse_ok(&["slimctl", "bench", "channel", "sub"]);
-        assert!(matches!(cli.command, Commands::Bench(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Bench(_)));
     }
 
     #[tokio::test]
@@ -796,43 +802,43 @@ mod tests {
     #[test]
     fn alias_node_n() {
         let cli = parse_ok(&["slimctl", "n", "route", "list"]);
-        assert!(matches!(cli.command, Commands::Node(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Node(_)));
     }
 
     #[test]
     fn alias_node_instance() {
         let cli = parse_ok(&["slimctl", "instance", "route", "list"]);
-        assert!(matches!(cli.command, Commands::Node(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Node(_)));
     }
 
     #[test]
     fn alias_node_i() {
         let cli = parse_ok(&["slimctl", "i", "route", "list"]);
-        assert!(matches!(cli.command, Commands::Node(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Node(_)));
     }
 
     #[test]
     fn alias_controller_c() {
         let cli = parse_ok(&["slimctl", "c", "node", "list"]);
-        assert!(matches!(cli.command, Commands::Controller(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Controller(_)));
     }
 
     #[test]
     fn alias_controller_ctrl() {
         let cli = parse_ok(&["slimctl", "ctrl", "node", "list"]);
-        assert!(matches!(cli.command, Commands::Controller(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Controller(_)));
     }
 
     #[test]
     fn alias_slim_s() {
         let cli = parse_ok(&["slimctl", "s", "start"]);
-        assert!(matches!(cli.command, Commands::Slim(_)));
+        assert!(matches!(cli.command.unwrap(), Commands::Slim(_)));
     }
 
     #[test]
     fn alias_controller_route_ls() {
         let cli = parse_ok(&["slimctl", "controller", "route", "ls", "-n", "node1"]);
-        let Commands::Controller(args) = cli.command else {
+        let Commands::Controller(args) = cli.command.unwrap() else {
             panic!()
         };
         let ControllerCommand::Route(a) = args.command else {
@@ -844,7 +850,7 @@ mod tests {
     #[test]
     fn alias_node_connection_conn() {
         let cli = parse_ok(&["slimctl", "node", "conn", "list"]);
-        let Commands::Node(args) = cli.command else {
+        let Commands::Node(args) = cli.command.unwrap() else {
             panic!()
         };
         assert!(matches!(args.command, NodeCommand::Connection(_)));
@@ -853,7 +859,7 @@ mod tests {
     #[test]
     fn alias_node_route_ls() {
         let cli = parse_ok(&["slimctl", "node", "route", "ls"]);
-        let Commands::Node(args) = cli.command else {
+        let Commands::Node(args) = cli.command.unwrap() else {
             panic!()
         };
         let NodeCommand::Route(a) = args.command else {
@@ -927,6 +933,11 @@ mod tests {
     fn unknown_top_level_command_fails() {
         let err = parse_err(&["slimctl", "unknown-command"]);
         assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn no_subcommand_parses() {
+        assert!(parse_ok(&["slimctl"]).command.is_none());
     }
 
     #[test]
@@ -1061,7 +1072,7 @@ mod tests {
     fn parse_slim_start_no_args_uses_defaults() {
         // Neither --config nor --endpoint: both are None; default endpoint is applied at runtime
         let cli = parse_ok(&["slimctl", "slim", "start"]);
-        let Commands::Slim(args) = cli.command else {
+        let Commands::Slim(args) = cli.command.unwrap() else {
             panic!()
         };
         let SlimCommand::Start(start_args) = args.command;
