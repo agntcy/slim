@@ -11,10 +11,10 @@
         <link rel="canonical" href="https://agntcy.github.io/slim/latest/slim/components/channel-manager/install/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../ownership/">
       
       
-        <link rel="next" href="../config/">
+        <link rel="next" href="../slimctl/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Installation Guide - SLIM</title>
+        <title>Installation and Walkthrough - SLIM</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#slim-channel-manager-installation-guide" class="md-skip">
+        <a href="#installation-and-walkthrough" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Installation Guide
+              Installation and Walkthrough
             
           </span>
         </div>
@@ -1209,6 +1209,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1265,6 +1275,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts and Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -1284,7 +1322,7 @@
   <span class="md-ellipsis">
     
   
-    Installation Guide
+    Installation and Walkthrough
   
 
     
@@ -1302,7 +1340,7 @@
   <span class="md-ellipsis">
     
   
-    Installation Guide
+    Installation and Walkthrough
   
 
     
@@ -1328,6 +1366,40 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-you-will-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What you will build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-the-channel-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install the Channel Manager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install the Channel Manager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#docker" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1337,8 +1409,8 @@
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
+        
+          <li class="md-nav__item">
   <a href="#build-from-source" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1347,14 +1419,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Build from Source">
-      <ul class="md-nav__list">
+</li>
         
           <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#install-slimctl" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Install slimctl
       
     </span>
   </a>
@@ -1367,10 +1438,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-from-source_1" class="md-nav__link">
+  <a href="#step-1-run-a-channel-manager-in-api-mode" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build from Source
+        Step 1: Run a Channel Manager in API mode
       
     </span>
   </a>
@@ -1378,10 +1449,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#running-the-channel-manager" class="md-nav__link">
+  <a href="#step-2-generate-the-owners-key" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Running the Channel Manager
+        Step 2: Generate the owner's key
       
     </span>
   </a>
@@ -1389,10 +1460,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verifying-the-installation" class="md-nav__link">
+  <a href="#step-3-create-an-owned-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verifying the Installation
+        Step 3: Create an owned channel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 3: Create an owned channel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#signing-the-create-request-in-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signing the create request in code
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-4-add-a-participant-with-a-grant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Add a participant with a grant
       
     </span>
   </a>
@@ -1400,10 +1499,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#installing-slimctl" class="md-nav__link">
+  <a href="#step-5-answer-approval-requests-as-the-owner" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Installing slimctl
+        Step 5: Answer approval requests as the owner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-6-delete-the-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6: Delete the channel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-7-require-signatures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7: Require signatures
       
     </span>
   </a>
@@ -1414,7 +1535,7 @@
   <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Next steps
       
     </span>
   </a>
@@ -1425,6 +1546,90 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slimctl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Channels with slimctl
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1465,14 +1670,42 @@
   
   
     <li class="md-nav__item">
-      <a href="../ownership/" class="md-nav__link">
+      <a href="../api/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Ownership, Grants and Expiry
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations and Troubleshooting
   
 
     
@@ -4975,6 +5208,40 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-you-will-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What you will build
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-the-channel-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install the Channel Manager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install the Channel Manager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
   <a href="#docker" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4984,8 +5251,8 @@
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
+        
+          <li class="md-nav__item">
   <a href="#build-from-source" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4994,14 +5261,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Build from Source">
-      <ul class="md-nav__list">
+</li>
         
           <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#install-slimctl" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Install slimctl
       
     </span>
   </a>
@@ -5014,10 +5280,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-from-source_1" class="md-nav__link">
+  <a href="#step-1-run-a-channel-manager-in-api-mode" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build from Source
+        Step 1: Run a Channel Manager in API mode
       
     </span>
   </a>
@@ -5025,10 +5291,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#running-the-channel-manager" class="md-nav__link">
+  <a href="#step-2-generate-the-owners-key" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Running the Channel Manager
+        Step 2: Generate the owner's key
       
     </span>
   </a>
@@ -5036,10 +5302,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verifying-the-installation" class="md-nav__link">
+  <a href="#step-3-create-an-owned-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verifying the Installation
+        Step 3: Create an owned channel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 3: Create an owned channel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#signing-the-create-request-in-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Signing the create request in code
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-4-add-a-participant-with-a-grant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4: Add a participant with a grant
       
     </span>
   </a>
@@ -5047,10 +5341,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#installing-slimctl" class="md-nav__link">
+  <a href="#step-5-answer-approval-requests-as-the-owner" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Installing slimctl
+        Step 5: Answer approval requests as the owner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-6-delete-the-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 6: Delete the channel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-7-require-signatures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 7: Require signatures
       
     </span>
   </a>
@@ -5061,7 +5377,7 @@
   <a href="#next-steps" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Next steps
       
     </span>
   </a>
@@ -5185,47 +5501,780 @@
   
 
 
-<h1 id="slim-channel-manager-installation-guide">SLIM Channel Manager: Installation Guide</h1>
-<p>The Channel Manager is available as a pre-built Docker image or can be built from source.</p>
-<h2 id="docker">Docker</h2>
+<h1 id="installation-and-walkthrough">Installation and Walkthrough</h1>
+<p>This page installs the Channel Manager, then builds one owned channel from nothing: a key, a channel that key owns, a participant added with a grant, a participant added through live owner approval, and finally a signed deletion. Every command and every signed statement is shown in full.</p>
+<p>Read <a href="../ownership/">Concepts and Ownership</a> first if the words <em>owner</em>, <em>grant</em> and <em>operator</em> are not yet distinct.</p>
+<h2 id="what-you-will-build">What you will build</h2>
+<pre class="mermaid"><code>graph LR
+    key["owner.pem&lt;br/&gt;did:key:z6Mk..."] -- signs --&gt; stmts["create request&lt;br/&gt;grants&lt;br/&gt;delete request"]
+    stmts --&gt; cm["Channel Manager&lt;br/&gt;agntcy/ns/channel-manager"]
+    cm -- moderates --&gt; ch["agntcy/team/general"]
+    cm -- "asks when no grant" --&gt; endpoint["Owner endpoint&lt;br/&gt;agntcy/owners/alice-desktop"]
+    ch --- p1["agntcy/agents/assistant-1"]
+    ch --- p2["agntcy/agents/assistant-2"]</code></pre>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A running SLIM data plane node. The <a href="../../data-plane/install/">data plane installation guide</a> covers this; the default endpoint used below is <code>http://127.0.0.1:46357</code>.</li>
+<li><code>openssl</code>, to generate an Ed25519 key.</li>
+</ul>
+<h2 id="install-the-channel-manager">Install the Channel Manager</h2>
+<p>The Channel Manager is available as a pre-built container image, or can be built from source.</p>
+<h3 id="docker">Docker</h3>
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:2.0.0
 docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-v<span class="w"> </span>./config.yaml:/config.yaml<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:2.0.0<span class="w"> </span>--config-file<span class="w"> </span>/config.yaml
 </code></pre></div>
-<h2 id="build-from-source">Build from Source</h2>
-<h3 id="prerequisites">Prerequisites</h3>
-<ul>
-<li><a href="https://rustup.rs/">Rust toolchain</a> (the workspace pins a specific version via <code>rust-toolchain.toml</code>)</li>
-<li>The SLIM repository cloned locally</li>
-</ul>
-<h2 id="build-from-source_1">Build from Source</h2>
-<p>Clone the repository if you have not already:</p>
+<p>The image is distroless and runs as a non-root user, with <code>/channel-manager</code> as its entrypoint. For containers and Kubernetes beyond this one command — bind addresses, secrets, volumes and the Helm chart — see the <a href="../deploy/">Deployment Guide</a>. The steps below run the binary directly.</p>
+<h3 id="build-from-source">Build from Source</h3>
+<p>Building needs the <a href="https://rustup.rs/">Rust toolchain</a>; the workspace pins a version through <code>rust-toolchain.toml</code>. Clone the repository if you have not already:</p>
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/agntcy/slim.git
 <span class="nb">cd</span><span class="w"> </span>slim
 </code></pre></div>
 <p>Build the Channel Manager binary in release mode:</p>
 <div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>agntcy-slim-channel-manager
 </code></pre></div>
-<p>This produces the <code>channel-manager</code> server binary in <code>target/release/</code>. To manage channels from the command line, use <a href="../../cli/reference/channel-manager/"><code>slimctl channel-manager</code></a>.</p>
-<h2 id="running-the-channel-manager">Running the Channel Manager</h2>
-<p>Create a configuration file (see <a href="../config/">Configuration Reference</a>) and start the server:</p>
-<div class="highlight"><pre><span></span><code>./target/release/channel-manager<span class="w"> </span>--config-file<span class="w"> </span>config.yaml
+<p>This produces the <code>channel-manager</code> server binary in <code>target/release/</code>.</p>
+<h3 id="install-slimctl">Install slimctl</h3>
+<p>Every command below uses <code>slimctl channel-manager</code>, so install the CLI as well: see <a href="../../cli/install/">SLIM CLI Installation</a>.</p>
+<h2 id="step-1-run-a-channel-manager-in-api-mode">Step 1: Run a Channel Manager in API mode</h2>
+<p>API mode is what makes owned channels possible, and it is chosen by declaring no channels in the configuration file. Save this as <code>cm.yaml</code>; the <a href="../config/">Configuration Reference</a> documents every setting:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">channel-manager</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">slim-connection</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://127.0.0.1:46357&quot;</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">api-server</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;127.0.0.1:10356&quot;</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">insecure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="w">  </span><span class="nt">local-name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/ns/channel-manager&quot;</span>
+
+<span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shared_secret</span>
+<span class="w">    </span><span class="nt">secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${env:SLIM_SHARED_SECRET}</span>
 </code></pre></div>
-<p>On a successful start you will see log output confirming the SLIM connection and gRPC server address:</p>
-<div class="highlight"><pre><span></span><code>INFO channel_manager: Connected to SLIM node at http://127.0.0.1:46357
-INFO channel_manager: gRPC API listening on 127.0.0.1:10356
+<p>The shared secret keeps this walkthrough short; it is not suitable beyond a development machine. <a href="../deploy/#identities">Deployment</a> covers SPIRE and did:key identities, and the configuration file supports <code>${env:...}</code> and <code>${file:...}</code> substitution everywhere, so no secret has to be written into it.</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">SLIM_SHARED_SECRET</span><span class="o">=</span><span class="s1">&#39;a-very-long-development-shared-secret-abcdef1234567890&#39;</span>
+./target/release/channel-manager<span class="w"> </span>--config-file<span class="w"> </span>cm.yaml
 </code></pre></div>
-<h2 id="verifying-the-installation">Verifying the Installation</h2>
-<p>Use <code>slimctl channel-manager</code> to confirm the Channel Manager is responding:</p>
+<p><code>--config-file</code> defaults to <code>config.yaml</code> in the working directory, so a file named anything else has to be named on the command line.</p>
+<p>A successful start logs the SLIM connection, the identity the Channel Manager registered as, what signed requests must name as their audience, and finally the API server's address:</p>
+<div class="highlight"><pre><span></span><code>INFO Configuration loaded config_file=cm.yaml
+INFO Connected to SLIM node endpoint=http://127.0.0.1:46357 conn_id=1
+INFO SLIM app created local_name=agntcy/ns/channel-manager
+INFO Sessions found in persistent storage count=0
+INFO Signed create and delete requests must name this audience audience=agntcy/ns/channel-manager
+INFO Starting gRPC server endpoint=127.0.0.1:10356
+</code></pre></div>
+<p><code>count=0</code> is expected here: this configuration has no <code>persistence</code> section, so nothing survives a restart.</p>
+<p><code>Starting gRPC server</code> is the last line before the API accepts connections. <a href="../operations/#startup">Operations</a> explains the full startup sequence and the lines that appear only when the corresponding feature is configured.</p>
+<p>One of those lines matters for the rest of this page: the <code>audience</code>. Every signed create and delete request below has to name it. It defaults to <code>local-name</code>; <a href="../config/#audience"><code>audience</code></a> overrides it.</p>
+<p>Confirm the API is answering:</p>
 <div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>list-channels
 </code></pre></div>
-<p>It connects to <code>127.0.0.1:10356</code> by default. Use <code>--server</code> to point at a different address.</p>
-<h2 id="installing-slimctl">Installing slimctl</h2>
-<p><code>slimctl</code> is required to manage the Channel Manager from the command line. See the <a href="../../cli/install/">SLIM CLI Installation</a> guide.</p>
-<h2 id="next-steps">Next Steps</h2>
+<div class="highlight"><pre><span></span><code>Channels (0):
+</code></pre></div>
+<p><code>slimctl</code> talks to <code>127.0.0.1:10356</code> by default; <code>--server</code> points it somewhere else.</p>
+<h2 id="step-2-generate-the-owners-key">Step 2: Generate the owner's key</h2>
+<p>A channel's owner is an Ed25519 key. Generate one and ask <code>slimctl</code> for its <code>did:key</code>, which is the identifier the Channel Manager will record as the owner:</p>
+<div class="highlight"><pre><span></span><code>openssl<span class="w"> </span>genpkey<span class="w"> </span>-algorithm<span class="w"> </span>ed25519<span class="w"> </span>-out<span class="w"> </span>owner.pem
+chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>owner.pem
+slimctl<span class="w"> </span>channel-manager<span class="w"> </span>did-key<span class="w"> </span>--key<span class="w"> </span>owner.pem
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>did:key:z6MkneqwSGENkjKokLBYkhpY7B99mxrjVSLoECjsTR1z6iPU
+</code></pre></div>
+<p>A <code>did:key</code> carries its own public key, so nothing has to be registered anywhere: the Channel Manager can verify this key's signatures the first time it sees them. Keep <code>owner.pem</code> as you would any signing key — whoever holds it controls the channel.</p>
+<h2 id="step-3-create-an-owned-channel">Step 3: Create an owned channel</h2>
+<p>The channel's owner is whoever signs its create request. <code>slimctl</code> signs with <code>--key</code> and sends in one step:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>create-channel<span class="w"> </span>agntcy/team/general<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--key<span class="w"> </span>owner.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--audience<span class="w"> </span>agntcy/ns/channel-manager<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--ttl-seconds<span class="w"> </span><span class="m">86400</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--owner-callback-name<span class="w"> </span>agntcy/owners/alice-desktop
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>Channel agntcy/team/general created, owned by did:key:z6MkneqwSGENkjKokLBYkhpY7B99mxrjVSLoECjsTR1z6iPU
+</code></pre></div>
+<p>Three settings were chosen there, and all three are covered by the signature, so none can be altered in flight:</p>
 <ul>
-<li><a href="../config/">Configuration Reference</a> — Configure the SLIM connection, gRPC API server, authentication, and startup channels</li>
-<li><a href="../../sdk/tutorials/tutorial-session/">Creating a Session</a> — Create a group session and invite participants</li>
-<li><a href="../../sdk/tutorials/tutorial-receive/">Receiving a Session</a> — Listen for session invitations and receive messages</li>
+<li>MLS is on, because it is on unless <code>--disable-mls</code> says otherwise.</li>
+<li><code>--ttl-seconds 86400</code> has the channel delete itself after a day, along with its MLS state.</li>
+<li><code>--owner-callback-name</code> is where the owner can be asked to approve changes nobody holds a grant for. It requires a signed request: a channel with no owner has no one to ask.</li>
+</ul>
+<p>Confirm what was recorded:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>list-channels
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>Channels (1):
+  - agntcy/team/general (owner: did:key:z6MkneqwSGENkjKokLBYkhpY7B99mxrjVSLoECjsTR1z6iPU, expires: 2026-10-14T08:00:00Z)
+</code></pre></div>
+<h3 id="signing-the-create-request-in-code">Signing the create request in code</h3>
+<p>An application that holds an owner's key builds the same proof itself and puts it in <code>CreateChannelRequest.owner_proof</code>. The signature covers a domain tag and the request's fields, joined with NUL bytes; the full layout of each statement is in <a href="../ownership/#signed-formats">Concepts and Ownership</a>.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Python</label><label for="__tabbed_1_3">Go</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>The channel-manager crate ships the signing side of its own verifier, so a Rust client does not reimplement the format:</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">agntcy_slim_channel_manager</span><span class="p">::</span><span class="n">grant</span><span class="p">::{</span><span class="n">ChannelCreation</span><span class="p">,</span><span class="w"> </span><span class="n">SigningKey</span><span class="p">};</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SigningKey</span><span class="p">::</span><span class="n">from_pkcs8_pem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">std</span><span class="p">::</span><span class="n">fs</span><span class="p">::</span><span class="n">read_to_string</span><span class="p">(</span><span class="s">&quot;owner.pem&quot;</span><span class="p">)</span><span class="o">?</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">creation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ChannelCreation</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/ns/channel-manager&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">channel</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/team/general&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">owner</span><span class="p">:</span><span class="w"> </span><span class="nc">key</span><span class="p">.</span><span class="n">did_key</span><span class="p">().</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">mls_enabled</span><span class="p">:</span><span class="w"> </span><span class="nc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="mi">86_400</span><span class="p">),</span>
+<span class="w">    </span><span class="n">owner_callback_name</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="s">&quot;agntcy/owners/alice-desktop&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">()),</span>
+<span class="w">    </span><span class="n">not_after</span><span class="p">:</span><span class="w"> </span><span class="nc">unix_now</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span>
+<span class="w">    </span><span class="n">nonce</span><span class="p">:</span><span class="w"> </span><span class="nc">uuid</span><span class="p">::</span><span class="n">Uuid</span><span class="p">::</span><span class="n">new_v4</span><span class="p">().</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="p">};</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">CreateChannelRequest</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">channel_name</span><span class="p">:</span><span class="w"> </span><span class="nc">creation</span><span class="p">.</span><span class="n">channel</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">mls_enabled</span><span class="p">:</span><span class="w"> </span><span class="nc">creation</span><span class="p">.</span><span class="n">mls_enabled</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="nc">creation</span><span class="p">.</span><span class="n">ttl_seconds</span><span class="p">,</span>
+<span class="w">    </span><span class="n">owner_callback_name</span><span class="p">:</span><span class="w"> </span><span class="nc">creation</span><span class="p">.</span><span class="n">owner_callback_name</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">owner_proof</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="n">sign_create</span><span class="p">(</span><span class="o">&amp;</span><span class="n">creation</span><span class="p">)</span><span class="o">?</span><span class="p">),</span>
+<span class="p">};</span>
+</code></pre></div>
+<p><code>sign_create</code> refuses a <code>ChannelCreation</code> whose <code>owner</code> is not the signing key's own <code>did:key</code>, because a signed create request names its signer.</p>
+</div>
+<div class="tabbed-block">
+<p>No binding is needed to sign: the statements are JSON and Ed25519. This uses only the standard library and <a href="https://cryptography.io/"><code>cryptography</code></a>.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">base64</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">uuid</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cryptography.hazmat.primitives</span><span class="w"> </span><span class="kn">import</span> <span class="n">serialization</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cryptography.hazmat.primitives.asymmetric.ed25519</span><span class="w"> </span><span class="kn">import</span> <span class="n">Ed25519PrivateKey</span>
+
+<span class="n">BASE58</span> <span class="o">=</span> <span class="s2">&quot;123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz&quot;</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">base58btc</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Bitcoin-alphabet base58, as did:key&#39;s `z` multibase prefix denotes.&quot;&quot;&quot;</span>
+    <span class="n">number</span> <span class="o">=</span> <span class="nb">int</span><span class="o">.</span><span class="n">from_bytes</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;big&quot;</span><span class="p">)</span>
+    <span class="n">encoded</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">while</span> <span class="n">number</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">number</span><span class="p">,</span> <span class="n">remainder</span> <span class="o">=</span> <span class="nb">divmod</span><span class="p">(</span><span class="n">number</span><span class="p">,</span> <span class="mi">58</span><span class="p">)</span>
+        <span class="n">encoded</span> <span class="o">=</span> <span class="n">BASE58</span><span class="p">[</span><span class="n">remainder</span><span class="p">]</span> <span class="o">+</span> <span class="n">encoded</span>
+    <span class="n">leading_zeros</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;</span><span class="se">\x00</span><span class="s2">&quot;</span><span class="p">))</span>
+    <span class="k">return</span> <span class="s2">&quot;1&quot;</span> <span class="o">*</span> <span class="n">leading_zeros</span> <span class="o">+</span> <span class="n">encoded</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">did_key</span><span class="p">(</span><span class="n">public_key</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The did:key of an Ed25519 public key: multicodec 0xed01, then base58btc.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;did:key:z&quot;</span> <span class="o">+</span> <span class="n">base58btc</span><span class="p">(</span><span class="sa">b</span><span class="s2">&quot;</span><span class="se">\xed\x01</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="n">public_key</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">load_owner_key</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Ed25519PrivateKey</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;An Ed25519 key from a PKCS#8 PEM file, with its did:key.&quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">pem</span><span class="p">:</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">serialization</span><span class="o">.</span><span class="n">load_pem_private_key</span><span class="p">(</span><span class="n">pem</span><span class="o">.</span><span class="n">read</span><span class="p">(),</span> <span class="n">password</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">Ed25519PrivateKey</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> is not an Ed25519 key&quot;</span><span class="p">)</span>
+    <span class="n">public_key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">public_key</span><span class="p">()</span><span class="o">.</span><span class="n">public_bytes</span><span class="p">(</span>
+        <span class="n">serialization</span><span class="o">.</span><span class="n">Encoding</span><span class="o">.</span><span class="n">Raw</span><span class="p">,</span> <span class="n">serialization</span><span class="o">.</span><span class="n">PublicFormat</span><span class="o">.</span><span class="n">Raw</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">key</span><span class="p">,</span> <span class="n">did_key</span><span class="p">(</span><span class="n">public_key</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">sign</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="n">Ed25519PrivateKey</span><span class="p">,</span> <span class="o">*</span><span class="n">fields</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Signs the NUL-joined fields, base64 as the Channel Manager expects.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\0</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">fields</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">()))</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">signed_create</span><span class="p">(</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n">Ed25519PrivateKey</span><span class="p">,</span>
+    <span class="n">owner</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">audience</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">channel</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">mls_enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">ttl_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">owner_callback_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A signed create request: CreateChannelRequest.owner_proof.&quot;&quot;&quot;</span>
+    <span class="n">not_after</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span> <span class="o">+</span> <span class="mi">300</span>
+    <span class="n">nonce</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+    <span class="n">proof</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;audience&quot;</span><span class="p">:</span> <span class="n">audience</span><span class="p">,</span>
+        <span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="n">channel</span><span class="p">,</span>
+        <span class="s2">&quot;owner&quot;</span><span class="p">:</span> <span class="n">owner</span><span class="p">,</span>
+        <span class="s2">&quot;mls_enabled&quot;</span><span class="p">:</span> <span class="n">mls_enabled</span><span class="p">,</span>
+        <span class="s2">&quot;not_after&quot;</span><span class="p">:</span> <span class="n">not_after</span><span class="p">,</span>
+        <span class="s2">&quot;nonce&quot;</span><span class="p">:</span> <span class="n">nonce</span><span class="p">,</span>
+        <span class="s2">&quot;signature&quot;</span><span class="p">:</span> <span class="n">sign</span><span class="p">(</span>
+            <span class="n">key</span><span class="p">,</span>
+            <span class="s2">&quot;SLIM-CHANNEL-CREATE/1&quot;</span><span class="p">,</span>
+            <span class="n">audience</span><span class="p">,</span>
+            <span class="n">channel</span><span class="p">,</span>
+            <span class="n">owner</span><span class="p">,</span>
+            <span class="s2">&quot;true&quot;</span> <span class="k">if</span> <span class="n">mls_enabled</span> <span class="k">else</span> <span class="s2">&quot;false&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;&quot;</span> <span class="k">if</span> <span class="n">ttl_seconds</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">ttl_seconds</span><span class="p">),</span>
+            <span class="n">owner_callback_name</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">not_after</span><span class="p">),</span>
+            <span class="n">nonce</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">}</span>
+    <span class="c1"># An unset optional is omitted, and signs as the empty string.</span>
+    <span class="k">if</span> <span class="n">ttl_seconds</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">proof</span><span class="p">[</span><span class="s2">&quot;ttl_seconds&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ttl_seconds</span>
+    <span class="k">if</span> <span class="n">owner_callback_name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">proof</span><span class="p">[</span><span class="s2">&quot;owner_callback_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">owner_callback_name</span>
+    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">proof</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">()</span>
+</code></pre></div>
+<p>With the stubs generated in <a href="../api/#generating-client-stubs">API Reference</a>, the call itself is ordinary gRPC:</p>
+<div class="highlight"><pre><span></span><code><span class="n">key</span><span class="p">,</span> <span class="n">owner</span> <span class="o">=</span> <span class="n">load_owner_key</span><span class="p">(</span><span class="s2">&quot;owner.pem&quot;</span><span class="p">)</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">stub</span><span class="o">.</span><span class="n">CreateChannel</span><span class="p">(</span>
+    <span class="n">commands_pb2</span><span class="o">.</span><span class="n">CreateChannelRequest</span><span class="p">(</span>
+        <span class="n">channel_name</span><span class="o">=</span><span class="s2">&quot;agntcy/team/general&quot;</span><span class="p">,</span>
+        <span class="n">mls_enabled</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">ttl_seconds</span><span class="o">=</span><span class="mi">86400</span><span class="p">,</span>
+        <span class="n">owner_callback_name</span><span class="o">=</span><span class="s2">&quot;agntcy/owners/alice-desktop&quot;</span><span class="p">,</span>
+        <span class="n">owner_proof</span><span class="o">=</span><span class="n">signed_create</span><span class="p">(</span>
+            <span class="n">key</span><span class="p">,</span>
+            <span class="n">owner</span><span class="p">,</span>
+            <span class="s2">&quot;agntcy/ns/channel-manager&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;agntcy/team/general&quot;</span><span class="p">,</span>
+            <span class="n">ttl_seconds</span><span class="o">=</span><span class="mi">86400</span><span class="p">,</span>
+            <span class="n">owner_callback_name</span><span class="o">=</span><span class="s2">&quot;agntcy/owners/alice-desktop&quot;</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">response</span><span class="o">.</span><span class="n">success</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">error_msg</span><span class="p">)</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p>Standard library only:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">package</span><span class="w"> </span><span class="nx">owner</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="s">&quot;crypto/ed25519&quot;</span>
+<span class="w">    </span><span class="s">&quot;crypto/rand&quot;</span>
+<span class="w">    </span><span class="s">&quot;crypto/x509&quot;</span>
+<span class="w">    </span><span class="s">&quot;encoding/base64&quot;</span>
+<span class="w">    </span><span class="s">&quot;encoding/hex&quot;</span>
+<span class="w">    </span><span class="s">&quot;encoding/json&quot;</span>
+<span class="w">    </span><span class="s">&quot;encoding/pem&quot;</span>
+<span class="w">    </span><span class="s">&quot;fmt&quot;</span>
+<span class="w">    </span><span class="s">&quot;math/big&quot;</span>
+<span class="w">    </span><span class="s">&quot;os&quot;</span>
+<span class="w">    </span><span class="s">&quot;strconv&quot;</span>
+<span class="w">    </span><span class="s">&quot;strings&quot;</span>
+<span class="w">    </span><span class="s">&quot;time&quot;</span>
+<span class="p">)</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">base58Alphabet</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz&quot;</span>
+
+<span class="c1">// base58btc is the bitcoin-alphabet base58 that did:key&#39;s &quot;z&quot; prefix denotes.</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">base58btc</span><span class="p">(</span><span class="nx">data</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">number</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">new</span><span class="p">(</span><span class="nx">big</span><span class="p">.</span><span class="nx">Int</span><span class="p">).</span><span class="nx">SetBytes</span><span class="p">(</span><span class="nx">data</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">radix</span><span class="p">,</span><span class="w"> </span><span class="nx">remainder</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">big</span><span class="p">.</span><span class="nx">NewInt</span><span class="p">(</span><span class="mi">58</span><span class="p">),</span><span class="w"> </span><span class="nb">new</span><span class="p">(</span><span class="nx">big</span><span class="p">.</span><span class="nx">Int</span><span class="p">)</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">encoded</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">number</span><span class="p">.</span><span class="nx">Sign</span><span class="p">()</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">number</span><span class="p">.</span><span class="nx">DivMod</span><span class="p">(</span><span class="nx">number</span><span class="p">,</span><span class="w"> </span><span class="nx">radix</span><span class="p">,</span><span class="w"> </span><span class="nx">remainder</span><span class="p">)</span>
+<span class="w">        </span><span class="nx">encoded</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">([]</span><span class="kt">byte</span><span class="p">{</span><span class="nx">base58Alphabet</span><span class="p">[</span><span class="nx">remainder</span><span class="p">.</span><span class="nx">Int64</span><span class="p">()]},</span><span class="w"> </span><span class="nx">encoded</span><span class="o">...</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">b</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">b</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">break</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="nx">encoded</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">([]</span><span class="kt">byte</span><span class="p">{</span><span class="sc">&#39;1&#39;</span><span class="p">},</span><span class="w"> </span><span class="nx">encoded</span><span class="o">...</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nb">string</span><span class="p">(</span><span class="nx">encoded</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="c1">// didKey is the did:key of an Ed25519 public key: multicodec 0xed01, base58btc.</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">didKey</span><span class="p">(</span><span class="nx">publicKey</span><span class="w"> </span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PublicKey</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;did:key:z&quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">base58btc</span><span class="p">(</span><span class="nb">append</span><span class="p">([]</span><span class="kt">byte</span><span class="p">{</span><span class="mh">0xed</span><span class="p">,</span><span class="w"> </span><span class="mh">0x01</span><span class="p">},</span><span class="w"> </span><span class="nx">publicKey</span><span class="o">...</span><span class="p">))</span>
+<span class="p">}</span>
+
+<span class="c1">// LoadOwnerKey reads an Ed25519 key from a PKCS#8 PEM file, with its did:key.</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">LoadOwnerKey</span><span class="p">(</span><span class="nx">path</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PrivateKey</span><span class="p">,</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">pemBytes</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">os</span><span class="p">.</span><span class="nx">ReadFile</span><span class="p">(</span><span class="nx">path</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">block</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">pem</span><span class="p">.</span><span class="nx">Decode</span><span class="p">(</span><span class="nx">pemBytes</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">block</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;%s holds no PEM block&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">path</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">parsed</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">x509</span><span class="p">.</span><span class="nx">ParsePKCS8PrivateKey</span><span class="p">(</span><span class="nx">block</span><span class="p">.</span><span class="nx">Bytes</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">key</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">parsed</span><span class="p">.(</span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PrivateKey</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;%s is not an Ed25519 key&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">path</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">key</span><span class="p">,</span><span class="w"> </span><span class="nx">didKey</span><span class="p">(</span><span class="nx">key</span><span class="p">.</span><span class="nx">Public</span><span class="p">().(</span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PublicKey</span><span class="p">)),</span><span class="w"> </span><span class="kc">nil</span>
+<span class="p">}</span>
+
+<span class="c1">// sign signs the NUL-joined fields, base64 as the Channel Manager expects.</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">sign</span><span class="p">(</span><span class="nx">key</span><span class="w"> </span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PrivateKey</span><span class="p">,</span><span class="w"> </span><span class="nx">fields</span><span class="w"> </span><span class="o">...</span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">message</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="p">[]</span><span class="nb">byte</span><span class="p">(</span><span class="nx">strings</span><span class="p">.</span><span class="nx">Join</span><span class="p">(</span><span class="nx">fields</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;\x00&quot;</span><span class="p">))</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">base64</span><span class="p">.</span><span class="nx">StdEncoding</span><span class="p">.</span><span class="nx">EncodeToString</span><span class="p">(</span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">Sign</span><span class="p">(</span><span class="nx">key</span><span class="p">,</span><span class="w"> </span><span class="nx">message</span><span class="p">))</span>
+<span class="p">}</span>
+
+<span class="c1">// newNonce is a value unique to one signed statement.</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">newNonce</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">raw</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">rand</span><span class="p">.</span><span class="nx">Read</span><span class="p">(</span><span class="nx">raw</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nb">panic</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">hex</span><span class="p">.</span><span class="nx">EncodeToString</span><span class="p">(</span><span class="nx">raw</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="c1">// SignedCreate is CreateChannelRequest.owner_proof.</span>
+<span class="kd">type</span><span class="w"> </span><span class="nx">SignedCreate</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Audience</span><span class="w">          </span><span class="kt">string</span><span class="w">  </span><span class="s">`json:&quot;audience&quot;`</span>
+<span class="w">    </span><span class="nx">Channel</span><span class="w">           </span><span class="kt">string</span><span class="w">  </span><span class="s">`json:&quot;channel&quot;`</span>
+<span class="w">    </span><span class="nx">Owner</span><span class="w">             </span><span class="kt">string</span><span class="w">  </span><span class="s">`json:&quot;owner&quot;`</span>
+<span class="w">    </span><span class="nx">MlsEnabled</span><span class="w">        </span><span class="kt">bool</span><span class="w">    </span><span class="s">`json:&quot;mls_enabled&quot;`</span>
+<span class="w">    </span><span class="nx">TTLSeconds</span><span class="w">        </span><span class="o">*</span><span class="kt">uint64</span><span class="w"> </span><span class="s">`json:&quot;ttl_seconds,omitempty&quot;`</span>
+<span class="w">    </span><span class="nx">OwnerCallbackName</span><span class="w"> </span><span class="o">*</span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;owner_callback_name,omitempty&quot;`</span>
+<span class="w">    </span><span class="nx">NotAfter</span><span class="w">          </span><span class="kt">uint64</span><span class="w">  </span><span class="s">`json:&quot;not_after&quot;`</span>
+<span class="w">    </span><span class="nx">Nonce</span><span class="w">             </span><span class="kt">string</span><span class="w">  </span><span class="s">`json:&quot;nonce&quot;`</span>
+<span class="w">    </span><span class="nx">Signature</span><span class="w">         </span><span class="kt">string</span><span class="w">  </span><span class="s">`json:&quot;signature&quot;`</span>
+<span class="p">}</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">NewSignedCreate</span><span class="p">(</span><span class="nx">key</span><span class="w"> </span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PrivateKey</span><span class="p">,</span><span class="w"> </span><span class="nx">owner</span><span class="p">,</span><span class="w"> </span><span class="nx">audience</span><span class="p">,</span><span class="w"> </span><span class="nx">channel</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">mlsEnabled</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="nx">ttlSeconds</span><span class="w"> </span><span class="o">*</span><span class="kt">uint64</span><span class="p">,</span><span class="w"> </span><span class="nx">ownerCallbackName</span><span class="w"> </span><span class="o">*</span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// An unset optional signs as the empty string.</span>
+<span class="w">    </span><span class="nx">ttl</span><span class="p">,</span><span class="w"> </span><span class="nx">callback</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">ttlSeconds</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">ttl</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">FormatUint</span><span class="p">(</span><span class="o">*</span><span class="nx">ttlSeconds</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">ownerCallbackName</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">callback</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="o">*</span><span class="nx">ownerCallbackName</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">mls</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="s">&quot;false&quot;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">mlsEnabled</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">mls</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;true&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">proof</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">SignedCreate</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">Audience</span><span class="p">:</span><span class="w">          </span><span class="nx">audience</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Channel</span><span class="p">:</span><span class="w">           </span><span class="nx">channel</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Owner</span><span class="p">:</span><span class="w">             </span><span class="nx">owner</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">MlsEnabled</span><span class="p">:</span><span class="w">        </span><span class="nx">mlsEnabled</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">TTLSeconds</span><span class="p">:</span><span class="w">        </span><span class="nx">ttlSeconds</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">OwnerCallbackName</span><span class="p">:</span><span class="w"> </span><span class="nx">ownerCallbackName</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">NotAfter</span><span class="p">:</span><span class="w">          </span><span class="nb">uint64</span><span class="p">(</span><span class="nx">time</span><span class="p">.</span><span class="nx">Now</span><span class="p">().</span><span class="nx">Add</span><span class="p">(</span><span class="mi">5</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="p">).</span><span class="nx">Unix</span><span class="p">()),</span>
+<span class="w">        </span><span class="nx">Nonce</span><span class="p">:</span><span class="w">             </span><span class="nx">newNonce</span><span class="p">(),</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">proof</span><span class="p">.</span><span class="nx">Signature</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">sign</span><span class="p">(</span><span class="nx">key</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;SLIM-CHANNEL-CREATE/1&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">audience</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">channel</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">owner</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">mls</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">ttl</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">callback</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">FormatUint</span><span class="p">(</span><span class="nx">proof</span><span class="p">.</span><span class="nx">NotAfter</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">proof</span><span class="p">.</span><span class="nx">Nonce</span><span class="p">,</span>
+<span class="w">    </span><span class="p">)</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Marshal</span><span class="p">(</span><span class="nx">proof</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Sign what you send</p>
+<p>The Channel Manager compares the proof's <code>channel</code>, <code>mls_enabled</code>, <code>ttl_seconds</code> and <code>owner_callback_name</code> against the request's, and refuses the pair with <code>signed create request does not match this request</code> if any differ. Build the request from the same values that were signed, as above, rather than from two places.</p>
+</div>
+<h2 id="step-4-add-a-participant-with-a-grant">Step 4: Add a participant with a grant</h2>
+<p>Changes to an owned channel need the owner's signature too — the owner's own changes included. A <strong>grant</strong> is that signature for one participant change: this channel, this participant, this action, once.</p>
+<p>With <code>slimctl</code>, <code>--key</code> signs the grant and sends the request together:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>add-participant<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>agntcy/team/general<span class="w"> </span>agntcy/agents/assistant-1<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--key<span class="w"> </span>owner.pem
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>Participant agntcy/agents/assistant-1 added to channel agntcy/team/general
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>list-participants<span class="w"> </span>agntcy/team/general
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>Participants in channel agntcy/team/general (2):
+  - agntcy/ns/channel-manager
+  - agntcy/agents/assistant-1
+</code></pre></div>
+<p>The Channel Manager is in the list because it is the channel's moderator, and so a member of the group.</p>
+<p>A grant does not have to be used by the owner. Because it authorizes exactly one change and nothing else, the owner can sign one and hand it to whoever needs to make that change:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Rust</label><label for="__tabbed_2_2">Python</label><label for="__tabbed_2_3">Go</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">agntcy_slim_channel_manager</span><span class="p">::</span><span class="n">grant</span><span class="p">::{</span><span class="n">Grant</span><span class="p">,</span><span class="w"> </span><span class="n">GrantAction</span><span class="p">,</span><span class="w"> </span><span class="n">SigningKey</span><span class="p">};</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">grant</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="n">sign_grant</span><span class="p">(</span><span class="o">&amp;</span><span class="n">Grant</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">channel</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/team/general&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">invitee</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/agents/assistant-2&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">action</span><span class="p">:</span><span class="w"> </span><span class="nc">GrantAction</span><span class="p">::</span><span class="n">Add</span><span class="p">,</span>
+<span class="w">    </span><span class="n">role</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;member&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">not_after</span><span class="p">:</span><span class="w"> </span><span class="nc">unix_now</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3600</span><span class="p">,</span>
+<span class="w">    </span><span class="n">nonce</span><span class="p">:</span><span class="w"> </span><span class="nc">uuid</span><span class="p">::</span><span class="n">Uuid</span><span class="p">::</span><span class="n">new_v4</span><span class="p">().</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="p">});</span>
+<span class="c1">// Hand `grant` to whoever will add the participant: it is useless for</span>
+<span class="c1">// anything else.</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">grant</span><span class="p">(</span>
+    <span class="n">key</span><span class="p">:</span> <span class="n">Ed25519PrivateKey</span><span class="p">,</span>
+    <span class="n">channel</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">invitee</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">action</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">not_after</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A grant for one change: AddParticipantRequest.grant, or Delete&#39;s.&quot;&quot;&quot;</span>
+    <span class="n">nonce</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="n">channel</span><span class="p">,</span>
+            <span class="s2">&quot;invitee&quot;</span><span class="p">:</span> <span class="n">invitee</span><span class="p">,</span>
+            <span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="n">action</span><span class="p">,</span>
+            <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;member&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;not_after&quot;</span><span class="p">:</span> <span class="n">not_after</span><span class="p">,</span>
+            <span class="s2">&quot;nonce&quot;</span><span class="p">:</span> <span class="n">nonce</span><span class="p">,</span>
+            <span class="s2">&quot;signature&quot;</span><span class="p">:</span> <span class="n">sign</span><span class="p">(</span>
+                <span class="n">key</span><span class="p">,</span>
+                <span class="s2">&quot;SLIM-CHANNEL-GRANT/1&quot;</span><span class="p">,</span>
+                <span class="n">channel</span><span class="p">,</span>
+                <span class="n">invitee</span><span class="p">,</span>
+                <span class="n">action</span><span class="p">,</span>
+                <span class="s2">&quot;member&quot;</span><span class="p">,</span>
+                <span class="nb">str</span><span class="p">(</span><span class="n">not_after</span><span class="p">),</span>
+                <span class="n">nonce</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">}</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">()</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="c1">// Grant authorizes one participant change.</span>
+<span class="kd">type</span><span class="w"> </span><span class="nx">Grant</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Channel</span><span class="w">   </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;channel&quot;`</span>
+<span class="w">    </span><span class="nx">Invitee</span><span class="w">   </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;invitee&quot;`</span>
+<span class="w">    </span><span class="nx">Action</span><span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;action&quot;`</span>
+<span class="w">    </span><span class="nx">Role</span><span class="w">      </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;role&quot;`</span>
+<span class="w">    </span><span class="nx">NotAfter</span><span class="w">  </span><span class="kt">uint64</span><span class="w"> </span><span class="s">`json:&quot;not_after&quot;`</span>
+<span class="w">    </span><span class="nx">Nonce</span><span class="w">     </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;nonce&quot;`</span>
+<span class="w">    </span><span class="nx">Signature</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;signature&quot;`</span>
+<span class="p">}</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">NewGrant</span><span class="p">(</span><span class="nx">key</span><span class="w"> </span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PrivateKey</span><span class="p">,</span><span class="w"> </span><span class="nx">channel</span><span class="p">,</span><span class="w"> </span><span class="nx">invitee</span><span class="p">,</span><span class="w"> </span><span class="nx">action</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">notAfter</span><span class="w"> </span><span class="kt">uint64</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">g</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">Grant</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">Channel</span><span class="p">:</span><span class="w">  </span><span class="nx">channel</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Invitee</span><span class="p">:</span><span class="w">  </span><span class="nx">invitee</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Action</span><span class="p">:</span><span class="w">   </span><span class="nx">action</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Role</span><span class="p">:</span><span class="w">     </span><span class="s">&quot;member&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">NotAfter</span><span class="p">:</span><span class="w"> </span><span class="nx">notAfter</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Nonce</span><span class="p">:</span><span class="w">    </span><span class="nx">newNonce</span><span class="p">(),</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">g</span><span class="p">.</span><span class="nx">Signature</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">sign</span><span class="p">(</span><span class="nx">key</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;SLIM-CHANNEL-GRANT/1&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">channel</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">invitee</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">action</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;member&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">FormatUint</span><span class="p">(</span><span class="nx">g</span><span class="p">.</span><span class="nx">NotAfter</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">g</span><span class="p">.</span><span class="nx">Nonce</span><span class="p">,</span>
+<span class="w">    </span><span class="p">)</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Marshal</span><span class="p">(</span><span class="nx">g</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<p><code>action</code> is <code>"add"</code> for <code>AddParticipant</code> and <code>"delete"</code> for <code>DeleteParticipant</code>; <code>role</code> is carried in the grant but not enforced. Unlike signed create and delete requests, a grant's <code>not_after</code> is not capped at 24 hours, because the point of a grant is to be usable later.</p>
+<p>Whoever received the grant sends it as the request's <code>grant</code> field, and needs no key of their own:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>add-participant<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>agntcy/team/general<span class="w"> </span>agntcy/agents/assistant-2<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--grant-file<span class="w"> </span>grant.json
+</code></pre></div>
+<p>Spend it twice and the second attempt fails with <code>grant has already been used</code>.</p>
+<h2 id="step-5-answer-approval-requests-as-the-owner">Step 5: Answer approval requests as the owner</h2>
+<p>The channel was created with <code>--owner-callback-name agntcy/owners/alice-desktop</code>. That means a change requested with no grant is not refused outright: the Channel Manager asks the owner for one, over SLIM, and waits up to 60 seconds.</p>
+<p>This path cannot be exercised with <code>slimctl</code>, which always signs or forwards something and so always presents a grant. It is for an application that calls <code>AddParticipant</code> with <code>grant</code> left unset — an orchestrator that knows who should join but holds no authority to admit them. The owner's endpoint is what decides.</p>
+<p>An endpoint is a SLIM application that connects outbound — no inbound ports — subscribed to the callback name, with one handler registered for service <code>channel_manager.proto.v1.ChannelOwnerApproval</code>, method <code>RequestApproval</code>.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Rust</label><label for="__tabbed_3_2">Python</label><label for="__tabbed_3_3">Go</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p>The app must be <code>Direction::Bidirectional</code>: answering a call means both receiving and sending.</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">agntcy_slim_channel_manager</span><span class="p">::</span><span class="n">approval</span><span class="p">::{</span><span class="n">APPROVAL_METHOD</span><span class="p">,</span><span class="w"> </span><span class="n">APPROVAL_SERVICE</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">agntcy_slim_channel_manager</span><span class="p">::</span><span class="n">proto</span><span class="p">::</span><span class="n">approval_response</span><span class="p">::</span><span class="n">Decision</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">agntcy_slim_channel_manager</span><span class="p">::</span><span class="n">grant</span><span class="p">::{</span><span class="n">Grant</span><span class="p">,</span><span class="w"> </span><span class="n">GrantAction</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">agntcy_slim_channel_manager</span><span class="p">::</span><span class="n">proto</span><span class="p">::{</span>
+<span class="w">    </span><span class="n">ApprovalRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ApprovalResponse</span><span class="p">,</span><span class="w"> </span><span class="n">ParticipantAction</span><span class="p">,</span>
+<span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">prost</span><span class="p">::</span><span class="n">Message</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::{</span><span class="n">Context</span><span class="p">,</span><span class="w"> </span><span class="n">RpcError</span><span class="p">,</span><span class="w"> </span><span class="n">Server</span><span class="p">};</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">server</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Server</span><span class="p">::</span><span class="n">new_with_connection_and_runtime</span><span class="p">(</span>
+<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="n">app_name</span><span class="p">().</span><span class="n">clone</span><span class="p">(),</span>
+<span class="w">    </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">),</span>
+<span class="w">    </span><span class="n">notifications</span><span class="p">,</span>
+<span class="w">    </span><span class="nb">None</span><span class="p">,</span>
+<span class="p">);</span>
+
+<span class="n">server</span><span class="p">.</span><span class="n">register_unary_unary</span><span class="p">(</span>
+<span class="w">    </span><span class="n">APPROVAL_SERVICE</span><span class="p">,</span>
+<span class="w">    </span><span class="n">APPROVAL_METHOD</span><span class="p">,</span>
+<span class="w">    </span><span class="k">move</span><span class="w"> </span><span class="o">|</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="kt">u8</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">ctx</span><span class="p">:</span><span class="w"> </span><span class="nc">Context</span><span class="o">|</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="n">clone</span><span class="p">();</span>
+<span class="w">        </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="c1">// Only the channel manager may ask. Check its verified</span>
+<span class="w">            </span><span class="c1">// identity -- never the request&#39;s `requester` field, which</span>
+<span class="w">            </span><span class="c1">// the request merely claims.</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">peer_subject</span><span class="p">().</span><span class="n">as_deref</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">CHANNEL_MANAGER_DID_KEY</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="k">return</span><span class="w"> </span><span class="nb">Err</span><span class="p">(</span><span class="n">RpcError</span><span class="p">::</span><span class="n">permission_denied</span><span class="p">(</span><span class="s">&quot;not the channel manager&quot;</span><span class="p">));</span>
+<span class="w">            </span><span class="p">}</span>
+
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ApprovalRequest</span><span class="p">::</span><span class="n">decode</span><span class="p">(</span><span class="n">bytes</span><span class="p">.</span><span class="n">as_slice</span><span class="p">())</span>
+<span class="w">                </span><span class="p">.</span><span class="n">map_err</span><span class="p">(</span><span class="o">|</span><span class="n">e</span><span class="o">|</span><span class="w"> </span><span class="n">RpcError</span><span class="p">::</span><span class="n">invalid_argument</span><span class="p">(</span><span class="n">e</span><span class="p">.</span><span class="n">to_string</span><span class="p">()))</span><span class="o">?</span><span class="p">;</span>
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">action</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">match</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="n">action</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">ParticipantAction</span><span class="p">::</span><span class="n">Add</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">GrantAction</span><span class="p">::</span><span class="n">Add</span><span class="p">,</span>
+<span class="w">                </span><span class="n">ParticipantAction</span><span class="p">::</span><span class="n">Delete</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">GrantAction</span><span class="p">::</span><span class="n">Delete</span><span class="p">,</span>
+<span class="w">                </span><span class="n">ParticipantAction</span><span class="p">::</span><span class="n">Unspecified</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="k">return</span><span class="w"> </span><span class="nb">Err</span><span class="p">(</span><span class="n">RpcError</span><span class="p">::</span><span class="n">invalid_argument</span><span class="p">(</span><span class="s">&quot;no action&quot;</span><span class="p">));</span>
+<span class="w">                </span><span class="p">}</span>
+<span class="w">            </span><span class="p">};</span>
+
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="n">decision</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">allowed</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">Decision</span><span class="p">::</span><span class="n">Grant</span><span class="p">(</span><span class="n">key</span><span class="p">.</span><span class="n">sign_grant</span><span class="p">(</span><span class="o">&amp;</span><span class="n">Grant</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                    </span><span class="n">channel</span><span class="p">:</span><span class="w"> </span><span class="nc">request</span><span class="p">.</span><span class="n">channel_name</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
+<span class="w">                    </span><span class="n">invitee</span><span class="p">:</span><span class="w"> </span><span class="nc">request</span><span class="p">.</span><span class="n">participant_name</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
+<span class="w">                    </span><span class="n">action</span><span class="p">,</span>
+<span class="w">                    </span><span class="n">role</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;member&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">                    </span><span class="n">not_after</span><span class="p">:</span><span class="w"> </span><span class="nc">unix_now</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span>
+<span class="w">                    </span><span class="n">nonce</span><span class="p">:</span><span class="w"> </span><span class="nc">uuid</span><span class="p">::</span><span class="n">Uuid</span><span class="p">::</span><span class="n">new_v4</span><span class="p">().</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">                </span><span class="p">}))</span>
+<span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="n">Decision</span><span class="p">::</span><span class="n">Denied</span><span class="p">(</span><span class="s">&quot;not on the guest list&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">())</span>
+<span class="w">            </span><span class="p">};</span>
+
+<span class="w">            </span><span class="nb">Ok</span><span class="p">(</span><span class="n">ApprovalResponse</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">decision</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">decision</span><span class="p">)</span><span class="w"> </span><span class="p">}.</span><span class="n">encode_to_vec</span><span class="p">())</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="p">);</span>
+<span class="n">server</span><span class="p">.</span><span class="n">serve</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p><code>ChannelOwnerApproval</code> is deliberately not declared as a <code>service</code> in the proto — the Channel Manager is only ever its client — so there is no generated servicer to register. Use the raw handler API, which takes the service and method as strings. App and connection setup come from <a href="../../sdk/tutorials/tutorial-app/">Creating an Application</a> and <a href="../../sdk/tutorials/tutorial-connect/">Connecting</a>.</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">slim_bindings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">channel_manager.v1</span><span class="w"> </span><span class="kn">import</span> <span class="n">commands_pb2</span>
+
+<span class="n">CHANNEL_MANAGER_DID_KEY</span> <span class="o">=</span> <span class="s2">&quot;did:key:z6Mk...&quot;</span>  <span class="c1"># logged as &quot;Owner approval identity&quot;</span>
+
+<span class="n">ACTIONS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">commands_pb2</span><span class="o">.</span><span class="n">PARTICIPANT_ACTION_ADD</span><span class="p">:</span> <span class="s2">&quot;add&quot;</span><span class="p">,</span>
+    <span class="n">commands_pb2</span><span class="o">.</span><span class="n">PARTICIPANT_ACTION_DELETE</span><span class="p">:</span> <span class="s2">&quot;delete&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">ApprovalHandler</span><span class="p">(</span><span class="n">slim_bindings</span><span class="o">.</span><span class="n">UnaryUnaryHandler</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">allowed</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">owner</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">allowed</span> <span class="o">=</span> <span class="n">key</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">allowed</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">,</span> <span class="n">context</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+        <span class="c1"># Only the channel manager may ask, as verified -- never the</span>
+        <span class="c1"># request&#39;s `requester` field, which the request merely claims.</span>
+        <span class="k">if</span> <span class="n">context</span><span class="o">.</span><span class="n">peer_subject</span><span class="p">()</span> <span class="o">!=</span> <span class="n">CHANNEL_MANAGER_DID_KEY</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">PermissionError</span><span class="p">(</span><span class="s2">&quot;not the channel manager&quot;</span><span class="p">)</span>
+
+        <span class="n">ask</span> <span class="o">=</span> <span class="n">commands_pb2</span><span class="o">.</span><span class="n">ApprovalRequest</span><span class="p">()</span>
+        <span class="n">ask</span><span class="o">.</span><span class="n">ParseFromString</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+        <span class="n">action</span> <span class="o">=</span> <span class="n">ACTIONS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ask</span><span class="o">.</span><span class="n">action</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">action</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;no action&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">ask</span><span class="o">.</span><span class="n">participant_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">allowed</span><span class="p">:</span>
+            <span class="n">answer</span> <span class="o">=</span> <span class="n">commands_pb2</span><span class="o">.</span><span class="n">ApprovalResponse</span><span class="p">(</span>
+                <span class="n">grant</span><span class="o">=</span><span class="n">grant</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
+                    <span class="n">ask</span><span class="o">.</span><span class="n">channel_name</span><span class="p">,</span>
+                    <span class="n">ask</span><span class="o">.</span><span class="n">participant_name</span><span class="p">,</span>
+                    <span class="n">action</span><span class="p">,</span>
+                    <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span> <span class="o">+</span> <span class="mi">300</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">answer</span> <span class="o">=</span> <span class="n">commands_pb2</span><span class="o">.</span><span class="n">ApprovalResponse</span><span class="p">(</span><span class="n">denied</span><span class="o">=</span><span class="s2">&quot;not on the guest list&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">answer</span><span class="o">.</span><span class="n">SerializeToString</span><span class="p">()</span>
+
+
+<span class="n">server</span> <span class="o">=</span> <span class="n">slim_bindings</span><span class="o">.</span><span class="n">Server</span><span class="o">.</span><span class="n">new_with_connection</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">local_name</span><span class="p">,</span> <span class="n">conn_id</span><span class="p">)</span>
+<span class="n">server</span><span class="o">.</span><span class="n">register_unary_unary</span><span class="p">(</span>
+    <span class="s2">&quot;channel_manager.proto.v1.ChannelOwnerApproval&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;RequestApproval&quot;</span><span class="p">,</span>
+    <span class="n">ApprovalHandler</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;agntcy/agents/assistant-3&quot;</span><span class="p">}),</span>
+<span class="p">)</span>
+<span class="k">await</span> <span class="n">server</span><span class="o">.</span><span class="n">serve_async</span><span class="p">()</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/slim_rpc&quot;</span>
+<span class="w">    </span><span class="nx">pb</span><span class="w"> </span><span class="s">&quot;example.com/gen/channel-manager/v1&quot;</span>
+<span class="w">    </span><span class="s">&quot;google.golang.org/protobuf/proto&quot;</span>
+<span class="p">)</span>
+
+<span class="c1">// channelManagerDidKey is logged at startup as &quot;Owner approval identity&quot;.</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">channelManagerDidKey</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;did:key:z6Mk...&quot;</span>
+
+<span class="kd">type</span><span class="w"> </span><span class="nx">approvalHandler</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">key</span><span class="w">     </span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PrivateKey</span>
+<span class="w">    </span><span class="nx">allowed</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">bool</span>
+<span class="p">}</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">h</span><span class="w"> </span><span class="o">*</span><span class="nx">approvalHandler</span><span class="p">)</span><span class="w"> </span><span class="nx">Handle</span><span class="p">(</span><span class="nx">request</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="nx">context</span><span class="w"> </span><span class="o">*</span><span class="nx">slim_rpc</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Only the channel manager may ask, as verified -- never the</span>
+<span class="w">    </span><span class="c1">// request&#39;s Requester field, which the request merely claims.</span>
+<span class="w">    </span><span class="nx">subject</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">PeerSubject</span><span class="p">()</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">subject</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">*</span><span class="nx">subject</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="nx">channelManagerDidKey</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="s">&quot;not the channel manager&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">ask</span><span class="w"> </span><span class="nx">pb</span><span class="p">.</span><span class="nx">ApprovalRequest</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">proto</span><span class="p">.</span><span class="nx">Unmarshal</span><span class="p">(</span><span class="nx">request</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">ask</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">action</span><span class="w"> </span><span class="kt">string</span>
+<span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="nx">ask</span><span class="p">.</span><span class="nx">GetAction</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">pb</span><span class="p">.</span><span class="nx">ParticipantAction_PARTICIPANT_ACTION_ADD</span><span class="p">:</span>
+<span class="w">        </span><span class="nx">action</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;add&quot;</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">pb</span><span class="p">.</span><span class="nx">ParticipantAction_PARTICIPANT_ACTION_DELETE</span><span class="p">:</span>
+<span class="w">        </span><span class="nx">action</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;delete&quot;</span>
+<span class="w">    </span><span class="k">default</span><span class="p">:</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">errors</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="s">&quot;no action&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">answer</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">pb</span><span class="p">.</span><span class="nx">ApprovalResponse</span><span class="p">{}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">h</span><span class="p">.</span><span class="nx">allowed</span><span class="p">[</span><span class="nx">ask</span><span class="p">.</span><span class="nx">GetParticipantName</span><span class="p">()]</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">grant</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">NewGrant</span><span class="p">(</span><span class="nx">h</span><span class="p">.</span><span class="nx">key</span><span class="p">,</span><span class="w"> </span><span class="nx">ask</span><span class="p">.</span><span class="nx">GetChannelName</span><span class="p">(),</span><span class="w"> </span><span class="nx">ask</span><span class="p">.</span><span class="nx">GetParticipantName</span><span class="p">(),</span>
+<span class="w">            </span><span class="nx">action</span><span class="p">,</span><span class="w"> </span><span class="nb">uint64</span><span class="p">(</span><span class="nx">time</span><span class="p">.</span><span class="nx">Now</span><span class="p">().</span><span class="nx">Add</span><span class="p">(</span><span class="mi">5</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="p">).</span><span class="nx">Unix</span><span class="p">()))</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="nx">answer</span><span class="p">.</span><span class="nx">Decision</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">pb</span><span class="p">.</span><span class="nx">ApprovalResponse_Grant</span><span class="p">{</span><span class="nx">Grant</span><span class="p">:</span><span class="w"> </span><span class="nx">grant</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">answer</span><span class="p">.</span><span class="nx">Decision</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">pb</span><span class="p">.</span><span class="nx">ApprovalResponse_Denied</span><span class="p">{</span><span class="nx">Denied</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;not on the guest list&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">proto</span><span class="p">.</span><span class="nx">Marshal</span><span class="p">(</span><span class="nx">answer</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="nx">server</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim_rpc</span><span class="p">.</span><span class="nx">ServerNewWithConnection</span><span class="p">(</span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">connId</span><span class="p">)</span>
+<span class="nx">server</span><span class="p">.</span><span class="nx">RegisterUnaryUnary</span><span class="p">(</span>
+<span class="w">    </span><span class="s">&quot;channel_manager.proto.v1.ChannelOwnerApproval&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s">&quot;RequestApproval&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="o">&amp;</span><span class="nx">approvalHandler</span><span class="p">{</span><span class="nx">key</span><span class="p">:</span><span class="w"> </span><span class="nx">key</span><span class="p">,</span><span class="w"> </span><span class="nx">allowed</span><span class="p">:</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">bool</span><span class="p">{</span><span class="s">&quot;agntcy/agents/assistant-3&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}},</span>
+<span class="p">)</span>
+<span class="nx">server</span><span class="p">.</span><span class="nx">ServeBlocking</span><span class="p">()</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<p>Three things about this handler are load-bearing:</p>
+<p><strong>It authenticates the caller by the session's verified peer, not by the request.</strong> <code>ApprovalRequest.requester</code> says who the Channel Manager believes asked — useful to show a human, worthless as authorization. The Channel Manager's own identity is the peer subject of the SLIM session.</p>
+<p><strong>What that subject looks like depends on <a href="../config/#approval-auth"><code>approval-auth</code></a>.</strong> Give the approval app a <code>jwt</code> identity and it is a stable <code>did:key</code>, logged at startup as <code>Owner approval identity</code> — the value to pin. With a shared secret it carries a per-instance suffix and cannot be pinned.</p>
+<p><strong>A grant returned here is verified like any other.</strong> It must name the channel, participant and action that were asked about; anything else fails with <code>grant does not authorize this change</code>. Returning <code>denied</code> instead propagates to the requester as <code>channel owner denied the request: not on the guest list</code>, and so does silence, after 60 seconds, as <code>channel owner did not answer the approval request in time</code>.</p>
+<h2 id="step-6-delete-the-channel">Step 6: Delete the channel</h2>
+<p>Deleting an owned channel needs a delete request signed by its owner, or by an <a href="../config/#operators">operator</a>. Like a create request, it names an <code>audience</code> and is valid for at most 24 hours.</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-channel<span class="w"> </span>agntcy/team/general<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--key<span class="w"> </span>owner.pem<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--audience<span class="w"> </span>agntcy/ns/channel-manager
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>Channel agntcy/team/general deleted
+</code></pre></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:3"><input checked="checked" id="__tabbed_4_1" name="__tabbed_4" type="radio" /><input id="__tabbed_4_2" name="__tabbed_4" type="radio" /><input id="__tabbed_4_3" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="__tabbed_4_1">Rust</label><label for="__tabbed_4_2">Python</label><label for="__tabbed_4_3">Go</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">agntcy_slim_channel_manager</span><span class="p">::</span><span class="n">grant</span><span class="p">::</span><span class="n">ChannelDeletion</span><span class="p">;</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">proof</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">key</span><span class="p">.</span><span class="n">sign_delete</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ChannelDeletion</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/ns/channel-manager&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">channel</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/team/general&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="w">    </span><span class="n">not_after</span><span class="p">:</span><span class="w"> </span><span class="nc">unix_now</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">300</span><span class="p">,</span>
+<span class="w">    </span><span class="n">nonce</span><span class="p">:</span><span class="w"> </span><span class="nc">uuid</span><span class="p">::</span><span class="n">Uuid</span><span class="p">::</span><span class="n">new_v4</span><span class="p">().</span><span class="n">to_string</span><span class="p">(),</span>
+<span class="p">});</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">signed_delete</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="n">Ed25519PrivateKey</span><span class="p">,</span> <span class="n">audience</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A signed delete request: DeleteChannelRequest.owner_proof.&quot;&quot;&quot;</span>
+    <span class="n">not_after</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())</span> <span class="o">+</span> <span class="mi">300</span>
+    <span class="n">nonce</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;audience&quot;</span><span class="p">:</span> <span class="n">audience</span><span class="p">,</span>
+            <span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="n">channel</span><span class="p">,</span>
+            <span class="s2">&quot;not_after&quot;</span><span class="p">:</span> <span class="n">not_after</span><span class="p">,</span>
+            <span class="s2">&quot;nonce&quot;</span><span class="p">:</span> <span class="n">nonce</span><span class="p">,</span>
+            <span class="s2">&quot;signature&quot;</span><span class="p">:</span> <span class="n">sign</span><span class="p">(</span>
+                <span class="n">key</span><span class="p">,</span>
+                <span class="s2">&quot;SLIM-CHANNEL-DELETE/1&quot;</span><span class="p">,</span>
+                <span class="n">audience</span><span class="p">,</span>
+                <span class="n">channel</span><span class="p">,</span>
+                <span class="nb">str</span><span class="p">(</span><span class="n">not_after</span><span class="p">),</span>
+                <span class="n">nonce</span><span class="p">,</span>
+            <span class="p">),</span>
+        <span class="p">}</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">()</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><span class="c1">// SignedDelete is DeleteChannelRequest.owner_proof.</span>
+<span class="kd">type</span><span class="w"> </span><span class="nx">SignedDelete</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Audience</span><span class="w">  </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;audience&quot;`</span>
+<span class="w">    </span><span class="nx">Channel</span><span class="w">   </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;channel&quot;`</span>
+<span class="w">    </span><span class="nx">NotAfter</span><span class="w">  </span><span class="kt">uint64</span><span class="w"> </span><span class="s">`json:&quot;not_after&quot;`</span>
+<span class="w">    </span><span class="nx">Nonce</span><span class="w">     </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;nonce&quot;`</span>
+<span class="w">    </span><span class="nx">Signature</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="s">`json:&quot;signature&quot;`</span>
+<span class="p">}</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">NewSignedDelete</span><span class="p">(</span><span class="nx">key</span><span class="w"> </span><span class="nx">ed25519</span><span class="p">.</span><span class="nx">PrivateKey</span><span class="p">,</span><span class="w"> </span><span class="nx">audience</span><span class="p">,</span><span class="w"> </span><span class="nx">channel</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">d</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">SignedDelete</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">Audience</span><span class="p">:</span><span class="w"> </span><span class="nx">audience</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Channel</span><span class="p">:</span><span class="w">  </span><span class="nx">channel</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">NotAfter</span><span class="p">:</span><span class="w"> </span><span class="nb">uint64</span><span class="p">(</span><span class="nx">time</span><span class="p">.</span><span class="nx">Now</span><span class="p">().</span><span class="nx">Add</span><span class="p">(</span><span class="mi">5</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="p">).</span><span class="nx">Unix</span><span class="p">()),</span>
+<span class="w">        </span><span class="nx">Nonce</span><span class="p">:</span><span class="w">    </span><span class="nx">newNonce</span><span class="p">(),</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">d</span><span class="p">.</span><span class="nx">Signature</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">sign</span><span class="p">(</span><span class="nx">key</span><span class="p">,</span>
+<span class="w">        </span><span class="s">&quot;SLIM-CHANNEL-DELETE/1&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">audience</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">channel</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">FormatUint</span><span class="p">(</span><span class="nx">d</span><span class="p">.</span><span class="nx">NotAfter</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">),</span>
+<span class="w">        </span><span class="nx">d</span><span class="p">.</span><span class="nx">Nonce</span><span class="p">,</span>
+<span class="w">    </span><span class="p">)</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Marshal</span><span class="p">(</span><span class="nx">d</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<p>A signed delete request carries no owner field: the Channel Manager verifies it against the channel's owner first, then against each configured operator, which is how an operator deletes a channel whose owner's key is gone.</p>
+<p>Had the channel not been deleted here, its <code>--ttl-seconds 86400</code> would have deleted it within about 30 seconds of a day passing, with no signature from anyone.</p>
+<h2 id="step-7-require-signatures">Step 7: Require signatures</h2>
+<p>Everything above was signed, but nothing so far <em>required</em> it: a client could still have created a channel with no owner, and such a channel accepts changes from anyone who can reach the API. Once every client signs its creates, close that door in the configuration:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">channel-manager</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">require-signatures</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">operators</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;did:key:z6Mk...&quot;</span><span class="w">   </span><span class="c1"># printed by: slimctl channel-manager did-key --key operator.pem</span>
+</code></pre></div>
+<p>The Channel Manager now refuses unsigned creates and refuses every change to a channel with no owner — including channels created before the setting was turned on, which only an operator can now delete. Run <code>list-channels</code> before turning it on to see which channels those are, and read <a href="../security/#require-signatures">require-signatures</a> for the migration.</p>
+<h2 id="next-steps">Next steps</h2>
+<ul>
+<li><a href="../ownership/">Concepts and Ownership</a> — Config mode and API mode, owners, grants, operators and the signed formats</li>
+<li><a href="../config/">Configuration Reference</a> — The SLIM connection, the API server, authentication, ownership settings and startup channels</li>
+<li><a href="../api/">API Reference</a> — Every field and every error of the calls used here</li>
+<li><a href="../security/">Security Model</a> — Why each check exists, and what it does not cover</li>
+<li><a href="../slimctl/">Managing Channels with slimctl</a> — The administrator's path, without an application</li>
+<li><a href="../deploy/">Deployment Guide</a> — Identities, persistence and <code>audience</code> for a real deployment</li>
+<li><a href="../operations/">Operations and Troubleshooting</a> — What the logs say, and what each refusal means</li>
 </ul>
 
 
@@ -5264,7 +6313,7 @@ INFO channel_manager: gRPC API listening on 127.0.0.1:10356
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: SLIM Channel Manager">
+          <a href="../ownership/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Concepts and Ownership">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -5274,20 +6323,20 @@ INFO channel_manager: gRPC API listening on 127.0.0.1:10356
                 Previous
               </span>
               <div class="md-ellipsis">
-                SLIM Channel Manager
+                Concepts and Ownership
               </div>
             </div>
           </a>
         
         
           
-          <a href="../config/" class="md-footer__link md-footer__link--next" aria-label="Next: Configuration Reference">
+          <a href="../slimctl/" class="md-footer__link md-footer__link--next" aria-label="Next: Managing Channels with slimctl">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Configuration Reference
+                Managing Channels with slimctl
               </div>
             </div>
             <div class="md-footer__button md-icon">
