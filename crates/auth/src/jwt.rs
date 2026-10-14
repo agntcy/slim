@@ -20,8 +20,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
 use crate::file_watcher::FileWatcher;
+use crate::identity_binding::IdentityBinding;
 use crate::metadata::MetadataMap;
-use crate::resolver::KeyResolver;
+use crate::resolver::{Candidate, KeyOwner, KeyResolver};
 use crate::traits::{ExportedIdentity, Signer, StandardClaims, TokenProvider, Verifier};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
@@ -177,6 +178,9 @@ pub struct Jwt<T> {
     encoding_key: Option<Arc<RwLock<EncodingKey>>>,
     decoding_key: Option<Arc<RwLock<DecodingKey>>>,
     key_resolver: Option<Arc<KeyResolver>>,
+    /// How to hold a token's `sub` to the trust-list key that signed it, or
+    /// `None` when the keys aren't peer keys (e.g. an identity provider's).
+    subject_binding: Option<IdentityBinding>,
     token_cache: std::sync::Arc<TokenCache>,
     watchers: Arc<Vec<FileWatcher>>,
 
@@ -214,6 +218,7 @@ impl<T> Jwt<T> {
             encoding_key: None,
             decoding_key: None,
             key_resolver: None,
+            subject_binding: None,
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: std::sync::Arc::new(TokenCache::new()),
@@ -224,6 +229,14 @@ impl<T> Jwt<T> {
             signature_keys: crate::utils::generate_mls_signature_keys()?,
             _phantom: std::marker::PhantomData,
         })
+    }
+
+    /// Hold each token's `sub` to the key that signed it, for keys from a
+    /// static trust list (a JWKS where each key is one peer's): `sub` must be
+    /// the key's `kid` or, for an Ed25519 key, its `did:key`.
+    pub fn with_subject_binding(mut self, mode: IdentityBinding) -> Self {
+        self.subject_binding = Some(mode);
+        self
     }
 
     pub fn with_watcher(mut self, w: FileWatcher) -> Self {
@@ -243,6 +256,7 @@ impl<T> Jwt<T> {
             encoding_key: Some(encoding_key),
             decoding_key: None,
             key_resolver: None,
+            subject_binding: self.subject_binding,
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
@@ -259,6 +273,7 @@ impl<T> Jwt<T> {
             encoding_key: None,
             decoding_key: Some(decoding_key),
             key_resolver: None,
+            subject_binding: self.subject_binding,
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
@@ -275,6 +290,7 @@ impl<T> Jwt<T> {
             encoding_key: None,
             decoding_key: None,
             key_resolver: Some(Arc::new(key_resolver)),
+            subject_binding: self.subject_binding,
             watchers: Arc::new(Vec::new()),
             static_token: None,
             token_cache: self.token_cache,
@@ -291,6 +307,7 @@ impl<T> Jwt<T> {
             encoding_key: None,
             decoding_key: None,
             key_resolver: None,
+            subject_binding: self.subject_binding,
             watchers: self.watchers,
             static_token: Some(token),
             token_cache: self.token_cache,
@@ -452,15 +469,20 @@ impl<V> Jwt<V> {
     fn verify_with_keys<Claims: serde::de::DeserializeOwned>(
         &self,
         token: &str,
-        keys: Vec<(DecodingKey, Algorithm)>,
+        keys: Vec<Candidate>,
     ) -> Result<Claims, AuthError> {
         let mut last_err = AuthError::JwksNoSuitableKey;
-        for (key, algorithm) in keys {
+        for Candidate {
+            key,
+            algorithm,
+            owner,
+        } in keys
+        {
             // Build a per-key validation so the algorithm family check in jsonwebtoken
             // sees only the single algorithm this key actually uses.
             let mut validation = self.validation.clone();
             validation.algorithms = vec![algorithm];
-            match self.verify_internal::<Claims>(token, key, validation) {
+            match self.verify_internal::<Claims>(token, key, validation, owner.as_ref()) {
                 Ok(claims) => return Ok(claims),
                 Err(e) if is_signature_error(&e) => {
                     last_err = e;
@@ -476,12 +498,16 @@ impl<V> Jwt<V> {
         token: impl AsRef<str>,
         decoding_key: DecodingKey,
         validation: Validation,
+        owner: Option<&KeyOwner>,
     ) -> Result<Claims, AuthError> {
         let token = token.as_ref();
 
         // Decode and verify the token using the per-key algorithm — never trust the
         // algorithm claimed in the token header.
         let token_data: TokenData<Claims> = decode(token, &decoding_key, &validation)?;
+
+        // Before caching it: a token that fails the binding must be checked again.
+        self.check_subject_binding(token, owner)?;
 
         // Get the exp to cache the token - do not verify token again
         let token_exp_data: TokenData<ExpClaim> = jsonwebtoken::dangerous::insecure_decode(token)?;
@@ -491,6 +517,41 @@ impl<V> Jwt<V> {
 
         // Parse the token to extract the expiry claim
         Ok(token_data.claims)
+    }
+
+    /// Hold the token's `sub` to the trust-list key that verified it, so a
+    /// peer can only use its own identity. Not checked for keys that aren't
+    /// peer keys, or when the verifier has no binding set.
+    fn check_subject_binding(
+        &self,
+        token: &str,
+        owner: Option<&KeyOwner>,
+    ) -> Result<(), AuthError> {
+        let (Some(mode), Some(owner)) = (self.subject_binding, owner) else {
+            return Ok(());
+        };
+        if mode == IdentityBinding::Off {
+            return Ok(());
+        }
+        // The signature has just been verified.
+        let sub = jsonwebtoken::dangerous::insecure_decode::<StandardClaims>(token)?
+            .claims
+            .sub;
+        if sub.as_deref().is_some_and(|sub| owner.owns(sub)) {
+            return Ok(());
+        }
+        let enforced = mode == IdentityBinding::Enforce;
+        tracing::warn!(
+            sub = ?sub,
+            kid = ?owner.kid(),
+            enforced,
+            "token subject does not belong to the trusted key that signed it"
+        );
+        if enforced {
+            Err(AuthError::TokenInvalid)
+        } else {
+            Ok(())
+        }
     }
 
     /// Get cached token from the cache
@@ -526,12 +587,21 @@ impl<V> Jwt<V> {
         Ok(ret)
     }
 
+    /// A key configured directly: one trusted signer, not a list of peer keys.
+    fn configured_key(&self, key: &RwLock<DecodingKey>) -> Candidate {
+        Candidate {
+            key: key.read().clone(),
+            algorithm: self.validation.algorithms[0],
+            owner: None,
+        }
+    }
+
     /// Get decoding key for verification
-    fn decoding_keys(&self, token: &str) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
+    fn decoding_keys(&self, token: &str) -> Result<Vec<Candidate>, AuthError> {
         // If a decoding key is configured directly, use it.
         {
             if let Some(key) = &self.decoding_key {
-                return Ok(vec![(key.read().clone(), self.validation.algorithms[0])]);
+                return Ok(vec![self.configured_key(key)]);
             }
         }
 
@@ -547,7 +617,7 @@ impl<V> Jwt<V> {
                 .as_ref()
                 .ok_or(AuthError::JwtMissingIssuer)?;
 
-            match resolver.get_cached_keys(issuer, &token_data.header) {
+            match resolver.cached_candidates(issuer, &token_data.header) {
                 Ok(k) => return Ok(k),
                 Err(_e) => {
                     // No cached key yet; async resolution would be required.
@@ -561,14 +631,11 @@ impl<V> Jwt<V> {
     }
 
     /// Resolve a decoding key for token verification
-    async fn resolve_decoding_keys(
-        &self,
-        token: &str,
-    ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
+    async fn resolve_decoding_keys(&self, token: &str) -> Result<Vec<Candidate>, AuthError> {
         // First check if we already have a decoding key
         {
             if let Some(key) = &self.decoding_key {
-                return Ok(vec![(key.read().clone(), self.validation.algorithms[0])]);
+                return Ok(vec![self.configured_key(key)]);
             }
         }
 
@@ -589,7 +656,9 @@ impl<V> Jwt<V> {
             .ok_or(AuthError::JwtMissingIssuer)?;
 
         // Resolve every candidate key
-        resolver.resolve_keys(issuer, &token_data.header).await
+        resolver
+            .resolve_candidates(issuer, &token_data.header)
+            .await
     }
 }
 
@@ -1196,6 +1265,150 @@ mod tests {
     #[tokio::test]
     async fn test_jwt_resolve_decoding_key_eddsa() {
         test_jwt_resolve_with_algorithm(Algorithm::EdDSA).await;
+    }
+
+    /// A fresh Ed25519 trust-list member: its PKCS#8 PEM, its `did:key`, and
+    /// its public JWK, with `kid` set to `kid` or without one.
+    fn ed25519_member(kid: Option<&str>) -> (String, String, serde_json::Value) {
+        use aws_lc_rs::rand::SystemRandom;
+        use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+        let public = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+            .unwrap()
+            .public_key()
+            .as_ref()
+            .to_vec();
+        let pem = crate::utils::bytes_to_pem(
+            pkcs8.as_ref(),
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----\n",
+        );
+        let mut jwk = serde_json::json!({
+            "kty": "OKP", "alg": "EdDSA", "use": "sig", "crv": "Ed25519",
+            "x": URL_SAFE_NO_PAD.encode(&public),
+        });
+        if let Some(kid) = kid {
+            jwk["kid"] = serde_json::Value::String(kid.to_string());
+        }
+        (pem, crate::did_key::ed25519_did_key(&public), jwk)
+    }
+
+    /// A verifier trusting the static JWKS `keys`, with `binding` if any.
+    fn trust_list_verifier(
+        keys: Vec<serde_json::Value>,
+        binding: Option<IdentityBinding>,
+    ) -> VerifierJwt {
+        let jwks = serde_json::from_value(serde_json::json!({ "keys": keys })).unwrap();
+        let verifier = JwtBuilder::new()
+            .issuer("test-issuer")
+            .audience(&["test-audience"])
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap()
+            .with_key_resolver(KeyResolver::with_jwks(jwks));
+        match binding {
+            Some(mode) => verifier.with_subject_binding(mode),
+            None => verifier,
+        }
+    }
+
+    /// A token signed with `pem`, claiming `sub`, with `kid` in its header.
+    fn token_signed_by(pem: &str, kid: Option<&str>, sub: &str) -> String {
+        let exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 600;
+        let claims = serde_json::json!({
+            "iss": "test-issuer", "aud": ["test-audience"], "sub": sub, "exp": exp,
+        });
+        let mut header = JwtHeader::new(Algorithm::EdDSA);
+        header.kid = kid.map(str::to_string);
+        encode(
+            &header,
+            &claims,
+            &EncodingKey::from_ed_pem(pem.as_bytes()).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_trust_list_holds_each_sub_to_the_key_that_signed_it() {
+        initialize_crypto_provider();
+        let (_, _, jwk_a) = ed25519_member(Some("member-a"));
+        let (pem_b, _, jwk_b) = ed25519_member(Some("member-b"));
+        let verifier = trust_list_verifier(vec![jwk_a, jwk_b], Some(IdentityBinding::Enforce));
+
+        // member-b's own sub, with its kid or with none.
+        for token in [
+            token_signed_by(&pem_b, Some("member-b"), "member-b"),
+            token_signed_by(&pem_b, None, "member-b"),
+        ] {
+            let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+            assert_eq!(claims.sub.as_deref(), Some("member-b"));
+        }
+
+        // member-b claiming member-a's sub: the kid names member-b's own key, or
+        // there is none, and either way member-b's key verifies the signature.
+        for token in [
+            token_signed_by(&pem_b, Some("member-b"), "member-a"),
+            token_signed_by(&pem_b, None, "member-a"),
+        ] {
+            let result: Result<StandardClaims, _> = verifier.get_claims(token.clone()).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+            let result: Result<StandardClaims, _> = verifier.try_get_claims(token);
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn warn_accepts_another_members_sub_but_logs_it() {
+        initialize_crypto_provider();
+        let (_, _, jwk_a) = ed25519_member(Some("member-a"));
+        let (pem_b, _, jwk_b) = ed25519_member(Some("member-b"));
+        let verifier = trust_list_verifier(vec![jwk_a, jwk_b], Some(IdentityBinding::Warn));
+
+        let token = token_signed_by(&pem_b, Some("member-b"), "member-a");
+        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        assert_eq!(claims.sub.as_deref(), Some("member-a"));
+        assert!(logs_contain(
+            "token subject does not belong to the trusted key that signed it"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_key_without_a_kid_is_bound_to_its_did_key() {
+        initialize_crypto_provider();
+        let (pem_a, did_a, jwk_a) = ed25519_member(None);
+        let (_, did_b, jwk_b) = ed25519_member(None);
+        let verifier = trust_list_verifier(vec![jwk_a, jwk_b], Some(IdentityBinding::Enforce));
+
+        let claims: StandardClaims = verifier
+            .get_claims(token_signed_by(&pem_a, None, &did_a))
+            .await
+            .unwrap();
+        assert_eq!(claims.sub.as_deref(), Some(did_a.as_str()));
+
+        let result: Result<StandardClaims, _> = verifier
+            .get_claims(token_signed_by(&pem_a, None, &did_b))
+            .await;
+        assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn without_a_binding_a_trusted_key_may_sign_any_sub() {
+        // Unchanged for keys that aren't peer keys, e.g. an identity provider's.
+        initialize_crypto_provider();
+        let (_, _, jwk_a) = ed25519_member(Some("member-a"));
+        let (pem_b, _, jwk_b) = ed25519_member(Some("member-b"));
+        let verifier = trust_list_verifier(vec![jwk_a, jwk_b], None);
+
+        let token = token_signed_by(&pem_b, Some("member-b"), "member-a");
+        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        assert_eq!(claims.sub.as_deref(), Some("member-a"));
     }
 
     #[tokio::test]

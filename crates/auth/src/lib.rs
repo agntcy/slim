@@ -4,6 +4,7 @@
 // Core modules available on every target
 pub mod auth_provider;
 pub mod errors;
+pub mod identity_binding;
 pub mod identity_claims;
 pub(crate) mod mac;
 pub mod metadata;
