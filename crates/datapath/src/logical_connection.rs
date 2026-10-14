@@ -16,6 +16,9 @@
 //! a remote identity are grouped under one id, the routing tables are keyed on that
 //! id, and excluding "the connection this arrived on" excludes the whole peer.
 //!
+//! Sends use one live sub-connection (the first in attach order). Configurable
+//! selection policies are intentionally out of scope here.
+//!
 //! # Identity space
 //!
 //! Physical connection ids are dense indices into
@@ -34,13 +37,10 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 use tracing::debug;
-
-pub use slim_config::sub_conn::SubConnPolicy;
 
 /// First logical connection id. Physical ids are `Pool` indices and never reach
 /// this value, so the two id spaces cannot collide.
@@ -52,58 +52,17 @@ pub const fn is_logical(id: u64) -> bool {
 }
 
 /// A logical connection: the set of physical connections reaching one remote node.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct LogicalConn {
-    /// Grouping key — the remote's advertised identity, or an explicit override.
+    /// Grouping key — the remote's advertised identity.
     key: String,
-    /// Physical connection ids, in attach order. The first entry is the primary
-    /// for [`SubConnPolicy::Failover`].
+    /// Physical connection ids, in attach order. Sends use the first live entry.
     sub_conns: Vec<u64>,
-    /// How to pick among `sub_conns`.
-    policy: SubConnPolicy,
-    /// Cursor for round-robin selection.
-    cursor: AtomicUsize,
-}
-
-impl Clone for LogicalConn {
-    fn clone(&self) -> Self {
-        LogicalConn {
-            key: self.key.clone(),
-            sub_conns: self.sub_conns.clone(),
-            policy: self.policy,
-            cursor: AtomicUsize::new(self.cursor.load(Ordering::Relaxed)),
-        }
-    }
 }
 
 impl LogicalConn {
-    /// Pick the sub-connections to send a message on.
-    ///
-    /// `affinity_key` is only consulted by [`SubConnPolicy::Affinity`]; callers that
-    /// have no flow identity to offer pass `None`, which degrades to round-robin.
-    fn select(&self, affinity_key: Option<u64>) -> Vec<u64> {
-        let n = self.sub_conns.len();
-        if n == 0 {
-            return Vec::new();
-        }
-        if n == 1 {
-            return vec![self.sub_conns[0]];
-        }
-
-        match self.policy {
-            SubConnPolicy::Redundant => self.sub_conns.clone(),
-            SubConnPolicy::Failover => vec![self.sub_conns[0]],
-            SubConnPolicy::Affinity => match affinity_key {
-                Some(k) => vec![self.sub_conns[(k % n as u64) as usize]],
-                None => vec![self.round_robin(n)],
-            },
-            SubConnPolicy::RoundRobin => vec![self.round_robin(n)],
-        }
-    }
-
-    fn round_robin(&self, n: usize) -> u64 {
-        let pos = self.cursor.fetch_add(1, Ordering::Relaxed) % n;
-        self.sub_conns[pos]
+    fn select(&self) -> Option<u64> {
+        self.sub_conns.first().copied()
     }
 }
 
@@ -157,11 +116,7 @@ impl LogicalConnectionTable {
 
     /// Group `physical` under the logical connection identified by `key`, creating
     /// it if this is the first sub-connection. Returns the logical id.
-    ///
-    /// `policy` is applied when the logical connection is created; later attaches
-    /// with a different policy log a warning and keep the original, so that the
-    /// behaviour of an established peer link does not change under it.
-    pub fn attach(&self, physical: u64, key: &str, policy: SubConnPolicy) -> u64 {
+    pub fn attach(&self, physical: u64, key: &str) -> u64 {
         let mut next_id = self.write_lock.lock();
         let mut snap = (**self.snapshot.load()).clone();
 
@@ -176,8 +131,6 @@ impl LogicalConnectionTable {
                     LogicalConn {
                         key: key.to_string(),
                         sub_conns: Vec::new(),
-                        policy,
-                        cursor: AtomicUsize::new(0),
                     },
                 );
                 id
@@ -190,13 +143,6 @@ impl LogicalConnectionTable {
             .get_mut(&logical_id)
             .expect("logical entry missing for known key");
 
-        if conn.policy != policy {
-            tracing::warn!(
-                %physical, %key, existing = %conn.policy, requested = %policy,
-                "sub-connection policy differs from the established logical connection; keeping the existing policy",
-            );
-        }
-
         if !conn.sub_conns.contains(&physical) {
             conn.sub_conns.push(physical);
         }
@@ -206,7 +152,7 @@ impl LogicalConnectionTable {
         self.snapshot.store(Arc::new(snap));
 
         debug!(
-            %physical, %logical_id, %key, policy = %policy, sub_conns = count,
+            %physical, %logical_id, %key, sub_conns = count,
             "attached sub-connection to logical connection",
         );
 
@@ -271,23 +217,24 @@ impl LogicalConnectionTable {
             .unwrap_or(physical)
     }
 
-    /// The physical connections to send a message addressed to `id` on.
+    /// The physical connection a message addressed to `id` should be written to.
     ///
-    /// A physical `id` is returned as-is, which keeps the send path working for
-    /// local applications and for control-plane messages that name a concrete
-    /// connection. A logical `id` is expanded through its policy. An empty result
-    /// means the logical connection has no live sub-connections left.
-    pub fn select(&self, id: u64, affinity_key: Option<u64>) -> Vec<u64> {
+    /// A physical `id` is returned as-is. A logical `id` expands to the first live
+    /// sub-connection. `None` means the logical connection has no live sockets.
+    pub fn select(&self, id: u64) -> Option<u64> {
         if !is_logical(id) {
-            return vec![id];
+            return Some(id);
         }
-        match self.snapshot.load().logical.get(&id) {
-            Some(conn) => conn.select(affinity_key),
-            None => Vec::new(),
-        }
+        self.snapshot
+            .load()
+            .logical
+            .get(&id)
+            .and_then(|conn| conn.select())
     }
 
-    /// All sub-connections of `id`, ignoring policy. A physical id yields itself.
+    /// All sub-connections of `id`, ignoring send selection. A physical id yields
+    /// itself. Used by route listing, which must look up sockets in the connection
+    /// table rather than the logical id.
     pub fn sub_conns(&self, id: u64) -> Vec<u64> {
         if !is_logical(id) {
             return vec![id];
@@ -313,15 +260,6 @@ impl LogicalConnectionTable {
             .unwrap_or(0)
     }
 
-    /// The policy in force for `id`, or `None` when `id` is not a live logical
-    /// connection.
-    pub fn policy(&self, id: u64) -> Option<SubConnPolicy> {
-        if !is_logical(id) {
-            return None;
-        }
-        self.snapshot.load().logical.get(&id).map(|c| c.policy)
-    }
-
     /// Number of live logical connections.
     pub fn len(&self) -> usize {
         self.snapshot.load().logical.len()
@@ -340,15 +278,15 @@ mod tests {
     fn ungrouped_physical_id_resolves_to_itself() {
         let t = LogicalConnectionTable::new();
         assert_eq!(t.resolve(7), 7);
-        assert_eq!(t.select(7, None), vec![7]);
+        assert_eq!(t.select(7), Some(7));
         assert_eq!(t.sub_conn_count(7), 1);
-        assert!(t.policy(7).is_none());
+        assert_eq!(t.sub_conns(7), vec![7]);
     }
 
     #[test]
     fn logical_ids_never_collide_with_physical_ids() {
         let t = LogicalConnectionTable::new();
-        let id = t.attach(0, "peer-a", SubConnPolicy::RoundRobin);
+        let id = t.attach(0, "peer-a");
         assert!(is_logical(id));
         assert!(id >= LOGICAL_ID_BASE);
         assert!(!is_logical(0));
@@ -358,8 +296,8 @@ mod tests {
     #[test]
     fn same_key_groups_under_one_logical_id() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
-        let b = t.attach(2, "peer-a", SubConnPolicy::RoundRobin);
+        let a = t.attach(1, "peer-a");
+        let b = t.attach(2, "peer-a");
         assert_eq!(a, b);
         assert_eq!(t.len(), 1);
         assert_eq!(t.sub_conn_count(a), 2);
@@ -370,8 +308,8 @@ mod tests {
     #[test]
     fn different_keys_get_different_logical_ids() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
-        let b = t.attach(2, "peer-b", SubConnPolicy::RoundRobin);
+        let a = t.attach(1, "peer-a");
+        let b = t.attach(2, "peer-b");
         assert_ne!(a, b);
         assert_eq!(t.len(), 2);
     }
@@ -379,112 +317,45 @@ mod tests {
     #[test]
     fn resolve_is_idempotent() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
+        let a = t.attach(1, "peer-a");
         assert_eq!(t.resolve(t.resolve(1)), a);
     }
 
     #[test]
     fn attaching_the_same_physical_twice_does_not_duplicate() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
-        assert_eq!(t.attach(1, "peer-a", SubConnPolicy::RoundRobin), a);
+        let a = t.attach(1, "peer-a");
+        assert_eq!(t.attach(1, "peer-a"), a);
         assert_eq!(t.sub_conn_count(a), 1);
     }
 
     #[test]
-    fn round_robin_cycles_through_sub_conns() {
+    fn send_uses_the_first_live_sub_connection() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
-        t.attach(2, "peer-a", SubConnPolicy::RoundRobin);
-        t.attach(3, "peer-a", SubConnPolicy::RoundRobin);
+        let a = t.attach(1, "peer-a");
+        t.attach(2, "peer-a");
+        t.attach(3, "peer-a");
 
-        let picks: Vec<u64> = (0..6).map(|_| t.select(a, None)[0]).collect();
-        assert_eq!(picks, vec![1, 2, 3, 1, 2, 3]);
-    }
+        assert_eq!(t.select(a), Some(1));
+        assert_eq!(t.sub_conns(a), vec![1, 2, 3]);
 
-    #[test]
-    fn redundant_returns_every_sub_conn() {
-        let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::Redundant);
-        t.attach(2, "peer-a", SubConnPolicy::Redundant);
-        t.attach(3, "peer-a", SubConnPolicy::Redundant);
-
-        let mut out = t.select(a, None);
-        out.sort();
-        assert_eq!(out, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn failover_pins_to_the_first_sub_conn() {
-        let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::Failover);
-        t.attach(2, "peer-a", SubConnPolicy::Failover);
-
-        assert_eq!(t.select(a, None), vec![1]);
-        assert_eq!(t.select(a, None), vec![1]);
-
-        // Primary goes away: traffic moves to the survivor, logical conn stays alive.
         let outcome = t.detach(1);
         assert_eq!(outcome.logical_id, a);
         assert!(!outcome.was_last);
-        assert_eq!(t.select(a, None), vec![2]);
-    }
-
-    #[test]
-    fn affinity_pins_a_flow_and_spreads_across_flows() {
-        let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::Affinity);
-        t.attach(2, "peer-a", SubConnPolicy::Affinity);
-        t.attach(3, "peer-a", SubConnPolicy::Affinity);
-
-        // Same key always lands on the same sub-connection.
-        let first = t.select(a, Some(42));
-        for _ in 0..5 {
-            assert_eq!(t.select(a, Some(42)), first);
-        }
-
-        // Consecutive keys spread across the sub-connections.
-        let spread: Vec<u64> = (0..3).map(|k| t.select(a, Some(k))[0]).collect();
-        assert_eq!(spread, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn affinity_without_a_key_falls_back_to_round_robin() {
-        let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::Affinity);
-        t.attach(2, "peer-a", SubConnPolicy::Affinity);
-
-        let picks: Vec<u64> = (0..4).map(|_| t.select(a, None)[0]).collect();
-        assert_eq!(picks, vec![1, 2, 1, 2]);
-    }
-
-    #[test]
-    fn single_sub_conn_ignores_policy() {
-        for policy in [
-            SubConnPolicy::RoundRobin,
-            SubConnPolicy::Redundant,
-            SubConnPolicy::Affinity,
-            SubConnPolicy::Failover,
-        ] {
-            let t = LogicalConnectionTable::new();
-            let a = t.attach(1, "peer-a", policy);
-            assert_eq!(t.select(a, None), vec![1], "policy {policy}");
-            assert_eq!(t.select(a, Some(9)), vec![1], "policy {policy}");
-        }
+        assert_eq!(t.select(a), Some(2));
+        assert_eq!(t.sub_conns(a), vec![2, 3]);
     }
 
     #[test]
     fn detach_reports_last_only_when_group_empties() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
-        t.attach(2, "peer-a", SubConnPolicy::RoundRobin);
+        let a = t.attach(1, "peer-a");
+        t.attach(2, "peer-a");
 
         let first = t.detach(1);
         assert_eq!(first.logical_id, a);
         assert!(!first.was_last);
         assert_eq!(t.len(), 1);
-        // The surviving sub-connection still resolves to the same logical id, so
-        // routing state registered under it stays valid.
         assert_eq!(t.resolve(2), a);
 
         let second = t.detach(2);
@@ -492,7 +363,8 @@ mod tests {
         assert!(second.was_last);
         assert_eq!(t.len(), 0);
         assert_eq!(t.resolve(2), 2);
-        assert!(t.select(a, None).is_empty());
+        assert!(t.select(a).is_none());
+        assert!(t.sub_conns(a).is_empty());
     }
 
     #[test]
@@ -506,29 +378,19 @@ mod tests {
     #[test]
     fn key_is_reusable_after_the_group_empties() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
+        let a = t.attach(1, "peer-a");
         assert!(t.detach(1).was_last);
 
-        // A fresh logical id, so any stale routing state keyed on the old id can
-        // never be mistaken for the new connection.
-        let b = t.attach(1, "peer-a", SubConnPolicy::RoundRobin);
+        let b = t.attach(1, "peer-a");
         assert_ne!(a, b);
         assert_eq!(t.len(), 1);
     }
 
     #[test]
-    fn policy_of_established_group_wins() {
-        let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a", SubConnPolicy::Redundant);
-        t.attach(2, "peer-a", SubConnPolicy::RoundRobin);
-        assert_eq!(t.policy(a), Some(SubConnPolicy::Redundant));
-        assert_eq!(t.sub_conn_count(a), 2);
-    }
-
-    #[test]
     fn select_on_unknown_logical_id_is_empty() {
         let t = LogicalConnectionTable::new();
-        assert!(t.select(LOGICAL_ID_BASE + 99, None).is_empty());
+        assert!(t.select(LOGICAL_ID_BASE + 99).is_none());
         assert_eq!(t.sub_conn_count(LOGICAL_ID_BASE + 99), 0);
+        assert!(t.sub_conns(LOGICAL_ID_BASE + 99).is_empty());
     }
 }
