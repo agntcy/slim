@@ -35,8 +35,8 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::ProtoSessionType;
 use slim_service::app::App as SlimApp;
-use slim_session::PeerIdentity;
 use slim_session::errors::SessionError;
+use slim_session::{PEER_SUBJECT_KEY, PeerIdentity};
 
 // ── Multicast response types ──────────────────────────────────────────────────
 
@@ -730,10 +730,17 @@ impl Channel {
                         continue;
                     }
                 };
-                let identity = if channel.is_group {
+                // The response's MLS sender, as decrypted; the identity its name joined
+                // with, which keeps the issuer, when it is the same member.
+                let joined = if channel.is_group {
                     session_tx.controller().participant_identity(&full_source)
                 } else {
                     session_tx.peer_identity()
+                };
+                let identity = match received.metadata.get(PEER_SUBJECT_KEY) {
+                    Some(sub) if joined.as_ref().is_some_and(|j| j.subject() == sub.as_str()) => joined,
+                    Some(sub) => Some(PeerIdentity::new(sub.clone(), None)),
+                    None => joined,
                 };
                 yield Ok(Response { source: full_source, identity, message: response });
             }

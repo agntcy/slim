@@ -108,6 +108,8 @@ struct MulticastTestEnv {
     member_subs: Vec<String>,
     /// The client app, for building other channels.
     client_app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    /// The client app's identity (`sub`).
+    client_sub: String,
     /// Channel used as the multicast broadcaster.
     ///
     /// Created with `Channel::new_with_members` so the GROUP session
@@ -155,6 +157,7 @@ impl MulticastTestEnv {
         // the first multicast call.
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
+        let client_sub = secret.get_id().unwrap();
         let (client_app, _) = service
             .create_app(
                 &client_name,
@@ -174,6 +177,7 @@ impl MulticastTestEnv {
             member_full_names,
             member_subs,
             client_app,
+            client_sub,
             channel,
         }
     }
@@ -1314,6 +1318,54 @@ async fn test_multicast_pinned_group_admits_only_the_pinned_identities() {
     let first = stream.next().await;
     assert!(matches!(first, Some(Err(_))), "unexpected: {first:?}");
     mispinned.close(None).await.ok();
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_multicast_handlers_see_the_requesters_identity() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = MulticastTestEnv::new("test-multicast-requester", NUM_MEMBERS).await;
+    let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let seen = seen.clone();
+        server.register_unary_unary(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, ctx: Context| {
+                let seen = seen.clone();
+                async move {
+                    let sender = ctx
+                        .metadata_ref()
+                        .get(slim_session::PEER_SUBJECT_KEY)
+                        .cloned();
+                    seen.lock().await.push((ctx.peer_subject(), sender));
+                    Ok(TestResponse {
+                        member_id: i,
+                        result: req.message,
+                        count: req.value,
+                    })
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        hello(),
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "requester").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+
+    // Each request names its MLS sender, the client, as the verified requester.
+    let client = Some(env.client_sub.clone());
+    let seen = seen.lock().await.clone();
+    assert_eq!(seen, vec![(client.clone(), client); NUM_MEMBERS]);
 
     env.shutdown().await;
 }

@@ -83,6 +83,6 @@ pub use common::{AppChannelReceiver, SESSION_UNSPECIFIED};
 // Re-export specific items that need to be publicly accessible
 pub use completion_handle::CompletionHandle;
 pub use notification::Notification;
-pub use peer_identity::PeerIdentity;
+pub use peer_identity::{PEER_SUBJECT_KEY, PeerIdentity};
 pub use session_controller::CloseMode;
 pub use subscription_manager::{AutoAckManager, SubscriptionOps};

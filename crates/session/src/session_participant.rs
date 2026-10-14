@@ -94,6 +94,10 @@ where
         moderator_name: Option<ProtoName>,
         group_list: HashMap<ProtoName, Participant>,
     ) -> Self {
+        let mut mls_state = mls_state;
+        if let Some(state) = mls_state.as_mut() {
+            state.identity_binding = settings.identity_binding;
+        }
         let common = SessionControllerCommon::new(settings);
 
         SessionParticipant {
@@ -130,10 +134,11 @@ where
                     self.common.settings.group_storage.clone(),
                 )
                 .with_enforce_pqc(self.common.settings.enforce_pqc);
-                let mls_state =
+                let mut mls_state =
                     MlsState::new(mls, mls_settings.header_integrity_validation_percent)
                         .await
                         .expect("failed to create MLS state");
+                mls_state.identity_binding = self.common.settings.identity_binding;
                 Some(mls_state)
             } else {
                 None

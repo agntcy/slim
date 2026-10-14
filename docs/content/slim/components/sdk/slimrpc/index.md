@@ -71,6 +71,7 @@ This is useful for broadcasting configuration, querying multiple services, or sc
 A readable name doesn't say who answers: any app trusted by your verifier can subscribe under it. To know, or require, the identity of the peers you call (in Rust today):
 
 - **See who answered.** `Channel::peer_identity()` returns the verified identity of a point-to-point channel's server. The `multicast_*_verified` methods yield each response with its sender's full name, id included, and the identity that member was verified as.
+- **See who called.** In a handler, `ctx.peer_subject()` is the verified identity of the peer that sent the request: with MLS, the member that sent it, also in a group.
 - **Require an identity.** `Channel::new_pinned` and `Channel::new_group_pinned` take the `sub` each peer must be verified as, its DID for a `did:key` identity. A peer verified as anyone else is never admitted, and the call fails.
 
 ## Supported Languages

@@ -32,7 +32,7 @@ use slim_datapath::{
 // Local crate
 use crate::identity_check::binding_mismatch;
 use crate::name_id;
-use crate::peer_identity::{PeerIdentities, PeerIdentity};
+use crate::peer_identity::{PEER_SUBJECT_KEY, PeerIdentities, PeerIdentity};
 use crate::{
     MessageDirection, SessionError,
     common::{OutboundMessage, SessionMessage, SessionOutput},
@@ -48,6 +48,19 @@ use crate::{
 /// and it is a control message, the header signature made with the key the
 /// token names. Returns the token's claims in that case, since only then are
 /// they bound to this message.
+/// Remove metadata a sender could set to pass as verified: only the session's
+/// own MLS decryption sets [`PEER_SUBJECT_KEY`].
+fn strip_reserved_metadata(msg: &mut SessionMessage) {
+    if let SessionMessage::OnMessage {
+        message,
+        direction: MessageDirection::North,
+        ..
+    } = msg
+    {
+        message.remove_metadata(PEER_SUBJECT_KEY);
+    }
+}
+
 pub(crate) async fn verify_identity<V>(
     msg: &Message,
     verifier: &V,
@@ -517,7 +530,8 @@ impl SessionController {
 
                     // Finish any ongoing processing before starting drain
                     debug!("consuming pending messages before entering draining state");
-                    while let Ok(msg) = rx.try_recv() {
+                    while let Ok(mut msg) = rx.try_recv() {
+                        strip_reserved_metadata(&mut msg);
                         if let SessionMessage::OnMessage { message, direction: MessageDirection::North, .. } = &msg
                             && let Err(e) = Self::verify_and_check_replay(message, &settings, &mut seen_control_message_ids, &peer_identity, &peers).await {
                                 debug!(error = %e.chain(), "dropping inbound message during drain: verification or replay check failed");
@@ -553,7 +567,8 @@ impl SessionController {
                 }
                 msg = rx.recv() => {
                     match msg {
-                        Some(session_message) => {
+                        Some(mut session_message) => {
+                            strip_reserved_metadata(&mut session_message);
                             // Handle GetParticipantsList query immediately without going through the handler
                             if let SessionMessage::GetParticipantsList { tx } = session_message {
                                 let participants_list = inner.participants_list();
@@ -3229,6 +3244,39 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_forged_sender_identity_is_removed_from_incoming_messages() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let forged = || {
+            let mut msg = join_request(&peer, None);
+            msg.insert_metadata(PEER_SUBJECT_KEY.to_string(), "someone-else".to_string());
+            msg
+        };
+        let reserved = |msg: &SessionMessage| match msg {
+            SessionMessage::OnMessage { message, .. } => {
+                message.get_metadata(PEER_SUBJECT_KEY).cloned()
+            }
+            _ => unreachable!(),
+        };
+
+        let mut incoming = SessionMessage::OnMessage {
+            message: forged(),
+            direction: MessageDirection::North,
+            ack_tx: None,
+        };
+        strip_reserved_metadata(&mut incoming);
+        assert_eq!(reserved(&incoming), None);
+
+        // Messages from the app are left alone.
+        let mut outgoing = SessionMessage::OnMessage {
+            message: forged(),
+            direction: MessageDirection::South,
+            ack_tx: None,
+        };
+        strip_reserved_metadata(&mut outgoing);
+        assert_eq!(reserved(&outgoing).as_deref(), Some("someone-else"));
     }
 
     #[tokio::test]
