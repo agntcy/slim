@@ -4,6 +4,7 @@
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 
+use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{NameId, ProtoName};
 
@@ -132,6 +133,7 @@ where
     subscription_manager: Option<M>,
     service_id: Option<String>,
     enforce_pqc: Option<bool>,
+    identity_binding: Option<IdentityBinding>,
     kv_store: Option<slim_persistence::SlimKvStore>,
     group_storage: Option<slim_persistence::SlimGroupStateStorage>,
     _target: PhantomData<Target>,
@@ -162,6 +164,7 @@ where
             subscription_manager: None,
             service_id: None,
             enforce_pqc: None,
+            identity_binding: None,
             kv_store: None,
             group_storage: None,
             _target: PhantomData,
@@ -264,6 +267,7 @@ where
             subscription_manager: Some(manager),
             service_id: self.service_id,
             enforce_pqc: self.enforce_pqc,
+            identity_binding: self.identity_binding,
             kv_store: self.kv_store,
             group_storage: self.group_storage,
             _target: PhantomData,
@@ -278,6 +282,13 @@ where
 
     pub fn with_enforce_pqc(mut self, enforce_pqc: bool) -> Self {
         self.enforce_pqc = Some(enforce_pqc);
+        self
+    }
+
+    /// How peers' name ids are held to their verified identities. Defaults to
+    /// the process-wide [`IdentityBinding::from_env`].
+    pub fn with_identity_binding(mut self, mode: IdentityBinding) -> Self {
+        self.identity_binding = Some(mode);
         self
     }
 
@@ -366,6 +377,7 @@ where
             subscription_manager: self.subscription_manager,
             service_id: self.service_id,
             enforce_pqc: self.enforce_pqc,
+            identity_binding: self.identity_binding,
             kv_store: self.kv_store,
             group_storage: self.group_storage,
             _target: PhantomData,
@@ -642,6 +654,9 @@ where
             service_id: self.service_id.unwrap_or_default(),
             max_seen_control_message_ids_size,
             enforce_pqc: self.enforce_pqc.unwrap_or_default(),
+            identity_binding: self
+                .identity_binding
+                .unwrap_or_else(IdentityBinding::from_env),
             kv_store: self.kv_store,
             group_storage: self.group_storage,
         };

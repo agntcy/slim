@@ -21,7 +21,21 @@ Every SLIM application has an identity — a string identifier that travels with
 | JWT | The `sub` (subject) claim of the JWT, set by the token issuer |
 | SPIRE | The SPIFFE ID from the JWT-SVID (e.g. `spiffe://domain.test/ns/default/sa/my-app`) |
 
-The credential does not authenticate the application *to the SLIM node* as in a login model. It determines how the application's identity token is **signed when sending** and **verified when receiving**. The receiving session validates the sender's identity token using the same credential mechanism; messages whose identity cannot be verified are dropped.
+The credential does not authenticate the application to the SLIM node as in a login model. It determines how the application's identity token is signed when sending and verified when receiving. With MLS, the receiving session verifies every control message's identity token using the same credential mechanism and drops those that fail, and MLS authenticates the sender of each data message. Without MLS, a session always verifies the requests that set it up, [identity binding](#name-ids-and-identity-binding) covers its other control messages, and data messages aren't authenticated end to end.
+
+### Name ids and identity binding
+
+An application's name id, the last component of its name, is the XXH3-128 hash of its identity, and a multicast channel's ids are derived from its moderator's identity. Sessions check these against the identities they verify:
+
+- **Control messages:** every control message is verified, with or without MLS, and its sender's name id must be the one its verified identity derives.
+- **Payloads:** a control message's payload and metadata are signed too, with the key that signs its header, except trace context that nodes add in transit. A payload that doesn't match its signature is always refused; one without a signature comes from an older peer.
+- **Invites:** a moderator accepts replies only from the name it invited, and the join reply must name its sender and, with MLS, carry a key package for that same identity. An invitee joins only a channel derived from the moderator's verified identity.
+- **Membership:** a participant accepts group updates, removals, welcomes, the group's close and further invites only from its moderator, and a member may announce only its own state.
+- **Data messages:** with MLS, a message's source name id must be the one its MLS sender's identity derives, so a group member can't send under another member's name.
+
+The `SLIM_IDENTITY_BINDING` environment variable sets what happens on a mismatch: `warn` (the default) logs it, `enforce` drops the message, and `off` turns the checks off. Before setting `enforce`, check the logs for mismatches from applications whose identity provider can't report an id, and from channels that aren't created by their moderator.
+
+A caller can also require a specific identity. `App::create_session_pinned`, for a point-to-point session, and `SessionController::invite_participant_pinned`, for a group member, admit the peer only if it is verified as the given `sub`, which is its DID for a `did:key` identity. A peer verified as anyone else is refused, whatever `SLIM_IDENTITY_BINDING` is set to. With MLS, `SessionController::peer_identity` and `participant_identity` return the identity each peer was verified as.
 
 ## Credential Methods
 
@@ -35,7 +49,7 @@ A symmetric key used to sign and verify application identity tokens. Each applic
 - Each application has a unique identity (base name + random suffix); the secret only governs whether that identity is trusted
 - A single leaked secret compromises every identity that uses it, and rotation means redistributing the new secret to every holder at once
 
-**Use when:** Development, local testing, or closed internal networks where all participants are equally trusted. Prefer JWT or SPIRE for anything else — both give each application its own credential, so one compromised application does not let an attacker impersonate the rest.
+**Use when:** Development, local testing, or closed internal networks where all participants are equally trusted. Prefer JWT or SPIRE for anything else — both give each application its own credential, so with MLS and identity binding set to `enforce`, one compromised application can't impersonate the rest.
 
 ### JWT (JSON Web Tokens)
 
@@ -45,6 +59,8 @@ Tokens can come from:
 
 - **An external identity provider** — any OIDC-compatible IdP issues tokens; SLIM verifies them against the provider's public key or JWKS endpoint.
 - **SLIM-issued tokens** — a SLIM node can sign and issue tokens directly if provided with a private signing key, useful when no external IdP is available.
+
+With a trust list of peer keys, such as a JWKS of `did:key` identities, every listed key can sign a valid token. SLIM therefore also checks that a token's `sub` belongs to the key that signed it: it must be that key's `kid` or, for an Ed25519 key, its `did:key`. The `jwt` app identity always runs this check, in the mode set by the `SLIM_IDENTITY_BINDING` environment variable: `warn` (the default) logs a mismatch, `enforce` rejects the token, and `off` turns the check off. A JWT verifier configured by hand runs it when `subject_binding` is set. Tokens from an identity provider's keys aren't checked, because the provider vouches for each `sub`.
 
 **Properties:**
 - Tokens are short-lived and can be revoked at expiry

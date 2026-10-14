@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Third-party crates
+use slim_datapath::api::ProtoName;
 use tokio::sync::oneshot;
 use tracing::debug;
 
@@ -59,6 +60,21 @@ pub enum ModeratorTask {
 
 impl ModeratorTask {
     /// Takes (moves) the underlying ack channel sender out of the task
+    /// The invite in progress, if this task is one.
+    pub(crate) fn as_add_mut(&mut self) -> Option<&mut AddParticipant> {
+        match self {
+            ModeratorTask::Add(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_add(&self) -> Option<&AddParticipant> {
+        match self {
+            ModeratorTask::Add(t) => Some(t),
+            _ => None,
+        }
+    }
+
     pub(crate) fn ack_tx_take(&mut self) -> Option<oneshot::Sender<Result<(), SessionError>>> {
         match self {
             ModeratorTask::Add(t) => t.ack_tx.take(),
@@ -198,6 +214,10 @@ pub struct AddParticipant {
     join: State,
     welcome: State,
     commit: State,
+    /// The name the moderator was asked to invite, with or without an id.
+    pub(crate) invited: Option<Box<ProtoName>>,
+    /// The full name that answered discovery, which the join request goes to.
+    pub(crate) joining: Option<Box<ProtoName>>,
     /// Optional ack notifier to signal when the invite operation completes (after welcome+commit)
     pub(crate) ack_tx: Option<oneshot::Sender<Result<(), SessionError>>>,
 }
@@ -209,8 +229,15 @@ impl AddParticipant {
             join: Default::default(),
             welcome: Default::default(),
             commit: Default::default(),
+            invited: None,
+            joining: None,
             ack_tx,
         }
+    }
+
+    pub(crate) fn with_invited(mut self, invited: ProtoName) -> Self {
+        self.invited = Some(Box::new(invited));
+        self
     }
 }
 

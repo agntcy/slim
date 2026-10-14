@@ -12,8 +12,8 @@ use std::{
 };
 
 use slim_datapath::api::ProtoName as Name;
-use slim_session::PeerIdentity;
 use slim_session::context::SessionContext as SlimSessionContext;
+use slim_session::{PEER_SUBJECT_KEY, PeerIdentity};
 
 use super::{DEADLINE_KEY, SessionTx, calculate_deadline};
 
@@ -72,16 +72,17 @@ impl Context {
         SystemTime::now() > self.deadline
     }
 
-    /// The verified subject (`sub`) of the peer that set up the session;
-    /// see [`SessionContext::peer_identity`].
+    /// The verified subject (`sub`) of the peer that sent this request: its MLS
+    /// sender with MLS, otherwise the peer that set up the session; see
+    /// [`SessionContext::peer_identity`].
     pub fn peer_subject(&self) -> Option<String> {
         self.session
             .peer_identity()
             .map(|p| p.subject().to_string())
     }
 
-    /// The verified issuer (`iss`) of the peer that set up the session, when
-    /// its token has one.
+    /// The verified issuer (`iss`) of the peer that sent this request, when
+    /// it is known.
     pub fn peer_issuer(&self) -> Option<String> {
         self.session
             .peer_identity()
@@ -159,6 +160,16 @@ impl Context {
         mut self,
         msg_metadata: std::collections::HashMap<String, String>,
     ) -> Self {
+        // A request decrypted from MLS names its sender: that member, not the
+        // session's peer, sent it. Keep the session's identity, with its issuer,
+        // when it is the same peer.
+        if let Some(sub) = msg_metadata.get(PEER_SUBJECT_KEY) {
+            let same_peer = (self.session.peer_identity.as_ref())
+                .is_some_and(|peer| peer.subject() == sub.as_str());
+            if !same_peer {
+                self.session.peer_identity = Some(PeerIdentity::new(sub.clone(), None));
+            }
+        }
         // Merge message metadata into context metadata
         self.session.metadata.extend(msg_metadata);
         // Re-parse deadline from merged metadata (message metadata takes precedence)
@@ -224,7 +235,8 @@ pub struct SessionContext {
     destination: Name,
     /// Session metadata
     pub(crate) metadata: Metadata,
-    /// Verified identity of the peer that set up the session
+    /// Verified identity of the peer that sent the request: its MLS sender with
+    /// MLS, otherwise the peer that set up the session
     peer_identity: Option<PeerIdentity>,
 }
 

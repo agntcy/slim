@@ -462,7 +462,6 @@ dependencies = [
  "tokio_with_wasm",
  "tracing",
  "tracing-test",
- "twox-hash",
  "uuid",
 ]
 
