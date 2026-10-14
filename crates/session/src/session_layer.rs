@@ -984,13 +984,27 @@ where
                 }
             };
 
-            // The inviter's name id must be the one its identity derives.
-            if let Some(identity) = claims.as_ref().and_then(PeerIdentity::from_claims) {
+            // The inviter's name id must be the one its identity derives, and
+            // its payload signed.
+            let mode = IdentityBinding::from_env();
+            if let Some(verified) = &claims
+                && let Some(identity) = PeerIdentity::from_claims(&verified.claims)
+            {
                 let sub = identity.subject();
                 if message.get_source().id() != name_id::app_id(sub)
                     && binding_mismatch(
-                        IdentityBinding::from_env(),
+                        mode,
                         "discovery request from a name id its verified identity doesn't derive",
+                        &message,
+                        Some(sub),
+                    )
+                {
+                    return;
+                }
+                if !verified.payload_signed
+                    && binding_mismatch(
+                        mode,
+                        "discovery request whose payload isn't signed",
                         &message,
                         Some(sub),
                     )

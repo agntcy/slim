@@ -61,11 +61,20 @@ fn strip_reserved_metadata(msg: &mut SessionMessage) {
     }
 }
 
+/// What [`verify_identity`] established about a control message.
+pub(crate) struct VerifiedControl {
+    /// The sender's verified token claims.
+    pub(crate) claims: Value,
+    /// Whether its payload and metadata were signed too. Peers predating
+    /// payload signatures sign only the header.
+    pub(crate) payload_signed: bool,
+}
+
 pub(crate) async fn verify_identity<V>(
     msg: &Message,
     verifier: &V,
     e2e_integrity_required: bool,
-) -> Result<Option<Value>, SessionError>
+) -> Result<Option<VerifiedControl>, SessionError>
 where
     V: Verifier + Send + Sync,
 {
@@ -103,7 +112,29 @@ where
             tracing::error!("verify_identity: verify_header_aad failed: {:?}", e);
         }
         verify_res?;
-        return Ok(Some(claims_json));
+
+        // A payload signature that is present must verify: anything else means
+        // the payload or metadata changed after signing.
+        let payload_signed = match msg.get_metadata(PAYLOAD_SIG_KEY) {
+            Some(encoded) => {
+                let signature = base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .map_err(|_| {
+                        SessionError::Auth(slim_auth::errors::AuthError::TokenMalformed)
+                    })?;
+                let input = payload_signing_input(msg, &aad);
+                slim_auth::utils::verify_header_aad(&input, &signature, &pubkey_bytes)
+                    .inspect_err(|e| {
+                        tracing::error!("verify_identity: payload signature failed: {:?}", e)
+                    })?;
+                true
+            }
+            None => false,
+        };
+        return Ok(Some(VerifiedControl {
+            claims: claims_json,
+            payload_signed,
+        }));
     }
     Ok(None)
 }
@@ -132,6 +163,49 @@ where
     Ok(())
 }
 
+/// Metadata key carrying a control message's payload signature: over its
+/// signed header data, payload and metadata, with the same key as the header.
+pub(crate) const PAYLOAD_SIG_KEY: &str = "slim-payload-sig";
+
+/// Metadata left out of the payload signature: W3C trace context, which nodes
+/// rewrite in transit, and the session's own reserved keys.
+const UNSIGNED_METADATA: [&str; 5] = [
+    "traceparent",
+    "tracestate",
+    "baggage",
+    PAYLOAD_SIG_KEY,
+    PEER_SUBJECT_KEY,
+];
+
+/// What a control message's payload signature covers: a version tag, the
+/// signed header data (`aad`), the encoded payload, and the signed metadata in
+/// key order, each length-prefixed.
+fn payload_signing_input(msg: &Message, aad: &[u8]) -> Vec<u8> {
+    fn push(input: &mut Vec<u8>, bytes: &[u8]) {
+        input.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
+        input.extend_from_slice(bytes);
+    }
+    use prost::Message as _;
+    let mut input = b"slim-payload-v1".to_vec();
+    push(&mut input, aad);
+    let payload = msg
+        .get_payload()
+        .map(|p| p.encode_to_vec())
+        .unwrap_or_default();
+    push(&mut input, &payload);
+    let mut metadata: Vec<_> = msg
+        .metadata
+        .iter()
+        .filter(|(key, _)| !UNSIGNED_METADATA.contains(&key.as_str()))
+        .collect();
+    metadata.sort();
+    for (key, value) in metadata {
+        push(&mut input, key.as_bytes());
+        push(&mut input, value.as_bytes());
+    }
+    input
+}
+
 pub(crate) fn sign_outbound_control_message<P>(
     msg: &mut Message,
     identity_provider: &P,
@@ -154,6 +228,12 @@ where
     let aad = crate::mls_state::build_aad(msg);
     let signature = slim_auth::utils::sign_header_aad(&aad, &private_key, &public_key)?;
     msg.get_slim_header_mut().e2e_header_sig = Some(signature);
+    // The payload and metadata too, which the header signature doesn't cover.
+    let input = payload_signing_input(msg, &aad);
+    let payload_signature = slim_auth::utils::sign_header_aad(&input, &private_key, &public_key)?;
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(payload_signature);
+    msg.insert_metadata(PAYLOAD_SIG_KEY.to_string(), encoded);
     Ok(())
 }
 
@@ -380,7 +460,24 @@ impl SessionController {
                 None
             }
         };
-        let identity = claims.as_ref().and_then(PeerIdentity::from_claims);
+        let identity = claims
+            .as_ref()
+            .and_then(|verified| PeerIdentity::from_claims(&verified.claims));
+
+        // A control message from a peer that signs only the header.
+        if check_binding
+            && claims
+                .as_ref()
+                .is_some_and(|verified| !verified.payload_signed)
+            && binding_mismatch(
+                binding,
+                "control message whose payload isn't signed",
+                msg,
+                identity.as_ref().map(PeerIdentity::subject),
+            )
+        {
+            return Err(SessionError::Auth(AuthError::TokenInvalid));
+        }
 
         if check_binding && let Some(identity) = &identity {
             let sub = identity.subject();
@@ -3244,6 +3341,66 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn a_control_messages_payload_and_metadata_are_signed() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let signed = || {
+            let mut msg = join_request(&peer, None);
+            msg.insert_metadata("app-key".to_string(), "app-value".to_string());
+            sign_outbound_control_message(&mut msg, &peer).unwrap();
+            msg
+        };
+        let payload_signed = |msg: Message| {
+            let peer = peer.clone();
+            async move {
+                verify_identity(&msg, &peer, true)
+                    .await
+                    .map(|verified| verified.expect("no verified claims").payload_signed)
+            }
+        };
+
+        assert!(payload_signed(signed()).await.unwrap());
+
+        // Trace context a node adds in transit isn't signed.
+        let mut traced = signed();
+        traced.insert_metadata("traceparent".to_string(), "00-abc-def-01".to_string());
+        assert!(payload_signed(traced).await.unwrap());
+
+        // A changed payload or signed metadata entry fails verification.
+        let mut changed_payload = signed();
+        changed_payload.set_payload(
+            CommandPayload::builder()
+                .join_request(Some(9), Some(Duration::from_secs(9)), None, None, None)
+                .as_content(),
+        );
+        assert!(payload_signed(changed_payload).await.is_err());
+        let mut changed_metadata = signed();
+        changed_metadata.insert_metadata("app-key".to_string(), "changed".to_string());
+        assert!(payload_signed(changed_metadata).await.is_err());
+
+        // Without a payload signature the header still verifies, unsigned.
+        let mut header_only = signed();
+        header_only.remove_metadata(PAYLOAD_SIG_KEY);
+        assert!(!payload_signed(header_only).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_unsigned_payload_is_dropped_only_under_enforce() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let mut header_only = signed_from(
+            &peer,
+            own_name(&peer),
+            ProtoSessionMessageType::JoinRequest,
+            join_payload(),
+        );
+        header_only.remove_metadata(PAYLOAD_SIG_KEY);
+
+        let result = check_with_binding(&header_only, IdentityBinding::Warn, None).await;
+        assert!(result.is_ok(), "{result:?}");
+        let result = check_with_binding(&header_only, IdentityBinding::Enforce, None).await;
+        assert!(result.is_err());
     }
 
     #[test]
