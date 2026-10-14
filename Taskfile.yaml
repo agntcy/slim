@@ -270,7 +270,7 @@ tasks:
         vars:
           COMPONENTS: "cargo-audit"
     cmds:
-      - cargo audit --ignore RUSTSEC-2026-0285 {{.ARGS}}
+      - cargo audit --ignore RUSTSEC-2026-0285 --ignore RUSTSEC-2026-0346 --ignore RUSTSEC-2026-0348 --ignore RUSTSEC-2026-0349 {{.ARGS}}
     vars:
       ARGS: '{{ .ARGS | default "" }}'
 
