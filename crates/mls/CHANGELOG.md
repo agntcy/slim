@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8](https://github.com/agntcy/slim/compare/slim-mls-v0.4.7...slim-mls-v0.4.8) - 2026-10-14
+
+### Fixed
+
+- *(session)* tie data messages and peer_subject() to the MLS sender ([#2282](https://github.com/agntcy/slim/pull/2282))
+- *(session)* hold peers' name ids and channels to their verified identities ([#2267](https://github.com/agntcy/slim/pull/2267))
+
 ## [0.4.7](https://github.com/agntcy/slim/compare/slim-mls-v0.4.6...slim-mls-v0.4.7) - 2026-10-13
 
 ### Other

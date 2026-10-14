@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.20](https://github.com/agntcy/slim/compare/slim-session-v0.7.19...slim-session-v0.7.20) - 2026-10-14
+
+### Added
+
+- *(session)* pin peers to an expected identity and expose verified identities ([#2270](https://github.com/agntcy/slim/pull/2270))
+
+### Fixed
+
+- *(session)* sign control-message payloads ([#2283](https://github.com/agntcy/slim/pull/2283))
+- *(session)* tie data messages and peer_subject() to the MLS sender ([#2282](https://github.com/agntcy/slim/pull/2282))
+- *(session)* accept membership changes only from the moderator ([#2281](https://github.com/agntcy/slim/pull/2281))
+- *(session)* hold peers' name ids and channels to their verified identities ([#2267](https://github.com/agntcy/slim/pull/2267))
+
 ## [0.7.19](https://github.com/agntcy/slim/compare/slim-session-v0.7.18...slim-session-v0.7.19) - 2026-10-13
 
 ### Other
