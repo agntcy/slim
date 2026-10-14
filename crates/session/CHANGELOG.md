@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.21](https://github.com/agntcy/slim/compare/slim-session-v0.7.20...slim-session-v0.7.21) - 2026-10-14
+
+### Fixed
+
+- *(session)* build for wasm32 again ([#2289](https://github.com/agntcy/slim/pull/2289))
+
 ## [0.7.20](https://github.com/agntcy/slim/compare/slim-session-v0.7.19...slim-session-v0.7.20) - 2026-10-14
 
 ### Added

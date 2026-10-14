@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.5](https://github.com/agntcy/slim/compare/slim-auth-v0.17.4...slim-auth-v0.17.5) - 2026-10-14
+
+### Other
+
+- *(auth)* update doctest to current API ([#2287](https://github.com/agntcy/slim/pull/2287))
+
 ## [0.17.4](https://github.com/agntcy/slim/compare/slim-auth-v0.17.3...slim-auth-v0.17.4) - 2026-10-14
 
 ### Fixed
