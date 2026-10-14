@@ -7,12 +7,16 @@ use std::collections::{BTreeMap, HashMap, btree_map::Entry};
 // Third-party crates
 use tracing::{debug, error, trace};
 
+use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
     ApplicationPayload, HeaderIntegrityAad, MlsPayload, ProtoMessage as Message,
     ProtoSessionMessageType,
 };
 
+use crate::identity_check::binding_mismatch;
+use crate::name_id;
+use crate::peer_identity::PEER_SUBJECT_KEY;
 use crate::{
     SessionError, common::MessageDirection, common::OutboundMessage, common::SessionOutput,
     runtime::maybe_await,
@@ -70,6 +74,9 @@ where
 
     /// percent of messages to verify after decrypt
     pub(crate) header_integrity_validation_percent: u32,
+
+    /// how a data message's source is held to its MLS sender's identity
+    pub(crate) identity_binding: IdentityBinding,
 }
 
 impl<P, V> MlsState<P, V>
@@ -89,6 +96,7 @@ where
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent,
+            identity_binding: IdentityBinding::from_env(),
         })
     }
 
@@ -109,6 +117,7 @@ where
             last_mls_msg_id,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent,
+            identity_binding: IdentityBinding::from_env(),
         })
     }
 }
@@ -424,7 +433,8 @@ where
         let payload = msg.get_payload().unwrap().as_application_payload()?;
 
         debug!("Decrypting message for group member");
-        let (decrypted_payload, auth_data) = self.mls.decrypt_message(&payload.blob).await?;
+        let (decrypted_payload, auth_data, sender) =
+            self.mls.decrypt_message_from_sender(&payload.blob).await?;
 
         // Validate header integrity if enabled
         if self.header_integrity_validation_percent > 0 {
@@ -448,9 +458,26 @@ where
             }
         }
 
+        // The source's name id must be the one its MLS sender's identity derives,
+        // so a member can't send under another member's name.
+        let sub = String::from_utf8_lossy(&sender).into_owned();
+        if msg.get_source().id() != name_id::app_id(&sub)
+            && binding_mismatch(
+                self.identity_binding,
+                "data message from a name id its MLS sender's identity doesn't derive",
+                msg,
+                Some(&sub),
+            )
+        {
+            return Err(MlsError::verification_failed(
+                "sender name doesn't match its MLS identity",
+            )
+            .into());
+        }
         msg.set_payload(
             ApplicationPayload::new(&payload.payload_type, decrypted_payload.to_vec()).as_content(),
         );
+        msg.insert_metadata(PEER_SUBJECT_KEY.to_string(), sub);
         Ok(())
     }
 }
@@ -630,6 +657,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 100,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let mut msg = Message::builder()
@@ -649,6 +677,62 @@ mod tests {
 
         let result = mls_state.encrypt_message(&mut msg);
         assert!(result.is_err_and(|e| matches!(e, SessionError::MlsOp(_))));
+    }
+
+    #[tokio::test]
+    async fn a_decrypted_message_names_its_mls_sender() {
+        let alice = SharedSecret::new("alice", TEST_VALID_SECRET).unwrap();
+        let alice_sub = alice.get_id().unwrap();
+        let mut alice_mls = Mls::new(alice.clone(), alice);
+        let mut bob_mls = Mls::new(
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+            SharedSecret::new("bob", TEST_VALID_SECRET).unwrap(),
+        );
+        alice_mls.initialize().await.unwrap();
+        bob_mls.initialize().await.unwrap();
+        alice_mls.create_group().unwrap();
+        let key_package = bob_mls.generate_key_package().unwrap();
+        let added = alice_mls.add_member(&key_package).unwrap();
+        bob_mls.process_welcome(&added.welcome_message).unwrap();
+
+        let state = |mls| MlsState {
+            mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 0,
+            identity_binding: IdentityBinding::Enforce,
+        };
+        let mut alice_state = state(alice_mls);
+        let mut bob_state = state(bob_mls);
+        // A message from alice, encrypted, under the name id `id`.
+        let mut sent_as = |id: u128| {
+            let mut msg = Message::builder()
+                .source(ProtoName::from_strings(["org", "default", "alice"]).with_id(id))
+                .destination(ProtoName::from_strings(["org", "default", "bob"]))
+                .session_id(1)
+                .message_id(1)
+                .session_type(slim_datapath::api::ProtoSessionType::Multicast)
+                .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+                .application_payload("text", b"hi".to_vec())
+                .build_publish()
+                .unwrap();
+            alice_state.encrypt_message(&mut msg).unwrap();
+            msg
+        };
+
+        // Under alice's own name id: delivered, naming alice as its sender.
+        let mut own = sent_as(name_id::app_id(&alice_sub));
+        bob_state.decrypt_message(&mut own).unwrap();
+        assert_eq!(own.get_metadata(PEER_SUBJECT_KEY), Some(&alice_sub));
+
+        // Under another name id: dropped under enforce, only logged under warn.
+        let mut other = sent_as(7);
+        assert!(bob_state.decrypt_message(&mut other).is_err());
+        bob_state.identity_binding = IdentityBinding::Warn;
+        let mut other = sent_as(7);
+        bob_state.decrypt_message(&mut other).unwrap();
+        assert_eq!(other.get_metadata(PEER_SUBJECT_KEY), Some(&alice_sub));
     }
 
     #[tokio::test]
@@ -676,6 +760,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 100,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let mut bob_state = MlsState {
@@ -684,6 +769,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 100,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let original_payload = b"Hello from Alice!";
@@ -744,6 +830,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 100,
+            identity_binding: IdentityBinding::Warn,
         };
 
         // Create a message with a control message type (not Msg)
@@ -809,6 +896,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 0,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let mut bob_state = MlsState {
@@ -817,6 +905,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 0,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let original_payload = b"Hello from Alice!";
@@ -880,6 +969,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 100,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let mut bob_state = MlsState {
@@ -888,6 +978,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 100,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let original_payload = b"Hello from Alice!";
@@ -942,6 +1033,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 50,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let mut bob_state = MlsState {
@@ -950,6 +1042,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 50,
+            identity_binding: IdentityBinding::Warn,
         };
 
         let original_payload = b"Hello from Alice!";
@@ -1019,6 +1112,7 @@ mod tests {
                 last_mls_msg_id: 0,
                 stored_commits_proposals: BTreeMap::new(),
                 header_integrity_validation_percent: percent,
+                identity_binding: IdentityBinding::Warn,
             };
 
             let mut bob_state = MlsState {
@@ -1027,6 +1121,7 @@ mod tests {
                 last_mls_msg_id: 0,
                 stored_commits_proposals: BTreeMap::new(),
                 header_integrity_validation_percent: percent,
+                identity_binding: IdentityBinding::Warn,
             };
 
             let original_payload = b"Valid Message";
@@ -1090,6 +1185,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 150, // above 100
+            identity_binding: IdentityBinding::Warn,
         };
 
         let mut bob_state = MlsState {
@@ -1098,6 +1194,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 150, // above 100
+            identity_binding: IdentityBinding::Warn,
         };
 
         let original_payload = b"Hello from Alice!";
@@ -1145,6 +1242,7 @@ mod tests {
             last_mls_msg_id: 0,
             stored_commits_proposals: BTreeMap::new(),
             header_integrity_validation_percent: 100,
+            identity_binding: IdentityBinding::Warn,
         }
     }
 

@@ -10,6 +10,11 @@ use serde_json::Value;
 use slim_auth::identity_claims::IdentityClaims;
 use slim_datapath::api::{NameId, ProtoName};
 
+/// Message metadata key carrying the verified identity (`sub`) of a data
+/// message's sender. Sessions remove it from every message they receive and
+/// set it only after an MLS decryption that identifies the sender.
+pub const PEER_SUBJECT_KEY: &str = "slim-peer-subject";
+
 /// Who set up a session, as their identity token said, verified together
 /// with the signature over the message that carried it.
 #[derive(Debug, Clone, PartialEq, Eq)]
