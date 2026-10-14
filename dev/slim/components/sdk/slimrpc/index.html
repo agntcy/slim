@@ -5069,6 +5069,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#verified-peers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verified Peers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#supported-languages" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5321,6 +5332,13 @@
 <h2 id="multicast-rpc">Multicast RPC</h2>
 <p>A group channel fans out a single RPC call to multiple servers simultaneously. Create the channel with <code>Channel.new_group_with_connection</code> (or the language-specific equivalent), passing a list of server names. Responses arrive as an async stream of <code>(context, response)</code> pairs, one per server.</p>
 <p>This is useful for broadcasting configuration, querying multiple services, or scatter-gather patterns.</p>
+<h2 id="verified-peers">Verified Peers</h2>
+<p>A readable name doesn't say who answers: any app trusted by your verifier can subscribe under it. To know, or require, the identity of the peers you call (in Rust today):</p>
+<ul>
+<li><strong>See who answered.</strong> <code>Channel::peer_identity()</code> returns the verified identity of a point-to-point channel's server. The <code>multicast_*_verified</code> methods yield each response with its sender's full name, id included, and the identity that member was verified as.</li>
+<li><strong>See who called.</strong> In a handler, <code>ctx.peer_subject()</code> is the verified identity of the peer that sent the request: with MLS, the member that sent it, also in a group.</li>
+<li><strong>Require an identity.</strong> <code>Channel::new_pinned</code> and <code>Channel::new_group_pinned</code> take the <code>sub</code> each peer must be verified as, its DID for a <code>did:key</code> identity. A peer verified as anyone else is never admitted, and the call fails.</li>
+</ul>
 <h2 id="supported-languages">Supported Languages</h2>
 <p>SLIMRPC code generation is supported for Python, Go, Java, Kotlin, and .NET (C#). See the <a href="compiler/">Compiler</a> page for installation and usage. For .NET runtime details and the <code>Agntcy.Slim.SlimRpc</code> namespace, see the <a href="../dotnet/">.NET SDK guide</a>.</p>
 <h2 id="tutorials">Tutorials</h2>

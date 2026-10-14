@@ -5367,7 +5367,7 @@
 <tbody>
 <tr>
 <td><strong>Point-to-Point</strong></td>
-<td>One agent sends directly to another, identified by a hierarchical DID-based name</td>
+<td>One agent sends directly to another, identified by a hierarchical name</td>
 </tr>
 <tr>
 <td><strong>Group / Multicast</strong></td>
@@ -5383,10 +5383,10 @@
 </tr>
 </tbody>
 </table>
-<p>Agents are identified using a hierarchical naming scheme based on Decentralized Identifiers:</p>
-<div class="highlight"><pre><span></span><code>organization/namespace/service/&lt;hash-of-public-key&gt;
+<p>Agents are identified by hierarchical names whose last component is an ID derived from their identity, such as a DID (see <a href="../architecture/naming/">Naming</a>):</p>
+<div class="highlight"><pre><span></span><code>organization/namespace/service/&lt;id&gt;
 </code></pre></div>
-<p>Group channels use the same four-component scheme. The last component is a UUID derived from the moderator's key material. Each group gets two channel names — a data channel and a control channel — that differ only in their final UUID component.</p>
+<p>Group channels use the same four-component scheme. Each group gets two channel names — a data channel and a control channel — that differ only in their final component, an ID derived from the moderator's identity and the channel's name.</p>
 <h2 id="slim-vs-message-queues">SLIM vs. Message Queues</h2>
 <table>
 <thead>

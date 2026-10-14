@@ -5460,7 +5460,7 @@
 <h1 id="groups">Groups</h1>
 <p>A SLIM group is a set of application instances that communicate over a shared channel. Any message published to the channel is delivered to every current member of the group. Groups are the foundation for multi-agent collaboration, broadcast patterns, and pub/sub communication in SLIM.</p>
 <h2 id="what-is-a-group">What is a Group?</h2>
-<p>A group is bound to a named channel — a SLIM name whose last component is a UUID derived from the moderator's key material. Each group has two channel names: a <strong>data channel</strong> and a <strong>control channel</strong>. They share the same <code>organization/namespace/service</code> prefix and differ only in the final UUID component.</p>
+<p>A group is bound to a named channel — a SLIM name whose last component is an ID derived from the moderator's identity and the channel's name (see <a href="../../naming/#channel-names">Naming</a>). Each group has two channel names: a <strong>data channel</strong> and a <strong>control channel</strong>. They share the same <code>organization/namespace/service</code> prefix and differ only in the final ID.</p>
 <p>Multiple application instances subscribe to the same channel name, and the SLIM data plane delivers each message sent to that name to all subscribers. The session layer sitting above the data plane adds group state management, membership tracking, and optionally end-to-end encryption to this channel.</p>
 <p>A group therefore consists of two things:</p>
 <ul>

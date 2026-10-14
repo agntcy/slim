@@ -895,6 +895,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Application Identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name-ids-and-identity-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name ids and identity binding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -5142,6 +5159,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Application Identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name-ids-and-identity-binding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Name ids and identity binding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -5348,7 +5382,18 @@
 </tr>
 </tbody>
 </table>
-<p>The credential does not authenticate the application <em>to the SLIM node</em> as in a login model. It determines how the application's identity token is <strong>signed when sending</strong> and <strong>verified when receiving</strong>. The receiving session validates the sender's identity token using the same credential mechanism; messages whose identity cannot be verified are dropped.</p>
+<p>The credential does not authenticate the application to the SLIM node as in a login model. It determines how the application's identity token is signed when sending and verified when receiving. With MLS, the receiving session verifies every control message's identity token using the same credential mechanism and drops those that fail, and MLS authenticates the sender of each data message. Without MLS, a session always verifies the requests that set it up, <a href="#name-ids-and-identity-binding">identity binding</a> covers its other control messages, and data messages aren't authenticated end to end.</p>
+<h3 id="name-ids-and-identity-binding">Name ids and identity binding</h3>
+<p>An application's name id, the last component of its name, is the XXH3-128 hash of its identity, and a multicast channel's ids are derived from its moderator's identity. Sessions check these against the identities they verify:</p>
+<ul>
+<li><strong>Control messages:</strong> every control message is verified, with or without MLS, and its sender's name id must be the one its verified identity derives.</li>
+<li><strong>Payloads:</strong> a control message's payload and metadata are signed too, with the key that signs its header, except trace context that nodes add in transit. A payload that doesn't match its signature is always refused; one without a signature comes from an older peer.</li>
+<li><strong>Invites:</strong> a moderator accepts replies only from the name it invited, and the join reply must name its sender and, with MLS, carry a key package for that same identity. An invitee joins only a channel derived from the moderator's verified identity.</li>
+<li><strong>Membership:</strong> a participant accepts group updates, removals, welcomes, the group's close and further invites only from its moderator, and a member may announce only its own state.</li>
+<li><strong>Data messages:</strong> with MLS, a message's source name id must be the one its MLS sender's identity derives, so a group member can't send under another member's name.</li>
+</ul>
+<p>The <code>SLIM_IDENTITY_BINDING</code> environment variable sets what happens on a mismatch: <code>warn</code> (the default) logs it, <code>enforce</code> drops the message, and <code>off</code> turns the checks off. Before setting <code>enforce</code>, check the logs for mismatches from applications whose identity provider can't report an id, and from channels that aren't created by their moderator.</p>
+<p>A caller can also require a specific identity. <code>App::create_session_pinned</code>, for a point-to-point session, and <code>SessionController::invite_participant_pinned</code>, for a group member, admit the peer only if it is verified as the given <code>sub</code>, which is its DID for a <code>did:key</code> identity. A peer verified as anyone else is refused, whatever <code>SLIM_IDENTITY_BINDING</code> is set to. With MLS, <code>SessionController::peer_identity</code> and <code>participant_identity</code> return the identity each peer was verified as.</p>
 <h2 id="credential-methods">Credential Methods</h2>
 <h3 id="shared-secret">Shared Secret</h3>
 <p>A symmetric key used to sign and verify application identity tokens. Each application's identity is independently generated from a base name (derived from the application name) plus a random suffix. When the application sends a message, SLIM creates a token containing the identity and signs it with an HMAC keyed by the shared secret. When a session receives a message, it verifies the HMAC using the same secret — if verification passes, the sender's identity is trusted; if not, the message is dropped.</p>
@@ -5357,7 +5402,7 @@
 - Any application holding the same secret can verify messages from any other holder — and, symmetrically, can <em>sign</em> as any identity that shares the secret. There is no per-application isolation and no non-repudiation: the secret proves membership in the group, not which member sent a given message.
 - Each application has a unique identity (base name + random suffix); the secret only governs whether that identity is trusted
 - A single leaked secret compromises every identity that uses it, and rotation means redistributing the new secret to every holder at once</p>
-<p><strong>Use when:</strong> Development, local testing, or closed internal networks where all participants are equally trusted. Prefer JWT or SPIRE for anything else — both give each application its own credential, so one compromised application does not let an attacker impersonate the rest.</p>
+<p><strong>Use when:</strong> Development, local testing, or closed internal networks where all participants are equally trusted. Prefer JWT or SPIRE for anything else — both give each application its own credential, so with MLS and identity binding set to <code>enforce</code>, one compromised application can't impersonate the rest.</p>
 <h3 id="jwt-json-web-tokens">JWT (JSON Web Tokens)</h3>
 <p>The application holds a signed JWT. The <code>sub</code> (subject) claim of the JWT is the application's identity. When the application sends a message, the JWT is included as the identity token. When a session receives a message, it verifies the JWT signature using the issuer's public key or JWKS endpoint — if valid, the <code>sub</code> claim is accepted as the sender's identity.</p>
 <p>Tokens can come from:</p>
@@ -5365,6 +5410,7 @@
 <li><strong>An external identity provider</strong> — any OIDC-compatible IdP issues tokens; SLIM verifies them against the provider's public key or JWKS endpoint.</li>
 <li><strong>SLIM-issued tokens</strong> — a SLIM node can sign and issue tokens directly if provided with a private signing key, useful when no external IdP is available.</li>
 </ul>
+<p>With a trust list of peer keys, such as a JWKS of <code>did:key</code> identities, every listed key can sign a valid token. SLIM therefore also checks that a token's <code>sub</code> belongs to the key that signed it: it must be that key's <code>kid</code> or, for an Ed25519 key, its <code>did:key</code>. The <code>jwt</code> app identity always runs this check, in the mode set by the <code>SLIM_IDENTITY_BINDING</code> environment variable: <code>warn</code> (the default) logs a mismatch, <code>enforce</code> rejects the token, and <code>off</code> turns the check off. A JWT verifier configured by hand runs it when <code>subject_binding</code> is set. Tokens from an identity provider's keys aren't checked, because the provider vouches for each <code>sub</code>.</p>
 <p><strong>Properties:</strong>
 - Tokens are short-lived and can be revoked at expiry
 - Each application has a distinct identity tied to the <code>sub</code> claim set by the issuer
