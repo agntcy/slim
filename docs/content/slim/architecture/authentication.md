@@ -21,7 +21,7 @@ Every SLIM application has an identity — a string identifier that travels with
 | JWT | The `sub` (subject) claim of the JWT, set by the token issuer |
 | SPIRE | The SPIFFE ID from the JWT-SVID (e.g. `spiffe://domain.test/ns/default/sa/my-app`) |
 
-The credential does not authenticate the application *to the SLIM node* as in a login model. It determines how the application's identity token is **signed when sending** and **verified when receiving**. With MLS, the receiving session verifies every control message's identity token using the same credential mechanism and drops those that fail, and MLS authenticates the sender of each data message. Without MLS, a session always verifies the requests that set it up, [identity binding](#name-ids-and-identity-binding) covers its other control messages, and data messages aren't authenticated end to end.
+The credential does not authenticate the application to the SLIM node as in a login model. It determines how the application's identity token is signed when sending and verified when receiving. With MLS, the receiving session verifies every control message's identity token using the same credential mechanism and drops those that fail, and MLS authenticates the sender of each data message. Without MLS, a session always verifies the requests that set it up, [identity binding](#name-ids-and-identity-binding) covers its other control messages, and data messages aren't authenticated end to end.
 
 ### Name ids and identity binding
 

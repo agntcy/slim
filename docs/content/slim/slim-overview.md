@@ -67,13 +67,13 @@ SLIM natively supports four interaction patterns between agents:
 | **RPC (P2P)** | Request-response between two agents — like gRPC but over SLIM's encrypted overlay |
 | **RPC (Multicast)** | One client calls many servers simultaneously — fan-out requests to a group channel |
 
-Agents are identified by hierarchical names whose last component is an id derived from their identity, such as a DID (see [Naming](./architecture/naming.md)):
+Agents are identified by hierarchical names whose last component is an ID derived from their identity, such as a DID (see [Naming](./architecture/naming.md)):
 
 ```text
 organization/namespace/service/<id>
 ```
 
-Group channels use the same four-component scheme. Each group gets two channel names — a data channel and a control channel — that differ only in their final component, an id derived from the moderator's identity and the channel's name.
+Group channels use the same four-component scheme. Each group gets two channel names — a data channel and a control channel — that differ only in their final component, an ID derived from the moderator's identity and the channel's name.
 
 ## SLIM vs. Message Queues
 
