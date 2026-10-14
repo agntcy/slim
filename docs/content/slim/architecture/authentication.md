@@ -29,6 +29,7 @@ An application's name id, the last component of its name, is the XXH3-128 hash o
 
 - **Control messages:** every control message is verified, with or without MLS, and its sender's name id must be the one its verified identity derives.
 - **Invites:** a moderator accepts replies only from the name it invited, and the join reply must name its sender and, with MLS, carry a key package for that same identity. An invitee joins only a channel derived from the moderator's verified identity.
+- **Membership:** a participant accepts group updates, removals, welcomes, the group's close and further invites only from its moderator, and a member may announce only its own state.
 
 The `SLIM_IDENTITY_BINDING` environment variable sets what happens on a mismatch: `warn` (the default) logs it, `enforce` drops the message, and `off` turns the checks off. Before setting `enforce`, check the logs for mismatches from applications whose identity provider can't report an id, and from channels that aren't created by their moderator.
 
