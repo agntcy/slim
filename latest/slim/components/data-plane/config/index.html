@@ -2117,6 +2117,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2176,6 +2186,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../channel-manager/ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts and Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../channel-manager/install/" class="md-nav__link">
         
   
@@ -2183,7 +2221,91 @@
   <span class="md-ellipsis">
     
   
-    Installation Guide
+    Installation and Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../channel-manager/slimctl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Channels with slimctl
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../channel-manager/deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../channel-manager/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security Model
   
 
     
@@ -2232,14 +2354,42 @@
   
   
     <li class="md-nav__item">
-      <a href="../../channel-manager/ownership/" class="md-nav__link">
+      <a href="../../channel-manager/api/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Ownership, Grants and Expiry
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../channel-manager/operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations and Troubleshooting
   
 
     
@@ -7416,6 +7566,25 @@ gateway automatically, which prevents gateway loops.</p>
 </code></pre></div>
 </div>
 </div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">A JWKS of peer keys</p>
+<p>When each key in the JWKS belongs to one peer, set <code>subject_binding</code> so
+that a peer can sign only its own identity: a token's <code>sub</code> must be the
+<code>kid</code> of the key that signed it or, for an Ed25519 key, its <code>did:key</code>.
+<code>warn</code> logs a mismatch, <code>enforce</code> rejects the token, and <code>off</code> turns the
+check off. Leave it unset for an identity provider's keys, which sign
+tokens for many subjects.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">auth</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jwt</span>
+<span class="w">  </span><span class="nt">subject_binding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">enforce</span>
+<span class="w">  </span><span class="nt">key</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">decoding</span>
+<span class="w">    </span><span class="nt">algorithm</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;EdDSA&quot;</span>
+<span class="w">    </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jwks</span>
+<span class="w">    </span><span class="nt">key</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./keys/peers.jwks.json&quot;</span>
+</code></pre></div>
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Shared Secret Security</p>

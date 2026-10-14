@@ -11,10 +11,10 @@
         <link rel="canonical" href="https://agntcy.github.io/slim/latest/slim/components/channel-manager/ownership/">
       
       
-        <link rel="prev" href="../config/">
+        <link rel="prev" href="../">
       
       
-        <link rel="next" href="../../cli/">
+        <link rel="next" href="../install/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Ownership, Grants and Expiry - SLIM</title>
+        <title>Concepts and Ownership - SLIM</title>
       
     
     
@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#channel-ownership-grants-and-expiry" class="md-skip">
+        <a href="#concepts-and-ownership" class="md-skip">
           Skip to content
         </a>
       
@@ -121,7 +121,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Ownership, Grants and Expiry
+              Concepts and Ownership
             
           </span>
         </div>
@@ -1209,6 +1209,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1265,62 +1275,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../install/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Installation Guide
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../config/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Configuration Reference
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -1340,7 +1294,7 @@
   <span class="md-ellipsis">
     
   
-    Ownership, Grants and Expiry
+    Concepts and Ownership
   
 
     
@@ -1358,7 +1312,7 @@
   <span class="md-ellipsis">
     
   
-    Ownership, Grants and Expiry
+    Concepts and Ownership
   
 
     
@@ -1384,10 +1338,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#owners" class="md-nav__link">
+  <a href="#what-the-channel-manager-is" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Owners
+        What the Channel Manager is
       
     </span>
   </a>
@@ -1395,15 +1349,37 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#changing-an-owned-channel" class="md-nav__link">
+  <a href="#what-the-channel-manager-is-not" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Changing an owned channel
+        What the Channel Manager is not
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Changing an owned channel">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-mode-and-api-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config mode and API mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-owns-a-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who owns a channel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who owns a channel">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1423,13 +1399,63 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#clients" class="md-nav__link">
+  <a href="#changing-an-owned-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Clients
+        Changing an owned channel
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Changing an owned channel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#owner-approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Owner approval
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expiry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expiry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1445,10 +1471,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operators" class="md-nav__link">
+  <a href="#clients" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operators
+        Clients
       
     </span>
   </a>
@@ -1517,28 +1543,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#owner-approval" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Owner approval
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#expiry" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Expiry
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#restarts-and-replicas" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1549,10 +1553,228 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation and Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slimctl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Channels with slimctl
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations and Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -5047,10 +5269,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#owners" class="md-nav__link">
+  <a href="#what-the-channel-manager-is" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Owners
+        What the Channel Manager is
       
     </span>
   </a>
@@ -5058,15 +5280,37 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#changing-an-owned-channel" class="md-nav__link">
+  <a href="#what-the-channel-manager-is-not" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Changing an owned channel
+        What the Channel Manager is not
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Changing an owned channel">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config-mode-and-api-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config mode and API mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-owns-a-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who owns a channel
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who owns a channel">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -5086,13 +5330,63 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#clients" class="md-nav__link">
+  <a href="#changing-an-owned-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Clients
+        Changing an owned channel
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Changing an owned channel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#owner-approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Owner approval
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expiry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expiry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -5108,10 +5402,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operators" class="md-nav__link">
+  <a href="#clients" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operators
+        Clients
       
     </span>
   </a>
@@ -5180,32 +5474,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#owner-approval" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Owner approval
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#expiry" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Expiry
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#restarts-and-replicas" class="md-nav__link">
     <span class="md-ellipsis">
       
         Restarts and replicas
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related
       
     </span>
   </a>
@@ -5329,21 +5623,170 @@
   
 
 
-<h1 id="channel-ownership-grants-and-expiry">Channel Ownership, Grants and Expiry</h1>
-<p>Channels created through the Channel Manager API can have an owner who controls who joins, and a time to live after which they are deleted. None of this applies to channels declared in the config file (config mode): those have no owner and no expiry, and write operations are refused in config mode, as before.</p>
-<h2 id="owners">Owners</h2>
-<p>A channel's owner is whoever signs its create request, identified by the key they sign with: a <code>did:key</code> encoding an Ed25519 public key. The signed request travels in <code>CreateChannelRequest.owner_proof</code>, and must cover the exact settings the channel is created with.</p>
-<p>The caller's authenticated identity never makes anyone an owner. The API server's authentication (a token's <code>sub</code>, or the SPIFFE ID of an mTLS client certificate) says which user or workload opened the connection, not which application owns the channel. That identity is still logged, and passed to owners as the requester of an approval. A channel created without a signed request has no owner, and anyone who can reach the API can change it.</p>
-<p><code>slimctl channel-manager list-channels</code> shows each channel's owner.</p>
-<h2 id="changing-an-owned-channel">Changing an owned channel</h2>
-<p>Every change to an owned channel needs its owner's signature, including changes the owner makes:</p>
+<h1 id="concepts-and-ownership">Concepts and Ownership</h1>
+<p>This page explains the model the Channel Manager implements — what it does for a group channel, who is allowed to change one, and how grants, owner approval, operators and expiry fit together — and then documents the exact wire format of every signed statement.</p>
+<p>Ownership and expiry apply to channels created through the API. Channels declared in the configuration file have neither, and cannot be changed at runtime at all.</p>
+<p>The <a href="../install/">walkthrough</a> puts this model to work with running code, and <a href="../security/">Security Model</a> covers what each mechanism protects against.</p>
+<h2 id="what-the-channel-manager-is">What the Channel Manager is</h2>
+<p>Every SLIM group channel has exactly one <strong>moderator</strong>: the participant that invites and removes members, and that drives the MLS key rotation each change requires. The Channel Manager is a service that holds this role on behalf of others. It connects to a SLIM node as an ordinary SLIM application, creates group sessions, and exposes a gRPC API through which channels and their membership are managed.</p>
+<p>It has two faces:</p>
 <ul>
-<li><strong>Participants:</strong> each addition or removal needs a grant, a statement signed by the owner authorizing one specific change, carried in the request's <code>grant</code>. If the request carries no grant and the owner gave an <code>owner_callback_name</code> when creating the channel, the Channel Manager asks the owner for one, as described below.</li>
-<li><strong>Deleting the channel:</strong> needs the owner's signed delete request, in <code>DeleteChannelRequest.owner_proof</code>.</li>
+<li><strong>Southbound</strong>, it is a SLIM application like any other. It connects to a data plane node over gRPC or WebSocket, authenticates with a shared secret, a JWT identity or SPIRE, and registers under its <code>local-name</code>.</li>
+<li><strong>Northbound</strong>, it serves <code>ChannelManagerService</code> on a local gRPC port. Applications that hold a channel owner's key call it directly; an administrator calls it with <a href="../slimctl/"><code>slimctl channel-manager</code></a>.</li>
 </ul>
-<p>A grant must name the channel, the participant and the action (<code>add</code> or <code>delete</code>) of the request it is used for. Grants and signed requests must not be expired, and each is accepted only once. On a channel with no owner, participants are added and removed, and the channel deleted, without any of them. With <a href="#requiring-signatures"><code>require-signatures</code></a>, they can't be at all.</p>
+<p>A third, smaller face exists for <a href="#owner-approval">owner approval</a>: a separate SLIM application named <code>&lt;local-name&gt;-approval</code>, which the Channel Manager uses to call channel owners back over SLIM.</p>
+<pre class="mermaid"><code>graph LR
+    client["Application&lt;br/&gt;holding an owner's key"] -- "gRPC :10356" --&gt; cm
+    admin["slimctl channel-manager"] -- "gRPC :10356" --&gt; cm
+    cm["Channel Manager&lt;br/&gt;(moderator)"] -- "SLIM :46357" --&gt; node["SLIM Node"]
+    cm -. "approval app&lt;br/&gt;&amp;lt;local-name&amp;gt;-approval" .-&gt; node
+    node --- app1["App A"]
+    node --- app2["App B"]
+    node --- owner["Owner endpoint"]
+    app1 === app2</code></pre>
+<p>The dashed line is the approval app; the double line between App A and App B is channel traffic, which the Channel Manager never carries.</p>
+<h2 id="what-the-channel-manager-is-not">What the Channel Manager is not</h2>
+<p><strong>It is not a message relay.</strong> Messages published to a channel travel through the SLIM data plane to the channel's members. The Channel Manager is a member of each channel it moderates, but application payloads are not routed through it, and it does not read them: the channel's MLS group keys are negotiated among the members.</p>
+<p><strong>It is not an authorization server for applications.</strong> It decides exactly one thing: whether a change to a channel it moderates is authorized. It issues no tokens and answers no policy questions for anyone else.</p>
+<p><strong>It is not a replicated service.</strong> Ownership, expiry times and spent grant nonces live in one process and, with <a href="../config/#persistence">persistence</a> configured, one state directory. Run a single replica per state directory; see <a href="../deploy/#why-a-single-replica">Deployment</a>.</p>
+<p><strong>It is not the owner of the channels it moderates.</strong> Holding the moderator role is a mechanical job. Who may change a channel is decided by signatures, which the Channel Manager verifies but cannot produce.</p>
+<h2 id="config-mode-and-api-mode">Config mode and API mode</h2>
+<p>Which mode the Channel Manager runs in is decided at startup by whether the configuration file declares any channels:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Config mode</th>
+<th>API mode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chosen when</td>
+<td><code>channels:</code> is non-empty</td>
+<td><code>channels:</code> is absent or empty</td>
+</tr>
+<tr>
+<td>Channels come from</td>
+<td>the configuration file</td>
+<td><code>CreateChannel</code> calls</td>
+</tr>
+<tr>
+<td><code>CreateChannel</code>, <code>DeleteChannel</code>, <code>AddParticipant</code>, <code>DeleteParticipant</code></td>
+<td>refused</td>
+<td>served</td>
+</tr>
+<tr>
+<td><code>ListChannels</code>, <code>ListParticipants</code></td>
+<td>served</td>
+<td>served</td>
+</tr>
+<tr>
+<td>Owners</td>
+<td>none</td>
+<td>whoever signs the create request</td>
+</tr>
+<tr>
+<td>Expiry</td>
+<td>none</td>
+<td>optional, per channel</td>
+</tr>
+</tbody>
+</table>
+<p>In <strong>config mode</strong> the file is the single source of truth. At startup the Channel Manager creates each declared channel, invites its declared participants, and — if the channels were restored from persistent storage — reconciles the roster against the file, removing participants no longer listed and inviting those not yet in the session. Channels in storage that the file no longer declares are deleted. Every mutating RPC then fails with <code>channel manager is running in config mode; modify the config file and restart to change channels or participants</code>. Change the file and restart to change anything.</p>
+<p>In <strong>API mode</strong> channels are created at runtime, each with the owner, the time to live and the approval callback its create request asks for. This is the mode the rest of this page describes.</p>
+<p>The two do not mix: a Channel Manager with configured channels serves no mutating calls at all, not even for channels that are not in the file.</p>
+<h2 id="who-owns-a-channel">Who owns a channel</h2>
+<p>A channel's <strong>owner</strong> is whoever signed the request that created it, identified by the key they signed with. With the default verifier that identity is a <code>did:key</code> encoding an Ed25519 public key, which carries its own public key and so needs no registry to resolve. The signed request travels in <code>CreateChannelRequest.owner_proof</code>, and has to cover the exact settings the channel is created with.</p>
+<p><strong>Authenticating to the API does not make anyone an owner.</strong> The API server's authentication — a token's <code>sub</code> claim, or the SPIFFE ID in a client certificate — says which user or workload opened the connection. That is a useful thing to log, and the Channel Manager passes it to owners as the <code>requester</code> of an approval, but it is not a key, so nothing can be signed with it later. Treating it as ownership would mean that anyone who can authenticate to the API could change any channel they created, with no way for the channel's real owner to delegate, revoke or prove anything.</p>
+<p>So ownership comes from a signature, and only from a signature:</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant O as Owner (Ed25519 key)
+    participant C as Client
+    participant CM as Channel Manager
+    O-&gt;&gt;O: sign a create request&lt;br/&gt;(audience, channel, settings)
+    O-&gt;&gt;C: signed request
+    C-&gt;&gt;CM: CreateChannel(settings, owner_proof)
+    CM-&gt;&gt;CM: verify: signature, audience,&lt;br/&gt;settings match, not expired, nonce unused
+    CM-&gt;&gt;CM: record owner = the signer's did:key
+    CM--&gt;&gt;C: success</code></pre>
+<p>A channel created <strong>without</strong> a signed request has no owner. Nothing then gates changes to it: anyone who can reach the API can add participants, remove them or delete the channel. That is the behaviour of releases before ownership existed, kept so clients can adopt signed requests gradually, and it is exactly what <a href="#requiring-signatures"><code>require-signatures</code></a> turns off.</p>
+<p><code>slimctl channel-manager list-channels</code> shows each channel's owner, or no owner at all.</p>
 <h3 id="channels-owned-by-a-login-identity">Channels owned by a login identity</h3>
 <p>Earlier versions recorded the creator's authenticated identity as the owner. Such a channel keeps that owner, but no signature can be checked against an OIDC subject or a SPIFFE ID, so its participants can no longer be changed. An <a href="#operators">operator</a> can delete it, and it still expires if it was created with a time to live.</p>
+<h2 id="changing-an-owned-channel">Changing an owned channel</h2>
+<p>Every change to an owned channel needs the owner's signature — including changes the owner makes themselves. There is no implicit "the owner is calling, so it is fine": the Channel Manager has no way to tell the owner apart from anyone else on a gRPC connection, because the connection's identity is not the owner's key.</p>
+<p>There are three kinds of signed statement, each with its own domain tag so one can never be replayed as another:</p>
+<table>
+<thead>
+<tr>
+<th>Statement</th>
+<th>Authorizes</th>
+<th>Carried in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Signed create request</td>
+<td>creating this channel, with these exact settings, and becoming its owner</td>
+<td><code>CreateChannelRequest.owner_proof</code></td>
+</tr>
+<tr>
+<td>Grant</td>
+<td>one participant change: this channel, this participant, this action</td>
+<td><code>AddParticipantRequest.grant</code>, <code>DeleteParticipantRequest.grant</code></td>
+</tr>
+<tr>
+<td>Signed delete request</td>
+<td>deleting this channel</td>
+<td><code>DeleteChannelRequest.owner_proof</code></td>
+</tr>
+</tbody>
+</table>
+<p>Their exact wire formats are <a href="#signed-formats">below</a>. None may be expired, and each is accepted only once. On a channel with no owner, participants are added and removed, and the channel deleted, without any of them — unless <a href="#requiring-signatures"><code>require-signatures</code></a> is set, which forbids changing such a channel at all.</p>
+<h3 id="grants">Grants</h3>
+<p>A grant is a statement, signed by the owner, that authorizes one specific change: it names the channel, the participant, and whether that participant is being added or removed. A grant to add someone cannot be spent removing them. A grant for one channel is worthless against another. Each grant is accepted once, and only until its <code>not_after</code> passes.</p>
+<p>This makes a grant safe to hand out. An owner can sign a grant for a participant and let that participant, or an orchestrator, present it to the Channel Manager; whoever carries the grant gains the ability to make that one change, and nothing more.</p>
+<h3 id="owner-approval">Owner approval</h3>
+<p>A grant has to exist before the change is requested. When a change is requested with no grant, the Channel Manager can ask the owner for one, there and then — if the channel was created with an <code>owner_callback_name</code>, a SLIM name at which the owner's endpoint listens.</p>
+<p>The Channel Manager sends an <code>ApprovalRequest</code> to that name over SLIM, naming the channel, the participant, the action, and the verified identity of whoever asked. The owner's endpoint answers with either a grant or a denial. A grant that comes back this way is verified exactly like one presented on the original request — the live answer is a shortcut for delivering a grant, not a way around verifying it.</p>
+<p>Anything other than a signed grant is a refusal: an explicit denial, an endpoint that cannot be reached, a malformed answer, and no answer within 60 seconds all deny the change. An unreachable owner is never a yes.</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant R as Requester
+    participant CM as Channel Manager
+    participant O as Owner endpoint
+    Note over R,CM: With a grant in hand
+    R-&gt;&gt;CM: AddParticipant(channel, participant, grant)
+    CM-&gt;&gt;CM: verify the grant, spend its nonce
+    CM--&gt;&gt;R: success
+    Note over R,O: Without a grant
+    R-&gt;&gt;CM: AddParticipant(channel, participant)
+    CM-&gt;&gt;O: ApprovalRequest over SLIM&lt;br/&gt;(channel, participant, add, requester)
+    O-&gt;&gt;O: decide
+    O--&gt;&gt;CM: ApprovalResponse(grant) or ApprovalResponse(denied)
+    CM-&gt;&gt;CM: verify the grant, spend its nonce
+    CM--&gt;&gt;R: success or refusal</code></pre>
+<p>Without a callback name, a request with no grant is refused outright: <code>channel &lt;name&gt; requires a grant from its owner</code>.</p>
+<p>The call itself is SlimRPC: service <code>channel_manager.proto.v1.ChannelOwnerApproval</code>, method <code>RequestApproval</code>, with <code>ApprovalRequest</code> and <code>ApprovalResponse</code> defined in the Channel Manager's protobuf definitions. It comes from the SLIM name <code>&lt;local-name&gt;-approval</code>, which the Channel Manager registers with the credentials in <a href="../config/#approval-auth"><code>approval-auth</code></a> if set, and otherwise with the same credentials as its <code>local-name</code>. With a <code>jwt</code> <code>approval-auth</code>, owner endpoints can recognize the Channel Manager by its did:key even when it connects to SLIM as a SPIRE workload; it logs that did:key at startup as its owner approval identity.</p>
+<p>An owner endpoint should accept a request only from the Channel Manager, checked by its verified identity rather than by the sender's name or the request's <code>requester</code> field. In a SlimRPC handler that is <code>ctx.peer_subject()</code>, available in Rust and in the bindings alike: the subject of the identity token the Channel Manager's approval app set up the session with. (<code>ctx.session().peer_identity()</code> gives the whole identity, in Rust only.) It is set only for sessions using MLS, which SlimRPC calls do.</p>
+<p>Because the owner's endpoint connects to SLIM outbound, it needs no inbound ports.</p>
+<h3 id="operators">Operators</h3>
+<p>An <strong>operator</strong> is a <code>did:key</code> listed in the Channel Manager's <a href="../config/#operators"><code>operators</code></a> configuration. An operator's signed delete request — the same format as an owner's, sent the same way — deletes any channel: one whose owner's key was lost, one owned by a login identity that can no longer sign, or one with no owner at all.</p>
+<p>Operators are deliberately narrow. They cannot add or remove participants, and they do not own anything. An operator is the answer to "this channel has to go and its owner cannot authorize that", and nothing else.</p>
+<pre class="mermaid"><code>graph TD
+    del["DeleteChannel&lt;br/&gt;with a signed request"] --&gt; who{"Who signed it?"}
+    who -- "the channel's owner" --&gt; ok["Channel deleted"]
+    who -- "a configured operator" --&gt; ok
+    who -- "anyone else" --&gt; no["invalid signed delete request"]
+    none["DeleteChannel&lt;br/&gt;no signed request"] --&gt; owned{"Does the channel&lt;br/&gt;have an owner?"}
+    owned -- yes --&gt; no2["refused: needs the owner's&lt;br/&gt;signed request"]
+    owned -- "no, and require-signatures is off" --&gt; ok
+    owned -- "no, and require-signatures is on" --&gt; no3["refused: only an operator&lt;br/&gt;can delete it"]</code></pre>
+<h3 id="expiry">Expiry</h3>
+<p>A channel created with a <code>ttl_seconds</code> is deleted automatically once that many seconds have passed, together with its sessions' MLS state. A reaper checks every 30 seconds, so a channel can outlive its time to live by up to that long, and <code>list-channels</code> may briefly still show it. The first check runs at startup, which deletes channels whose time to live passed while the Channel Manager was down.</p>
+<p>Expiry needs no signature from anyone: the owner asked for it when they created the channel. <code>list-channels</code> shows when each channel expires.</p>
+<h2 id="requiring-signatures">Requiring signatures</h2>
+<p>By default a channel can still be created without a signature, and then has no owner, so existing clients keep working while they move to signed requests. With <a href="../config/#require-signatures"><code>require-signatures</code></a> set, the Channel Manager refuses an unsigned create, and refuses every change to a channel that has no owner, such as one created before it was set. Only an operator can delete such a channel.</p>
 <h2 id="clients">Clients</h2>
 <p>Applications that hold an owner's key, such as SHADI, call the Channel Manager's gRPC API directly. Without such an application, the Channel Manager's admin manages channels with <a href="../../cli/reference/channel-manager/"><code>slimctl channel-manager</code></a> and an Ed25519 key:</p>
 <ul>
@@ -5352,10 +5795,6 @@
 <li><code>slimctl channel-manager did-key --key</code> prints a key's did:key, for example to list it in <code>operators</code>.</li>
 </ul>
 <p>slimctl never sends an unsigned change: it acts on the key holder's authority, never its own.</p>
-<h2 id="requiring-signatures">Requiring signatures</h2>
-<p>By default a channel can still be created without a signature, and then has no owner, so existing clients keep working while they move to signed requests. With <a href="../config/#require-signatures"><code>require-signatures</code></a> set, the Channel Manager refuses an unsigned create, and refuses every change to a channel that has no owner, such as one created before it was set. Only an operator can delete such a channel.</p>
-<h2 id="operators">Operators</h2>
-<p>An operator is a did:key listed in the Channel Manager's <a href="../config/#operators"><code>operators</code></a>. Their signed delete request, in the same format as an owner's and sent the same way, deletes any channel: one whose owner's key is lost, one frozen by a login identity owner, or one with no owner. Operators don't own channels, and can't add or remove participants.</p>
 <h2 id="signed-formats">Signed formats</h2>
 <p>The default verifier expects an owner to be a <code>did:key</code> encoding an Ed25519 public key. Every signed statement is a JSON document whose <code>signature</code> is the standard, padded base64 encoding of an Ed25519 signature over its signed bytes: the UTF-8 bytes of a literal tag, then the fields listed, in that order, joined with a NUL byte, with no trailing NUL. Numbers are in decimal. <code>not_after</code> is in Unix seconds. <code>nonce</code> must be unique per statement. No field may contain a NUL byte.</p>
 <h3 id="grant">Grant</h3>
@@ -5370,7 +5809,7 @@
 <span class="w">  </span><span class="nt">&quot;signature&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;base64&gt;&quot;</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>Signed bytes: <code>SLIM-CHANNEL-GRANT/1</code>, <code>channel</code>, <code>invitee</code>, <code>action</code>, <code>role</code>, <code>not_after</code>, <code>nonce</code>. <code>role</code> is carried but not enforced.</p>
+<p>Signed bytes: <code>SLIM-CHANNEL-GRANT/1</code>, <code>channel</code>, <code>invitee</code>, <code>action</code>, <code>role</code>, <code>not_after</code>, <code>nonce</code>. <code>action</code> is <code>add</code> for <code>AddParticipant</code> and <code>delete</code> for <code>DeleteParticipant</code>, and must match the request the grant is used for. <code>role</code> is carried but not enforced.</p>
 <h3 id="create-request">Create request</h3>
 <p>A signed create request names its signer as <code>owner</code>, and the Channel Manager it is meant for as <code>audience</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
@@ -5386,7 +5825,7 @@
 <span class="p">}</span>
 </code></pre></div>
 <p>Signed bytes: <code>SLIM-CHANNEL-CREATE/1</code>, <code>audience</code>, <code>channel</code>, <code>owner</code>, <code>mls_enabled</code> (<code>true</code> or <code>false</code>), <code>ttl_seconds</code>, <code>owner_callback_name</code>, <code>not_after</code>, <code>nonce</code>.</p>
-<p><code>ttl_seconds</code> and <code>owner_callback_name</code> are optional. When unset, omit them from the JSON, and sign each as the empty string. The signature is checked with the key in <code>owner</code>, and <code>channel</code>, <code>mls_enabled</code>, <code>ttl_seconds</code> and <code>owner_callback_name</code> must equal the request's settings.</p>
+<p><code>ttl_seconds</code> and <code>owner_callback_name</code> are optional. When unset, omit them from the JSON, and sign each as the empty string. A present but empty <code>owner_callback_name</code> is rejected outright rather than treated as absent, because an empty name signs exactly the same bytes as no name at all and the two would otherwise be indistinguishable. The signature is checked with the key in <code>owner</code>, and <code>channel</code>, <code>mls_enabled</code>, <code>ttl_seconds</code> and <code>owner_callback_name</code> must equal the request's settings.</p>
 <p><code>audience</code> is the Channel Manager's <a href="../config/#audience"><code>audience</code></a>, its <code>local-name</code> by default, so a request signed for one Channel Manager is refused by another. <code>not_after</code> may be at most 24 hours ahead.</p>
 <h3 id="delete-request">Delete request</h3>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
@@ -5400,15 +5839,72 @@
 <p>Signed bytes: <code>SLIM-CHANNEL-DELETE/1</code>, <code>audience</code>, <code>channel</code>, <code>not_after</code>, <code>nonce</code>. The signature is checked against the channel's owner, then against each operator. As for a create request, <code>audience</code> must name this Channel Manager and <code>not_after</code> may be at most 24 hours ahead.</p>
 <h3 id="other-verifiers">Other verifiers</h3>
 <p>Deployments embedding the Channel Manager can plug in a different verifier for other formats or key schemes, for example one that resolves an agent's binding certificate to its human owner.</p>
-<h2 id="owner-approval">Owner approval</h2>
-<p>To ask the owner, the Channel Manager sends an <code>ApprovalRequest</code> over SLIM, using SlimRPC, to the owner's callback name: service <code>channel_manager.proto.v1.ChannelOwnerApproval</code>, method <code>RequestApproval</code>. The owner's endpoint replies with an <code>ApprovalResponse</code> carrying either a grant or a denial. Both messages are defined in the Channel Manager's protobuf definitions.</p>
-<p>The request comes from the SLIM name <code>&lt;local-name&gt;-approval</code>. The Channel Manager registers it with the credentials in <a href="../config/#approval-auth"><code>approval-auth</code></a> if set, and otherwise with the same credentials as its <code>local-name</code>. With a <code>jwt</code> <code>approval-auth</code>, owner endpoints can recognize the Channel Manager by its did:key even when it connects to SLIM as a SPIRE workload; it logs that did:key at startup as its owner approval identity.</p>
-<p>An owner endpoint should accept a request only from the Channel Manager, checked by its verified identity rather than by the sender's name or the request's <code>requester</code> field. In a SlimRPC handler that is <code>ctx.session().peer_identity()</code> (<code>peer_subject()</code> in the bindings): the subject of the identity token the Channel Manager's approval app set up the session with. It is set only for sessions using MLS, which SlimRPC calls do.</p>
-<p>Because the owner's endpoint connects to SLIM outbound, it needs no inbound ports. An owner who doesn't reply within 60 seconds, or can't be reached, has denied the request. A grant the owner returns is checked exactly like one carried in the request.</p>
-<h2 id="expiry">Expiry</h2>
-<p>A channel created with a <code>ttl_seconds</code> is deleted, along with its sessions' MLS state, within about 30 seconds after its time to live passes. <code>list-channels</code> shows when each channel expires.</p>
 <h2 id="restarts-and-replicas">Restarts and replicas</h2>
 <p>With <a href="../config/#persistence">persistence</a> configured, owners, expiry times and already-used grants survive a restart along with the channels. Run a single Channel Manager replica per state directory: replicas don't share this state.</p>
+<h2 id="vocabulary">Vocabulary</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Channel</td>
+<td>A SLIM group session the Channel Manager moderates, named <code>org/namespace/channel</code>.</td>
+</tr>
+<tr>
+<td>Moderator</td>
+<td>The participant that invites and removes members and drives MLS key rotation. Always the Channel Manager, for the channels it creates.</td>
+</tr>
+<tr>
+<td>Owner</td>
+<td>The key that signed a channel's create request. Authorizes every change to the channel.</td>
+</tr>
+<tr>
+<td>Operator</td>
+<td>A <code>did:key</code> in the configuration whose signed delete request deletes any channel. Cannot change participants.</td>
+</tr>
+<tr>
+<td>Grant</td>
+<td>A statement signed by the owner authorizing one participant change. Single-use, expiring.</td>
+</tr>
+<tr>
+<td>Signed request</td>
+<td>A statement signed by an owner or operator authorizing a create or a delete. Single-use, expiring, capped at 24 hours.</td>
+</tr>
+<tr>
+<td>Audience</td>
+<td>What a signed create or delete request must name as the Channel Manager it is for. Defaults to <code>local-name</code>.</td>
+</tr>
+<tr>
+<td>Callback name</td>
+<td>The SLIM name at which a channel's owner can be asked to approve a change. Set at creation.</td>
+</tr>
+<tr>
+<td>Approval app</td>
+<td>The <code>&lt;local-name&gt;-approval</code> SLIM application the Channel Manager sends approval requests from.</td>
+</tr>
+<tr>
+<td>Nonce</td>
+<td>A value unique to each signed statement, remembered once spent so the statement cannot be replayed.</td>
+</tr>
+<tr>
+<td>Requester</td>
+<td>The verified identity of whoever asked for a change, as reported to the owner in an approval request.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="../install/">Installation and Walkthrough</a> — Create, change and delete an owned channel end to end, with working code</li>
+<li><a href="../security/">Security Model</a> — Replay protection, operators and <code>require-signatures</code></li>
+<li><a href="../api/">API Reference</a> — Every RPC, message and error, and the RPCs these statements are carried in</li>
+<li><a href="../config/">Configuration Reference</a> — Every setting named on this page</li>
+<li><a href="../slimctl/">Managing Channels with slimctl</a> — Signing and forwarding statements from the command line</li>
+<li><a href="../../../architecture/sessions/group/">Groups</a> — The group communication model and the moderator role</li>
+</ul>
 
 
 
@@ -5446,7 +5942,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../config/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Configuration Reference">
+          <a href="../" class="md-footer__link md-footer__link--prev" aria-label="Previous: SLIM Channel Manager">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -5456,20 +5952,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Configuration Reference
+                SLIM Channel Manager
               </div>
             </div>
           </a>
         
         
           
-          <a href="../../cli/" class="md-footer__link md-footer__link--next" aria-label="Next: SLIM CLI">
+          <a href="../install/" class="md-footer__link md-footer__link--next" aria-label="Next: Installation and Walkthrough">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                SLIM CLI
+                Installation and Walkthrough
               </div>
             </div>
             <div class="md-footer__button md-icon">

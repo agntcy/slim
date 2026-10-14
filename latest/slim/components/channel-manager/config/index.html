@@ -11,10 +11,10 @@
         <link rel="canonical" href="https://agntcy.github.io/slim/latest/slim/components/channel-manager/config/">
       
       
-        <link rel="prev" href="../install/">
+        <link rel="prev" href="../security/">
       
       
-        <link rel="next" href="../ownership/">
+        <link rel="next" href="../api/">
       
       
         
@@ -1209,6 +1209,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1268,6 +1278,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts and Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../install/" class="md-nav__link">
         
   
@@ -1275,7 +1313,91 @@
   <span class="md-ellipsis">
     
   
-    Installation Guide
+    Installation and Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slimctl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Channels with slimctl
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security Model
   
 
     
@@ -1531,14 +1653,42 @@
   
   
     <li class="md-nav__item">
-      <a href="../ownership/" class="md-nav__link">
+      <a href="../api/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Ownership, Grants and Expiry
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations and Troubleshooting
   
 
     
@@ -5464,13 +5614,14 @@
 <span class="w">      </span><span class="nt">mls-enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agntcy/ns/broadcast&quot;</span>
-<span class="w">      </span><span class="nt">participants</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<span class="w">      </span><span class="nt">participants</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;agntcy/ns/subscriber-1&quot;</span>
 <span class="w">      </span><span class="nt">mls-enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 
 <span class="w">  </span><span class="c1"># ---------------------------------------------------------------------------</span>
 <span class="w">  </span><span class="c1"># persistence: optional state store so session state survives restarts.</span>
-<span class="w">  </span><span class="c1"># Both path and encryption-passphrase support ${ENV_VAR} and ${file:/path}</span>
-<span class="w">  </span><span class="c1"># substitution for secrets manager integration (Kubernetes Secret, Vault,</span>
+<span class="w">  </span><span class="c1"># Every string value in this file supports ${env:VAR} and ${file:/path}</span>
+<span class="w">  </span><span class="c1"># substitution, for secrets manager integration (Kubernetes Secret, Vault,</span>
 <span class="w">  </span><span class="c1"># External Secrets Operator, etc.).</span>
 <span class="w">  </span><span class="c1"># In production use a private directory with restrictive permissions and</span>
 <span class="w">  </span><span class="c1"># never store the passphrase in the config file directly.</span>
@@ -5515,7 +5666,7 @@
 <h3 id="local-name"><code>local-name</code></h3>
 <p>The SLIM name the Channel Manager registers as. Use a unique three-component name (<code>org/namespace/service</code>) per deployment to avoid conflicts if running multiple Channel Manager instances.</p>
 <h3 id="audience"><code>audience</code></h3>
-<p>Optional. The value an owner's signed create and delete requests must name as their <code>audience</code> (<a href="../ownership/#create-request">Channel Ownership, Grants and Expiry</a>), so a request signed for one Channel Manager can't be replayed against another. Defaults to <code>local-name</code>. Set it to a value unique to the deployment when several deployments share a <code>local-name</code>, for example development and production.</p>
+<p>Optional. The value an owner's signed create and delete requests must name as their <code>audience</code> (<a href="../ownership/#create-request">Concepts and Ownership</a>), so a request signed for one Channel Manager can't be replayed against another. Defaults to <code>local-name</code>. Set it to a value unique to the deployment when several deployments share a <code>local-name</code>, for example development and production.</p>
 <h3 id="require-signatures"><code>require-signatures</code></h3>
 <p>Optional, <code>false</code> by default. When <code>true</code>, the Channel Manager refuses a create request without the owner's signature, and refuses changes to channels that have no owner. Turn it on once every client signs its creates. See <a href="../ownership/#requiring-signatures">Requiring signatures</a>.</p>
 <h3 id="operators"><code>operators</code></h3>
@@ -5554,10 +5705,11 @@
 <p>Channels listed here are created at startup. For each channel:</p>
 <ul>
 <li><code>name</code> — the SLIM channel name (<code>org/namespace/channel</code>, three components)</li>
-<li><code>participants</code> — SLIM application names to invite; the Channel Manager performs discovery and the full invitation handshake for each</li>
+<li><code>participants</code> — SLIM application names to invite; the Channel Manager performs discovery and the full invitation handshake for each. At least one is required: an empty list is a configuration error</li>
 <li><code>mls-enabled</code> — whether to enable MLS end-to-end encryption for the channel (defaults to <code>true</code>)</li>
 </ul>
-<p>Channels can also be created and participants managed at runtime using <code>slimctl channel-manager</code> commands after the service is running.</p>
+<p>Declaring any channel here puts the Channel Manager in <strong>config mode</strong>, in which the configuration file is the single source of truth: every mutating API call is refused, for these channels and any other. Each declared channel's participants must be running and reachable at startup, or reconciliation fails and the Channel Manager exits. Channels have no owner and no expiry in this mode.</p>
+<p>Leave this section out to run in <strong>API mode</strong>, where channels are created through the API, owned by whoever signs the create request, and changed without restarting the service. See <a href="../ownership/#config-mode-and-api-mode">Config mode and API mode</a>.</p>
 <h3 id="persistence"><code>persistence</code></h3>
 <p>Optional. When present, channels survive a restart: the session layer keeps MLS group state and session records in an encrypted SQLite database under <code>path</code>, and the Channel Manager restores them on startup. Each channel's owner, its expiry time (for channels created with a TTL), and the grants already used against it are restored too, from a second encrypted database in the same directory, protected by the same passphrase. A channel whose TTL passed while the Channel Manager was down is deleted right after startup.</p>
 <ul>
@@ -5574,8 +5726,10 @@
 </div>
 <h2 id="related">Related</h2>
 <ul>
-<li><a href="../install/">Installation Guide</a> — Build and run the Channel Manager</li>
-<li><a href="../ownership/">Channel Ownership, Grants and Expiry</a> — Owners, grants and time to live for channels created through the API</li>
+<li><a href="../install/">Installation and Walkthrough</a> — Build and run the Channel Manager, and manage an owned channel</li>
+<li><a href="../ownership/">Concepts and Ownership</a> — The model behind these settings: owners, grants, operators and time to live</li>
+<li><a href="../security/">Security Model</a> — What each authentication option identifies, and what authorizes a change</li>
+<li><a href="../deploy/">Deployment Guide</a> — Choosing identities, an <code>audience</code> and persistence for a real deployment</li>
 <li><a href="../../../architecture/sessions/group/">Groups</a> — The group communication model and moderator role</li>
 <li><a href="../../../architecture/authentication/">Authentication</a> — TLS, mTLS, JWT, and SPIRE authentication options</li>
 </ul>
@@ -5616,7 +5770,7 @@
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../install/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Installation Guide">
+          <a href="../security/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Security Model">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -5626,20 +5780,20 @@
                 Previous
               </span>
               <div class="md-ellipsis">
-                Installation Guide
+                Security Model
               </div>
             </div>
           </a>
         
         
           
-          <a href="../ownership/" class="md-footer__link md-footer__link--next" aria-label="Next: Ownership, Grants and Expiry">
+          <a href="../api/" class="md-footer__link md-footer__link--next" aria-label="Next: API Reference">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Ownership, Grants and Expiry
+                API Reference
               </div>
             </div>
             <div class="md-footer__button md-icon">

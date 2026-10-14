@@ -14,7 +14,7 @@
         <link rel="prev" href="../controller/config/">
       
       
-        <link rel="next" href="install/">
+        <link rel="next" href="ownership/">
       
       
         
@@ -1209,6 +1209,16 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1268,6 +1278,34 @@
   
   
     <li class="md-nav__item">
+      <a href="ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts and Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="install/" class="md-nav__link">
         
   
@@ -1275,7 +1313,91 @@
   <span class="md-ellipsis">
     
   
-    Installation Guide
+    Installation and Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="slimctl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Channels with slimctl
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="deploy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security Model
   
 
     
@@ -1324,14 +1446,42 @@
   
   
     <li class="md-nav__item">
-      <a href="ownership/" class="md-nav__link">
+      <a href="api/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Ownership, Grants and Expiry
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="operations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations and Troubleshooting
   
 
     
@@ -4878,6 +5028,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#in-this-section" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In This Section
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#related" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5006,38 +5167,43 @@
 
 
 <h1 id="slim-channel-manager">SLIM Channel Manager</h1>
-<p>The SLIM Channel Manager is a standalone service that acts as the <strong>moderator</strong> for SLIM group channels. It connects to a SLIM data plane node as a regular application, creates and manages group sessions, and exposes a gRPC API so operators can control channel membership without modifying application code.</p>
+<p>The SLIM Channel Manager is a standalone service that acts as the <strong>moderator</strong> for SLIM group channels. It connects to a SLIM data plane node as a regular application, creates and manages group sessions, and exposes a gRPC API so channels can be created and their membership changed without modifying application code.</p>
 <h2 id="what-the-channel-manager-does">What the Channel Manager Does</h2>
-<p>Every SLIM group channel requires a moderator — the participant that controls membership. The Channel Manager takes that role on behalf of the operator:</p>
+<p>Every SLIM group channel requires a moderator — the participant that controls membership. The Channel Manager takes that role on behalf of others:</p>
 <ul>
 <li>Connects to a SLIM node and registers itself as a named SLIM application</li>
 <li>Creates group sessions (channels) and invites participants to them</li>
 <li>Maintains the moderator role for the lifetime of each channel</li>
 <li>Exposes a gRPC management API on a configurable local port</li>
-<li>Accepts commands from <code>slimctl channel-manager</code> to add and remove participants at runtime</li>
+<li>Verifies that each change is authorized by the channel's owner</li>
 <li>Optionally creates pre-configured channels and invites participants on startup</li>
 </ul>
-<p>Because the Channel Manager is an independent service, application code never needs to implement moderation logic. Teams can provision groups and adjust membership using <code>slimctl</code> commands as part of normal operations.</p>
+<p>Because the Channel Manager is an independent service, application code never needs to implement moderation logic. Applications that hold a channel owner's key manage their own channels through the API, and administrators provision channels with <code>slimctl</code> as part of normal operations.</p>
 <h2 id="architecture">Architecture</h2>
 <pre class="mermaid"><code>graph LR
-    slimctl["slimctl\nchannel-manager"] -- "gRPC :10356" --&gt; cm["Channel Manager"]
-    cm -- "SLIM protocol\n:46357" --&gt; node["SLIM Node"]
-    node --&gt; app1["App A"]
-    node --&gt; app2["App B"]
-    node --&gt; app3["App C"]</code></pre>
-<p>The Channel Manager sits between the operator tooling (<code>slimctl</code>) and the SLIM data plane:</p>
+    app["Application&lt;br/&gt;holding an owner's key"] -- "gRPC :10356" --&gt; cm
+    admin["slimctl&lt;br/&gt;channel-manager"] -- "gRPC :10356" --&gt; cm
+    cm["Channel Manager"] -- "SLIM protocol&lt;br/&gt;:46357" --&gt; node["SLIM Node"]
+    cm -. "owner approval&lt;br/&gt;over SLIM" .-&gt; owner["Owner endpoint"]
+    node --- app1["App A"]
+    node --- app2["App B"]
+    node --- owner</code></pre>
+<p>The Channel Manager sits between its callers and the SLIM data plane:</p>
 <ol>
 <li><strong>Southbound</strong> — connects to the SLIM data plane node as a SLIM application (gRPC or WebSocket transport, same as any other app)</li>
-<li><strong>Northbound</strong> — exposes a gRPC API (<code>ChannelManagerService</code>) that <code>slimctl channel-manager</code> uses to send management commands</li>
+<li><strong>Northbound</strong> — exposes a gRPC API (<code>ChannelManagerService</code>) that applications and <code>slimctl channel-manager</code> use to create channels and change their membership</li>
+<li><strong>Owner approval</strong> — a second SLIM application, <code>&lt;local-name&gt;-approval</code>, through which it asks a channel's owner to approve a change nobody holds a grant for</li>
 </ol>
-<p>The Channel Manager holds the moderator role for every channel it creates. When a participant is added or removed, it performs the full SLIM group state update and key rotation sequence on behalf of the operator.</p>
+<p>It holds the moderator role for every channel it creates: when a participant is added or removed, it performs the full SLIM group state update and MLS key rotation. What it does not hold is authority over those channels. A channel's owner is whoever signed its create request, identified by their key, and every change to an owned channel carries that owner's signature — which the Channel Manager verifies but cannot produce.</p>
 <h2 id="key-features">Key Features</h2>
-<p><strong>Startup channel provisioning</strong> — channels and their initial participants can be declared in the configuration file. The Channel Manager creates them and completes all invitation handshakes automatically when it starts.</p>
-<p><strong>Two management modes</strong> — the Channel Manager operates in either config-mode or API-mode, mirroring the Controller's topology model. When channels are declared in the configuration file (config-mode), the API refuses changes to them. When no channels are pre-configured (API-mode), applications create channels and change their participants at any time through the Channel Manager's gRPC API, with the channel owner's signature, without restarting the service.</p>
-<p><strong>MLS encryption</strong> — channels are created with MLS end-to-end encryption enabled by default. Each membership change triggers a key rotation, so former members cannot read future messages and new members cannot read past messages. MLS can be disabled per-channel if not required.</p>
+<p><strong>Two management modes</strong> — the Channel Manager operates in either config mode or API mode, mirroring the Controller's topology model. When channels are declared in the configuration file (config mode), the API refuses changes to them. When no channels are pre-configured (API mode), applications create channels and change their participants at any time through the gRPC API, with the channel owner's signature, without restarting the service.</p>
+<p><strong>Channel ownership</strong> — a channel created through the API is owned by whoever signed the create request. Participant changes need a grant from that owner, deletion needs their signed request, and the caller's authenticated identity never makes anyone an owner.</p>
+<p><strong>Owner approval</strong> — when a change is requested without a grant, the Channel Manager can ask the channel's owner over SLIM and wait for a signed answer, so an owner stays in the loop without having to anticipate every change.</p>
+<p><strong>Expiry</strong> — a channel can be created with a time to live, after which it and its MLS state are deleted automatically.</p>
+<p><strong>MLS encryption</strong> — channels are created with MLS end-to-end encryption enabled by default. Each membership change triggers a key rotation, so former members cannot read future messages and new members cannot read past messages. MLS can be disabled per channel if not required.</p>
 <p><strong>Authentication</strong> — the Channel Manager authenticates using the same options as any SLIM application: shared secret (development), JWT, or SPIRE (production).</p>
 <h2 id="managing-channels-with-slimctl">Managing Channels with slimctl</h2>
-<p>Applications holding a channel owner's key, such as SHADI, use the Channel Manager's gRPC API. Without one, the Channel Manager's admin uses <code>slimctl channel-manager</code> (alias <code>cm</code>) with an Ed25519 key, which signs every change: see <a href="ownership/">Channel Ownership, Grants and Expiry</a>. The default API endpoint is <code>127.0.0.1:10356</code>.</p>
+<p>Applications holding a channel owner's key, such as SHADI, use the Channel Manager's gRPC API. Without one, the Channel Manager's administrator uses <code>slimctl channel-manager</code> (alias <code>cm</code>) with an Ed25519 key, which signs every change: see <a href="slimctl/">Managing Channels with slimctl</a>. The default API endpoint is <code>127.0.0.1:10356</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># The admin key&#39;s did:key, to list in the config&#39;s operators</span>
 slimctl<span class="w"> </span>channel-manager<span class="w"> </span>did-key<span class="w"> </span>--key<span class="w"> </span>admin.pem
 
@@ -5055,14 +5221,23 @@ slimctl<span class="w"> </span>channel-manager<span class="w"> </span>list-parti
 <span class="c1"># Delete the channel</span>
 slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-channel<span class="w"> </span>agntcy/ns/team-chat<span class="w"> </span>--key<span class="w"> </span>admin.pem<span class="w"> </span>--audience<span class="w"> </span>agntcy/ns/channel-manager
 </code></pre></div>
-<p>Connect to a non-default endpoint with <code>--endpoint</code>:</p>
-<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>--endpoint<span class="w"> </span>http://192.168.1.100:10356<span class="w"> </span>list-channels
+<p>Connect to a non-default endpoint with <code>--server</code>:</p>
+<div class="highlight"><pre><span></span><code>slimctl<span class="w"> </span>channel-manager<span class="w"> </span>--server<span class="w"> </span><span class="m">192</span>.168.1.100:10356<span class="w"> </span>list-channels
 </code></pre></div>
+<h2 id="in-this-section">In This Section</h2>
+<ul>
+<li><a href="ownership/">Concepts and Ownership</a> — What the Channel Manager is and is not, config mode and API mode, owners, grants, operators and expiry, and the signed wire formats</li>
+<li><a href="install/">Installation and Walkthrough</a> — Build and run the Channel Manager, then create an owned channel, change its participants and delete it, with working code</li>
+<li><a href="config/">Configuration Reference</a> — All configuration options</li>
+<li><a href="security/">Security Model</a> — What each auth option identifies, and what authorizes a change</li>
+<li><a href="api/">API Reference</a> — Every RPC, message, error and the owner approval contract</li>
+<li><a href="slimctl/">Managing Channels with slimctl</a> — The administrator's guide</li>
+<li><a href="deploy/">Deployment Guide</a> — Containers, Kubernetes, identities, persistence and upgrades</li>
+<li><a href="operations/">Operations and Troubleshooting</a> — Logs, inspection and every error message</li>
+</ul>
 <h2 id="related">Related</h2>
 <ul>
 <li><a href="../../architecture/sessions/group/">Groups</a> — The group communication model and the moderator role</li>
-<li><a href="install/">Installation Guide</a> — Build and run the Channel Manager</li>
-<li><a href="config/">Configuration Reference</a> — All configuration options</li>
 <li><a href="../sdk/tutorials/tutorial-session/">Creating a Session</a> — Create a group session and invite participants via the Channel Manager</li>
 <li><a href="../sdk/tutorials/tutorial-receive/">Receiving a Session</a> — Listen for session invitations and receive messages</li>
 </ul>
@@ -5120,13 +5295,13 @@ slimctl<span class="w"> </span>channel-manager<span class="w"> </span>delete-cha
         
         
           
-          <a href="install/" class="md-footer__link md-footer__link--next" aria-label="Next: Installation Guide">
+          <a href="ownership/" class="md-footer__link md-footer__link--next" aria-label="Next: Concepts and Ownership">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Installation Guide
+                Concepts and Ownership
               </div>
             </div>
             <div class="md-footer__button md-icon">
