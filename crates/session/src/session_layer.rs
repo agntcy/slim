@@ -14,8 +14,8 @@ use tokio::sync::Semaphore;
 use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
-#[cfg(not(target_arch = "wasm32"))]
 use slim_auth::identity_binding::IdentityBinding;
+#[cfg(not(target_arch = "wasm32"))]
 use slim_auth::traits::ExportedIdentity;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::{
