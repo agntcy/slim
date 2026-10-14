@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -19,6 +20,8 @@ use tokio::sync::oneshot;
 
 use tracing::debug;
 
+use crate::identity_check::{binding_mismatch, same_name};
+use crate::name_id;
 use crate::{
     common::{MessageDirection, SessionMessage, SessionOutput},
     errors::SessionError,
@@ -802,10 +805,12 @@ where
 
         // now the moderator is busy - create the task first
         debug!("Create AddParticipant task with ack_tx");
-        self.current_task = Some(ModeratorTask::Add(AddParticipant::new(ack_tx)));
+        let new_participant_name = msg.get_dst();
+        self.current_task = Some(ModeratorTask::Add(
+            AddParticipant::new(ack_tx).with_invited(new_participant_name.clone()),
+        ));
 
         // check if the participant is already part of the group
-        let new_participant_name = msg.get_dst();
         if self.group_list.contains_key(&new_participant_name) {
             let err = SessionError::ParticipantAlreadyInGroup(Box::new(new_participant_name));
             return Err(self.handle_task_error(err));
@@ -849,6 +854,10 @@ where
             id = msg.get_id(),
             "discovery reply",
         );
+        if self.rejects_discovery_reply(&msg) {
+            return Ok(SessionOutput::new());
+        }
+
         // update sender status to stop timers
         let mut output = self.common.sender.on_message(&msg)?;
 
@@ -935,6 +944,13 @@ where
             id = msg_id,
             "send join request",
         );
+        if let Some(add) = self
+            .current_task
+            .as_mut()
+            .and_then(ModeratorTask::as_add_mut)
+        {
+            add.joining = Some(Box::new(msg.get_source()));
+        }
         output.extend(self.common.send_control_message(
             &msg.get_slim_header().get_source(),
             ProtoSessionMessageType::JoinRequest,
@@ -951,12 +967,78 @@ where
         Ok(output)
     }
 
+    /// Whether to drop a discovery reply that isn't from the invited name: it
+    /// must have the same readable name and, if the invite named one, the same
+    /// id.
+    fn rejects_discovery_reply(&self, msg: &Message) -> bool {
+        let Some(invited) = self
+            .current_task
+            .as_ref()
+            .and_then(ModeratorTask::as_add)
+            .and_then(|t| t.invited.as_deref())
+        else {
+            return false;
+        };
+        let source = msg.get_source();
+        let id_matches = invited.id() == NameId::NULL_COMPONENT || invited.id() == source.id();
+        !(invited.match_prefix(&source) && id_matches)
+            && binding_mismatch(
+                self.common.settings.identity_binding,
+                "discovery reply from a name that wasn't invited",
+                msg,
+                None,
+            )
+    }
+
+    /// Whether to drop a join reply that isn't from the invited peer: it must
+    /// come from the name the join request went to, name that participant in
+    /// its payload, and, with MLS, carry a key package whose identity derives
+    /// that name id.
+    async fn rejects_join_reply(&self, msg: &Message) -> Result<bool, SessionError> {
+        let mode = self.common.settings.identity_binding;
+        if mode == IdentityBinding::Off {
+            return Ok(false);
+        }
+        let source = msg.get_source();
+        let joining = self
+            .current_task
+            .as_ref()
+            .and_then(ModeratorTask::as_add)
+            .and_then(|t| t.joining.as_deref());
+        if joining.is_some_and(|joining| !same_name(joining, &source)) {
+            let what = "join reply from a name the join request didn't go to";
+            return Ok(binding_mismatch(mode, what, msg, None));
+        }
+        let named = msg
+            .extract_join_reply()
+            .ok()
+            .and_then(|reply| reply.participant.as_ref())
+            .and_then(|participant| participant.get_name().ok());
+        if !named.is_some_and(|named| same_name(&named, &source)) {
+            let what = "join reply naming a participant other than its sender";
+            return Ok(binding_mismatch(mode, what, msg, None));
+        }
+        if let Some(mls_state) = &self.mls_state {
+            let identity = maybe_await!(mls_state.joiner_identity(msg))?;
+            let sub = String::from_utf8_lossy(&identity);
+            if name_id::app_id(&sub) != source.id() {
+                let what = "join reply whose key package identity doesn't derive its name id";
+                return Ok(binding_mismatch(mode, what, msg, Some(&sub)));
+            }
+        }
+        Ok(false)
+    }
+
     async fn on_join_reply(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
             "join reply",
         );
+        if self.rejects_join_reply(&msg).await? {
+            return Ok(SessionOutput::new());
+        }
+
         // stop the timer for the join request
         let mut output = self.common.sender.on_message(&msg)?;
 
@@ -2084,6 +2166,7 @@ mod tests {
             kv_store: None,
             group_storage: None,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
         };
         let mut moderator = SessionModerator::new(MockInnerHandler::new(), settings);
         moderator.init().await.unwrap();
@@ -2183,6 +2266,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };
@@ -2383,6 +2467,184 @@ mod tests {
         moderator.remove_endpoint(&endpoint_name);
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         assert_eq!(moderator.inner.get_endpoints_removed_count().await, 1);
+    }
+
+    /// A reply of `kind` from `source`; a JoinReply names `participant`.
+    fn reply_from(
+        source: ProtoName,
+        kind: ProtoSessionMessageType,
+        participant: Option<ProtoName>,
+    ) -> Message {
+        let payload = match participant {
+            Some(name) => CommandPayload::builder()
+                .join_reply(
+                    None,
+                    Participant::new(name, ParticipantSettings::bidirectional()),
+                )
+                .as_content(),
+            None => CommandPayload::builder().discovery_reply().as_content(),
+        };
+        Message::builder()
+            .source(source)
+            .destination(make_name(&["local", "moderator", "v1"]).with_id(100))
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(12345)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(kind)
+            .session_id(1)
+            .message_id(7)
+            .payload(payload)
+            .build_publish()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn only_the_invited_name_may_answer_discovery() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.common.settings.identity_binding = IdentityBinding::Enforce;
+        // A readable name, with no id.
+        let supplier = ProtoName::from_strings(["org", "ns", "supplier"]);
+        let discovery = |source| reply_from(source, ProtoSessionMessageType::DiscoveryReply, None);
+
+        // Invited without an id: any id under that readable name.
+        moderator.current_task = Some(ModeratorTask::Add(
+            AddParticipant::new(None).with_invited(supplier.clone()),
+        ));
+        assert!(!moderator.rejects_discovery_reply(&discovery(supplier.clone().with_id(42))));
+        let other = make_name(&["org", "ns", "mallory"]).with_id(42);
+        assert!(moderator.rejects_discovery_reply(&discovery(other)));
+
+        // Invited with an id: only that id.
+        moderator.current_task = Some(ModeratorTask::Add(
+            AddParticipant::new(None).with_invited(supplier.clone().with_id(42)),
+        ));
+        assert!(!moderator.rejects_discovery_reply(&discovery(supplier.clone().with_id(42))));
+        assert!(moderator.rejects_discovery_reply(&discovery(supplier.clone().with_id(43))));
+
+        // Under warn, a mismatch is only logged.
+        moderator.common.settings.identity_binding = IdentityBinding::Warn;
+        assert!(!moderator.rejects_discovery_reply(&discovery(supplier.with_id(43))));
+    }
+
+    #[tokio::test]
+    async fn a_join_reply_must_come_from_and_name_the_peer_the_join_went_to() {
+        let (mut moderator, _rx_slim, _rx_session_layer) = setup_moderator();
+        moderator.common.settings.identity_binding = IdentityBinding::Enforce;
+        let supplier = make_name(&["org", "ns", "supplier"]).with_id(42);
+        let other = make_name(&["org", "ns", "supplier"]).with_id(43);
+        let mut task =
+            AddParticipant::new(None).with_invited(make_name(&["org", "ns", "supplier"]));
+        task.joining = Some(Box::new(supplier.clone()));
+        moderator.current_task = Some(ModeratorTask::Add(task));
+        let join = |source: &ProtoName, named: &ProtoName| {
+            reply_from(
+                source.clone(),
+                ProtoSessionMessageType::JoinReply,
+                Some(named.clone()),
+            )
+        };
+
+        let from_supplier = join(&supplier, &supplier);
+        assert!(!moderator.rejects_join_reply(&from_supplier).await.unwrap());
+        // From a name the join request didn't go to.
+        let from_other = join(&other, &other);
+        assert!(moderator.rejects_join_reply(&from_other).await.unwrap());
+        // From the right name, but naming another participant.
+        let naming_other = join(&supplier, &other);
+        assert!(moderator.rejects_join_reply(&naming_other).await.unwrap());
+
+        moderator.common.settings.identity_binding = IdentityBinding::Warn;
+        assert!(
+            !moderator
+                .rejects_join_reply(&join(&other, &other))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn with_mls_a_join_reply_needs_a_key_package_for_its_name_id() {
+        use slim_auth::shared_secret::SharedSecret;
+        use slim_mls::mls::Mls;
+        const SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let readable = make_name(&["remote", "participant", "v1"]);
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, _rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+        let settings = SessionSettings {
+            id: 1,
+            source: source.clone(),
+            destination: readable.clone(),
+            control: readable.clone(),
+            config: SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                max_retries: Some(3),
+                interval: Some(std::time::Duration::from_secs(1)),
+                mls_settings: Some(MlsSettings::default()),
+                initiator: true,
+                metadata: Default::default(),
+            },
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim.clone(),
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: SharedSecret::new("moderator", SECRET).unwrap(),
+            identity_verifier: SharedSecret::new("moderator", SECRET).unwrap(),
+            graceful_shutdown_timeout: None,
+            subscription_manager: crate::subscription_manager::SubscriptionManager::new(tx_slim),
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
+            enforce_pqc: false,
+            identity_binding: IdentityBinding::Enforce,
+        };
+        let mut moderator = SessionModerator::new(MockInnerHandler::new(), settings);
+        moderator.init().await.unwrap();
+
+        // A member's key package, carrying the member's own identity.
+        let member = SharedSecret::new("member", SECRET).unwrap();
+        let mut member_mls = Mls::new(member.clone(), member.clone());
+        member_mls.initialize().await.unwrap();
+        let key_package = member_mls.generate_key_package().unwrap();
+        let member_name = readable
+            .clone()
+            .with_id(name_id::app_id(&member.get_id().unwrap()));
+        let other_name = readable.with_id(7);
+
+        // The same key package, from the name its identity derives or another.
+        for (name, rejected) in [(&member_name, false), (&other_name, true)] {
+            let mut task = AddParticipant::new(None);
+            task.joining = Some(Box::new(name.clone()));
+            moderator.current_task = Some(ModeratorTask::Add(task));
+            let reply = Message::builder()
+                .source(name.clone())
+                .destination(source.clone())
+                .identity("")
+                .forward_to(0)
+                .incoming_conn(1)
+                .session_type(ProtoSessionType::PointToPoint)
+                .session_message_type(ProtoSessionMessageType::JoinReply)
+                .session_id(1)
+                .message_id(7)
+                .payload(
+                    CommandPayload::builder()
+                        .join_reply(
+                            Some(key_package.clone()),
+                            Participant::new(name.clone(), ParticipantSettings::bidirectional()),
+                        )
+                        .as_content(),
+                )
+                .build_publish()
+                .unwrap();
+            let result = moderator.rejects_join_reply(&reply).await.unwrap();
+            assert_eq!(result, rejected, "join reply from {name}");
+        }
     }
 
     #[tokio::test]
@@ -2591,6 +2853,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };
@@ -2675,6 +2938,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };
@@ -2827,6 +3091,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };
@@ -3636,6 +3901,7 @@ mod tests {
             kv_store: None,
             group_storage: None,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
         };
 
         let inner = MockInnerHandler::new();
@@ -3874,6 +4140,7 @@ mod tests {
             service_id: String::new(),
             max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };
