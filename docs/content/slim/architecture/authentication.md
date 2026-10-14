@@ -28,6 +28,7 @@ The credential does not authenticate the application *to the SLIM node* as in a 
 An application's name id, the last component of its name, is the XXH3-128 hash of its identity, and a multicast channel's ids are derived from its moderator's identity. Sessions check these against the identities they verify:
 
 - **Control messages:** every control message is verified, with or without MLS, and its sender's name id must be the one its verified identity derives.
+- **Payloads:** a control message's payload and metadata are signed too, with the key that signs its header, except trace context that nodes add in transit. A payload that doesn't match its signature is always refused; one without a signature comes from an older peer.
 - **Invites:** a moderator accepts replies only from the name it invited, and the join reply must name its sender and, with MLS, carry a key package for that same identity. An invitee joins only a channel derived from the moderator's verified identity.
 - **Membership:** a participant accepts group updates, removals, welcomes, the group's close and further invites only from its moderator, and a member may announce only its own state.
 - **Data messages:** with MLS, a message's source name id must be the one its MLS sender's identity derives, so a group member can't send under another member's name.
