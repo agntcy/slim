@@ -42,22 +42,22 @@ resolver = "2"
 [workspace.dependencies]
 # Local dependencies
 agntcy-slim = { path = "crates/slim", version = "3.4.0" }
-agntcy-slim-auth = { path = "crates/auth", version = "0.17.4" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.17.5" }
 agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.4.0" }
 agntcy-slim-channel-manager = { path = "crates/channel-manager", version = "3.4.0" }
-agntcy-slim-config = { path = "crates/config", version = "0.17.4" }
+agntcy-slim-config = { path = "crates/config", version = "0.17.5" }
 agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.4.0" }
-agntcy-slim-controller = { path = "crates/controller", version = "0.13.10" }
-agntcy-slim-datapath = { path = "crates/datapath", version = "0.19.8" }
-agntcy-slim-mls = { path = "crates/mls", version = "0.4.8" }
+agntcy-slim-controller = { path = "crates/controller", version = "0.13.11" }
+agntcy-slim-datapath = { path = "crates/datapath", version = "0.19.9" }
+agntcy-slim-mls = { path = "crates/mls", version = "0.4.9" }
 agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.0" }
-agntcy-slim-proto = { path = "crates/proto", version = "0.8.2" }
+agntcy-slim-proto = { path = "crates/proto", version = "0.8.3" }
 agntcy-slim-rpc = { path = "crates/rpc", version = "3.4.0" }
-agntcy-slim-service = { path = "crates/service", version = "0.13.8", default-features = false }
-agntcy-slim-session = { path = "crates/session", version = "0.7.20" }
+agntcy-slim-service = { path = "crates/service", version = "0.13.9", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.7.21" }
 agntcy-slim-signal = { path = "crates/signal", version = "0.1.34" }
 agntcy-slim-testing = { path = "crates/testing" }
-agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.30" }
+agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.31" }
 agntcy-slim-version = { path = "crates/version", version = "3.4.0" }
 agntcy-slimctl = { path = "crates/slimctl", version = "3.4.0" }
 anyhow = "1.0.103"

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.1](https://github.com/agntcy/slim/compare/slimctl-v3.4.0...slimctl-v3.4.1) - 2026-10-14
+
+### Other
+
+- updated the following local packages: agntcy-slim-auth, agntcy-slim-session, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-service, agntcy-slim, agntcy-slim-channel-manager
+
 ## [3.3.1](https://github.com/agntcy/slim/compare/slimctl-v3.3.0...slimctl-v3.3.1) - 2026-10-13
 
 ### Fixed
