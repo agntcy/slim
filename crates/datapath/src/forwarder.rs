@@ -11,7 +11,7 @@ use super::tables::{ConnType, MatchFilter};
 use crate::api::{EncodedName, ProtoName};
 use crate::connection::Connection;
 use crate::errors::DataPathError;
-use crate::logical_connection::{LogicalConnectionTable, SubConnPolicy};
+use crate::logical_connection::LogicalConnectionTable;
 use crate::tables::default_gateway::{DefaultGateway, Gateway};
 use tracing::debug;
 
@@ -68,14 +68,8 @@ where
     ///
     /// Returns the logical id that routing state for this connection must be
     /// registered under.
-    pub fn attach_sub_connection(
-        &self,
-        conn_index: u64,
-        group_key: &str,
-        policy: SubConnPolicy,
-    ) -> u64 {
-        self.logical_connections
-            .attach(conn_index, group_key, policy)
+    pub fn attach_sub_connection(&self, conn_index: u64, group_key: &str) -> u64 {
+        self.logical_connections.attach(conn_index, group_key)
     }
 
     /// The routing id for `conn_index` — its logical connection when grouped,
@@ -84,10 +78,17 @@ where
         self.logical_connections.resolve(conn_index)
     }
 
-    /// The physical connections a message addressed to `id` should be written to,
-    /// after applying the logical connection's sub-connection policy.
-    pub fn select_sub_connections(&self, id: u64, affinity_key: Option<u64>) -> Vec<u64> {
-        self.logical_connections.select(id, affinity_key)
+    /// The physical connection a message addressed to `id` should be written to.
+    pub fn select_sub_connection(&self, id: u64) -> Option<u64> {
+        self.logical_connections.select(id)
+    }
+
+    /// Physical connection ids that back `id`.
+    ///
+    /// Route listing and other connection-table lookups must use these, because
+    /// logical ids are not stored in [`ConnectionTable`].
+    pub fn physical_ids(&self, id: u64) -> Vec<u64> {
+        self.logical_connections.sub_conns(id)
     }
 
     /// Tear down state for a dropped physical connection.

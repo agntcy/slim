@@ -16,7 +16,7 @@
 use slim_datapath::api::{EncodedName, ProtoName as Name};
 use slim_datapath::errors::DataPathError;
 use slim_datapath::forwarder::Forwarder;
-use slim_datapath::logical_connection::{SubConnPolicy, is_logical};
+use slim_datapath::logical_connection::is_logical;
 use slim_datapath::tables::{ConnType, MatchFilter};
 
 /// A forwarder whose connection payloads are plain integers — the tests only
@@ -38,9 +38,9 @@ fn enc(name: &Name) -> EncodedName {
 fn sub_connections_of_one_peer_share_a_single_routing_id() {
     let fwd = forwarder();
 
-    let l1 = fwd.attach_sub_connection(1, "peer-a", SubConnPolicy::RoundRobin);
-    let l2 = fwd.attach_sub_connection(2, "peer-a", SubConnPolicy::RoundRobin);
-    let l3 = fwd.attach_sub_connection(3, "peer-a", SubConnPolicy::RoundRobin);
+    let l1 = fwd.attach_sub_connection(1, "peer-a");
+    let l2 = fwd.attach_sub_connection(2, "peer-a");
+    let l3 = fwd.attach_sub_connection(3, "peer-a");
 
     assert_eq!(
         l1, l2,
@@ -54,7 +54,7 @@ fn sub_connections_of_one_peer_share_a_single_routing_id() {
     }
 
     // A different peer is a different logical connection.
-    let other = fwd.attach_sub_connection(4, "peer-b", SubConnPolicy::RoundRobin);
+    let other = fwd.attach_sub_connection(4, "peer-b");
     assert_ne!(other, l1);
 }
 
@@ -65,8 +65,8 @@ fn same_subscription_on_two_sub_connections_is_one_entry() {
     let fwd = forwarder();
     let name = multicast();
 
-    fwd.attach_sub_connection(1, "peer-a", SubConnPolicy::RoundRobin);
-    fwd.attach_sub_connection(2, "peer-a", SubConnPolicy::RoundRobin);
+    fwd.attach_sub_connection(1, "peer-a");
+    fwd.attach_sub_connection(2, "peer-a");
 
     // App A subscribes; its subscription travels over sub-connection 1.
     let created = fwd
@@ -105,8 +105,8 @@ fn message_is_not_forwarded_back_to_a_sibling_sub_connection() {
     let fwd = forwarder();
     let name = multicast();
 
-    fwd.attach_sub_connection(1, "peer-a", SubConnPolicy::RoundRobin);
-    fwd.attach_sub_connection(2, "peer-a", SubConnPolicy::RoundRobin);
+    fwd.attach_sub_connection(1, "peer-a");
+    fwd.attach_sub_connection(2, "peer-a");
 
     fwd.on_subscription_msg(name.clone(), 1, ConnType::Remote, true, 1)
         .unwrap();
@@ -133,9 +133,9 @@ fn other_peers_still_receive_messages_from_an_excluded_peer() {
     let fwd = forwarder();
     let name = multicast();
 
-    fwd.attach_sub_connection(1, "peer-a", SubConnPolicy::RoundRobin);
-    fwd.attach_sub_connection(2, "peer-a", SubConnPolicy::RoundRobin);
-    let peer_b = fwd.attach_sub_connection(3, "peer-b", SubConnPolicy::RoundRobin);
+    fwd.attach_sub_connection(1, "peer-a");
+    fwd.attach_sub_connection(2, "peer-a");
+    let peer_b = fwd.attach_sub_connection(3, "peer-b");
 
     fwd.on_subscription_msg(name.clone(), 1, ConnType::Remote, true, 1)
         .unwrap();
@@ -168,7 +168,8 @@ fn ungrouped_connections_are_unchanged() {
         "an ungrouped id is its own routing id"
     );
     assert!(!is_logical(7));
-    assert_eq!(fwd.select_sub_connections(7, None), vec![7]);
+    assert_eq!(fwd.select_sub_connection(7), Some(7));
+    assert_eq!(fwd.physical_ids(7), vec![7]);
 
     fwd.on_subscription_msg(name.clone(), 7, ConnType::Remote, true, 1)
         .unwrap();
@@ -183,38 +184,18 @@ fn ungrouped_connections_are_unchanged() {
     assert!(matches!(res, Err(DataPathError::NoMatchEncoded(..))));
 }
 
-/// Criterion 4: the send path expands a logical connection according to the
-/// configured policy.
+/// Sends use one live sub-connection. Route listing expands the logical id to
+/// every remaining physical socket, because logical ids are not in the
+/// connection table.
 #[test]
-fn policy_controls_which_sub_connections_a_send_uses() {
-    // Round robin spreads consecutive sends across all sub-connections.
+fn send_uses_one_sub_connection_and_listing_expands_to_physical_ids() {
     let fwd = forwarder();
-    let rr = fwd.attach_sub_connection(1, "peer-a", SubConnPolicy::RoundRobin);
-    fwd.attach_sub_connection(2, "peer-a", SubConnPolicy::RoundRobin);
-    fwd.attach_sub_connection(3, "peer-a", SubConnPolicy::RoundRobin);
+    let logical = fwd.attach_sub_connection(1, "peer-a");
+    fwd.attach_sub_connection(2, "peer-a");
+    fwd.attach_sub_connection(3, "peer-a");
 
-    let picks: Vec<u64> = (0..6)
-        .map(|_| {
-            let sel = fwd.select_sub_connections(rr, None);
-            assert_eq!(sel.len(), 1, "round robin sends one copy");
-            sel[0]
-        })
-        .collect();
-    assert_eq!(picks, vec![1, 2, 3, 1, 2, 3]);
-
-    // Redundant sends one copy on every sub-connection.
-    let fwd = forwarder();
-    let red = fwd.attach_sub_connection(1, "peer-b", SubConnPolicy::Redundant);
-    fwd.attach_sub_connection(2, "peer-b", SubConnPolicy::Redundant);
-    fwd.attach_sub_connection(3, "peer-b", SubConnPolicy::Redundant);
-
-    let mut all = fwd.select_sub_connections(red, None);
-    all.sort_unstable();
-    assert_eq!(
-        all,
-        vec![1, 2, 3],
-        "redundant duplicates onto every sub-conn"
-    );
+    assert_eq!(fwd.select_sub_connection(logical), Some(1));
+    assert_eq!(fwd.physical_ids(logical), vec![1, 2, 3]);
 }
 
 /// Dropping one sub-connection must not tear down the peer's subscriptions,
@@ -225,8 +206,8 @@ fn subscriptions_survive_until_the_last_sub_connection_drops() {
     let fwd = forwarder();
     let name = multicast();
 
-    fwd.attach_sub_connection(1, "peer-a", SubConnPolicy::RoundRobin);
-    fwd.attach_sub_connection(2, "peer-a", SubConnPolicy::RoundRobin);
+    fwd.attach_sub_connection(1, "peer-a");
+    fwd.attach_sub_connection(2, "peer-a");
     fwd.on_subscription_msg(name.clone(), 1, ConnType::Remote, true, 1)
         .unwrap();
 
@@ -244,9 +225,14 @@ fn subscriptions_survive_until_the_last_sub_connection_drops() {
         .expect("the route must survive the loss of one sub-connection");
     assert_eq!(targets, vec![logical]);
     assert_eq!(
-        fwd.select_sub_connections(logical, None),
-        vec![2],
+        fwd.select_sub_connection(logical),
+        Some(2),
         "traffic moves to the surviving sub-connection",
+    );
+    assert_eq!(
+        fwd.physical_ids(logical),
+        vec![2],
+        "route listing must show the remaining physical id, not the logical id",
     );
 
     // The last sub-connection dies: now the subscription is withdrawn.
@@ -273,7 +259,7 @@ fn fan_out_through_an_intermediate_peer_terminates() {
 
     // The intermediate peer is reached over 3 sub-connections.
     for phys in 1..=3u64 {
-        fwd.attach_sub_connection(phys, "intermediate", SubConnPolicy::RoundRobin);
+        fwd.attach_sub_connection(phys, "intermediate");
     }
     // Its subscription arrives on all three, as would happen when 3 apps on the
     // far side each subscribe over their own connection.

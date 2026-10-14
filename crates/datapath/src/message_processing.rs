@@ -678,61 +678,20 @@ impl MessageProcessor {
         self.send_msg_raw(msg, out_conn).await
     }
 
-    /// Write `msg` to `out_conn`, expanding a logical connection into the
-    /// sub-connection(s) its policy selects.
+    /// Write `msg` to `out_conn`.
     ///
-    /// Physical ids pass straight through, so local applications and
-    /// control-plane-directed sends are unaffected. A logical id is expanded here
-    /// rather than earlier because everything downstream is per-socket: the SLIM
-    /// header MAC is signed with the individual connection's HMAC session and
-    /// link id, so each sub-connection needs its own signing pass.
+    /// A logical id is expanded to one live sub-connection here rather than
+    /// earlier because everything downstream is per-socket: the SLIM header MAC
+    /// is signed with the individual connection's HMAC session and link id.
     async fn send_msg_raw(&self, msg: Message, out_conn: u64) -> Result<(), DataPathError> {
-        if !crate::logical_connection::is_logical(out_conn) {
-            return self.send_on_physical(msg, out_conn).await;
-        }
-
-        let affinity_key = Self::affinity_key(&msg);
-        let targets = self
+        let physical = self
             .forwarder()
-            .select_sub_connections(out_conn, affinity_key);
-
-        let Some((last, rest)) = targets.split_last() else {
-            debug!(%out_conn, "logical connection has no live sub-connections");
-            return Err(DataPathError::ConnectionNotFound(out_conn));
-        };
-
-        // Redundant delivery: a single sub-connection succeeding is a success, so
-        // errors are only fatal if every sub-connection fails. Other policies
-        // resolve to one target and this collapses to the plain single-send case.
-        let mut last_err = None;
-        let mut delivered = false;
-        for &conn in rest {
-            match self.send_on_physical(msg.clone(), conn).await {
-                Ok(()) => delivered = true,
-                Err(e) => {
-                    debug!(%conn, %out_conn, error = %e, "send on sub-connection failed");
-                    last_err = Some(e);
-                }
-            }
-        }
-        match self.send_on_physical(msg, *last).await {
-            Ok(()) => Ok(()),
-            Err(e) if delivered => {
-                debug!(conn = %last, %out_conn, error = %e, "send on sub-connection failed");
-                Ok(())
-            }
-            Err(e) => Err(last_err.unwrap_or(e)),
-        }
-    }
-
-    /// The flow identity used by [`SubConnPolicy::Affinity`](crate::logical_connection::SubConnPolicy::Affinity)
-    /// to pin a session to one sub-connection, preserving ordering within it.
-    fn affinity_key(msg: &Message) -> Option<u64> {
-        if msg.is_link() || msg.is_subscription_ack() {
-            return None;
-        }
-        msg.try_get_session_header()
-            .map(|h| h.get_session_id() as u64)
+            .select_sub_connection(out_conn)
+            .ok_or_else(|| {
+                debug!(%out_conn, "logical connection has no live sub-connections");
+                DataPathError::ConnectionNotFound(out_conn)
+            })?;
+        self.send_on_physical(msg, physical).await
     }
 
     async fn send_on_physical(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
@@ -1603,52 +1562,32 @@ impl MessageProcessor {
     /// Group a freshly negotiated connection under a logical connection.
     ///
     /// The grouping key is the remote's advertised `node_id`, which is exactly
-    /// "which node is on the other end of this socket". An explicit
-    /// [`ClientConfig::logical_group`] overrides it for deployments where the
-    /// remote does not advertise a usable identity.
+    /// "which node is on the other end of this socket".
     ///
-    /// When neither is available the connection is left ungrouped and keeps using
-    /// its physical id as its routing id — the pre-existing behaviour. Grouping on
-    /// an empty key would merge every anonymous peer into one logical connection
-    /// and silently blackhole traffic between them, which is far worse than the
-    /// forwarding loop this feature exists to fix.
+    /// When the remote advertised no identity the connection is left ungrouped
+    /// and keeps using its physical id as its routing id — the pre-existing
+    /// behaviour. Grouping on an empty key would merge every anonymous peer into
+    /// one logical connection and silently blackhole traffic between them, which
+    /// is far worse than the forwarding loop this feature exists to fix.
     fn attach_logical_connection(&self, conn_index: u64, result: &NegotiationResult) {
-        let config = self
-            .forwarder()
-            .get_connection(conn_index)
-            .and_then(|c| c.config_data().cloned());
+        if result.remote_node_id.is_empty() {
+            debug!(
+                %conn_index,
+                "remote advertised no node_id; leaving connection ungrouped",
+            );
+            return;
+        }
 
-        let explicit = config.as_ref().and_then(|c| c.logical_group.clone());
-        let policy = config
-            .as_ref()
-            .map(|c| c.sub_conn_policy)
-            .unwrap_or_default();
+        // Namespace by connection type: the same node reached as a Peer and as
+        // a Remote plays different roles in the forwarding rules (see
+        // `MatchFilter`), so those must stay separate entries.
+        let key = format!(
+            "{}/{}",
+            result.connection_type.index(),
+            result.remote_node_id
+        );
 
-        let key = match explicit {
-            Some(k) if !k.is_empty() => k,
-            _ if !result.remote_node_id.is_empty() => {
-                // Namespace by connection type: the same node reached as a Peer and
-                // as a Remote plays different roles in the forwarding rules
-                // (see `MatchFilter`), so those must stay separate entries.
-                format!(
-                    "{}/{}",
-                    result.connection_type.index(),
-                    result.remote_node_id
-                )
-            }
-            _ => {
-                debug!(
-                    %conn_index,
-                    "remote advertised no node_id and no logical_group is configured; \
-                     leaving connection ungrouped",
-                );
-                return;
-            }
-        };
-
-        let logical_id = self
-            .forwarder()
-            .attach_sub_connection(conn_index, &key, policy);
+        let logical_id = self.forwarder().attach_sub_connection(conn_index, &key);
 
         let count = self
             .forwarder()
@@ -1656,7 +1595,7 @@ impl MessageProcessor {
             .sub_conn_count(logical_id);
         if count > 1 {
             info!(
-                %conn_index, %logical_id, %key, %policy, sub_conns = count,
+                %conn_index, %logical_id, %key, sub_conns = count,
                 "joined existing logical connection",
             );
         }
@@ -2505,6 +2444,103 @@ mod tests {
                 .is_err(),
             "message was forwarded back and would create a mutual gateway loop"
         );
+    }
+
+    #[tokio::test]
+    async fn grouped_edge_sockets_do_not_loop_on_publish() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "mcast"]);
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor
+            .forwarder()
+            .attach_sub_connection(sock0, "3/peer-a");
+        processor
+            .forwarder()
+            .attach_sub_connection(sock1, "3/peer-a");
+
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock1, ConnType::Edge, true, 2)
+            .unwrap();
+
+        let result = processor
+            .process_message(make_publish(dest), sock0, ConnType::Edge)
+            .await;
+
+        assert_no_match(result);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), rx0.recv())
+                .await
+                .is_err(),
+            "must not bounce on the incoming socket"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), rx1.recv())
+                .await
+                .is_err(),
+            "must not bounce on a sibling sub-connection"
+        );
+    }
+
+    #[tokio::test]
+    async fn grouped_edge_send_uses_one_socket_and_survives_a_drop() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "routed"]);
+        let (local, _tx, _rx) = processor.register_local_connection(false).unwrap();
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor
+            .forwarder()
+            .attach_sub_connection(sock0, "3/peer-a");
+        processor
+            .forwarder()
+            .attach_sub_connection(sock1, "3/peer-a");
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+
+        processor
+            .process_message(make_publish(dest.clone()), local, ConnType::Local)
+            .await
+            .unwrap();
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), rx0.recv())
+                .await
+                .expect("first live sub-connection should receive")
+                .expect("channel open")
+                .is_ok()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), rx1.recv())
+                .await
+                .is_err(),
+            "only one sub-connection should be used"
+        );
+
+        processor
+            .forwarder()
+            .on_connection_drop(sock0, ConnType::Edge);
+        assert_eq!(
+            processor
+                .forwarder()
+                .physical_ids(processor.forwarder().routing_id(sock1)),
+            vec![sock1]
+        );
+
+        processor
+            .process_message(make_publish(dest), local, ConnType::Local)
+            .await
+            .unwrap();
+        assert!(rx1.recv().await.unwrap().is_ok());
     }
 
     #[tokio::test]
