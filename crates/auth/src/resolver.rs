@@ -133,14 +133,20 @@ impl JwksCache {
 ///
 /// Example usage:
 ///
-/// ```
+/// ```rust,no_run
+/// use std::time::Duration;
+/// use slim_auth::builder::JwtBuilder;
+/// use slim_auth::resolver::KeyResolver;
+///
 /// let resolver = KeyResolver::new()
 ///     .with_jwks_ttl(Duration::from_secs(1800));  // 30 minute cache TTL
 ///
-/// let jwt = Jwt::builder()
+/// let verifier = JwtBuilder::new()
 ///     .issuer("https://your-oidc-provider.com")
-///     .key_resolver(resolver)
-///     .build()?;
+///     .auto_resolve_keys(true)
+///     .build()?
+///     .with_key_resolver(resolver);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug)]
 pub struct KeyResolver {
