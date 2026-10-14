@@ -282,6 +282,27 @@ where
             .await
     }
 
+    /// [`Self::create_session`] for a point-to-point session that admits its
+    /// peer only if it is verified as `expected_subject` (its DID, for a
+    /// `did:key` identity). See `SessionLayer::create_session_pinned`.
+    pub async fn create_session_pinned(
+        &self,
+        session_config: SessionConfig,
+        destination: ProtoName,
+        expected_subject: impl Into<String>,
+        id: Option<u32>,
+    ) -> Result<(SessionContext, slim_session::CompletionHandle), SessionError> {
+        self.session_layer
+            .create_session_pinned(
+                session_config,
+                self.app_name.clone(),
+                destination,
+                expected_subject,
+                id,
+            )
+            .await
+    }
+
     /// Restore persisted sessions from disk (if persistence is enabled).
     ///
     /// Rebuilds each previously-persisted session — reloading its MLS group and
@@ -1525,6 +1546,131 @@ mod tests {
         receiver_app
             .delete_session(receiver_session.session().upgrade().unwrap().as_ref())
             .unwrap();
+    }
+
+    /// The app `org/ns/<suffix>` with its own shared-secret identity, and that
+    /// identity's `sub`.
+    fn create_app_with_sub(
+        service: &crate::service::Service,
+        suffix: &str,
+    ) -> (
+        App<SharedSecret, SharedSecret>,
+        tokio::sync::mpsc::Receiver<Result<slim_session::notification::Notification, SessionError>>,
+        String,
+    ) {
+        let identity = SharedSecret::new(suffix, TEST_VALID_SECRET).unwrap();
+        let sub = identity.get_id().unwrap();
+        let (app, notifications) = service
+            .create_app(&create_test_name(suffix), identity.clone(), identity)
+            .unwrap();
+        (app, notifications, sub)
+    }
+
+    fn mls_config(session_type: ProtoSessionType) -> SessionConfig {
+        SessionConfig {
+            session_type,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_millis(100)),
+            mls_settings: Some(MlsSettings::default()),
+            initiator: true,
+            metadata: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pinned_p2p_session_admits_only_the_expected_peer() {
+        let service = create_test_service("pinned-p2p");
+        let (sender, _sender_events, _) = create_app_with_sub(&service, "sender");
+        let (receiver, _receiver_events, receiver_sub) = create_app_with_sub(&service, "receiver");
+        receiver
+            .subscribe(&create_test_name("receiver"), None)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let (session, done) = sender
+            .create_session_pinned(
+                mls_config(ProtoSessionType::PointToPoint),
+                receiver.app_name().clone(),
+                receiver_sub.clone(),
+                None,
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), done)
+            .await
+            .expect("pinned session timed out")
+            .expect("pinned session failed");
+        let peer = session
+            .session()
+            .upgrade()
+            .unwrap()
+            .peer_identity()
+            .expect("no verified peer");
+        assert_eq!(peer.subject(), receiver_sub);
+
+        let (_session, done) = sender
+            .create_session_pinned(
+                mls_config(ProtoSessionType::PointToPoint),
+                receiver.app_name().clone(),
+                "someone-else",
+                None,
+            )
+            .await
+            .unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), done)
+            .await
+            .expect("session pinned to another identity timed out");
+        assert!(
+            outcome.is_err(),
+            "a session pinned to another identity was set up"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_pinned_invite_admits_only_the_expected_member() {
+        let service = create_test_service("pinned-group");
+        let (moderator, _moderator_events, _) = create_app_with_sub(&service, "moderator");
+        let (_member, mut member_events, member_sub) = create_app_with_sub(&service, "member");
+        let (_other, _other_events, _) = create_app_with_sub(&service, "other");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let group = create_and_complete_session(
+            &moderator,
+            mls_config(ProtoSessionType::Multicast),
+            create_test_name("channel"),
+        )
+        .await;
+        let controller = group.session().upgrade().unwrap();
+
+        let invited = controller
+            .invite_participant_pinned(&create_test_name("member"), member_sub.clone())
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), invited)
+            .await
+            .expect("pinned invite timed out")
+            .expect("pinned invite failed");
+        let _member_session = wait_for_session(&mut member_events).await;
+        let identity = controller.participant_identity(&create_test_name("member"));
+        assert_eq!(identity.map(|p| p.subject().to_string()), Some(member_sub));
+
+        let refused = controller
+            .invite_participant_pinned(&create_test_name("other"), "someone-else")
+            .await
+            .unwrap();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(10), refused)
+            .await
+            .expect("invite pinned to another identity timed out");
+        assert!(
+            outcome.is_err(),
+            "a member pinned to another identity was admitted"
+        );
+        assert!(
+            controller
+                .participant_identity(&create_test_name("other"))
+                .is_none()
+        );
     }
 
     #[tokio::test]

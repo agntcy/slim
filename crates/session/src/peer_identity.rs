@@ -3,8 +3,12 @@
 
 //! The verified identity of the peer that set up a session.
 
+use std::collections::HashMap;
+
+use parking_lot::Mutex;
 use serde_json::Value;
 use slim_auth::identity_claims::IdentityClaims;
+use slim_datapath::api::{NameId, ProtoName};
 
 /// Who set up a session, as their identity token said, verified together
 /// with the signature over the message that carried it.
@@ -41,6 +45,64 @@ impl PeerIdentity {
             .and_then(Value::as_str)
             .map(str::to_string);
         Some(PeerIdentity { subject, issuer })
+    }
+}
+
+/// The readable part of a name: its three encoded components.
+type Readable = (u64, u64, u64);
+
+fn readable(name: &ProtoName) -> Option<Readable> {
+    name.name
+        .as_ref()
+        .map(|n| (n.component_0, n.component_1, n.component_2))
+}
+
+/// What a session knows about its peers' identities: the identity each
+/// invite is pinned to, by readable name, and the verified identity each
+/// member joined with, by full name.
+#[derive(Debug, Default)]
+pub(crate) struct PeerIdentities {
+    pins: Mutex<HashMap<Readable, String>>,
+    members: Mutex<HashMap<(Readable, u128), PeerIdentity>>,
+}
+
+// Each lock guards one map insert or lookup, so a panic can't leave either
+// map half-updated: sharing this across an unwind is safe, and keeps
+// `SessionController` `UnwindSafe`.
+impl std::panic::RefUnwindSafe for PeerIdentities {}
+
+impl PeerIdentities {
+    /// Accept `name` only from a peer verified as `subject`.
+    pub(crate) fn pin(&self, name: &ProtoName, subject: String) {
+        if let Some(key) = readable(name) {
+            self.pins.lock().insert(key, subject);
+        }
+    }
+
+    /// The identity `name` is pinned to, if any.
+    pub(crate) fn pinned(&self, name: &ProtoName) -> Option<String> {
+        readable(name).and_then(|key| self.pins.lock().get(&key).cloned())
+    }
+
+    /// Remember that the member `name` joined as `identity`.
+    pub(crate) fn record(&self, name: &ProtoName, identity: PeerIdentity) {
+        if let Some(key) = readable(name) {
+            self.members.lock().insert((key, name.id()), identity);
+        }
+    }
+
+    /// The identity the member `name` joined as. A name without an id matches
+    /// any member with that readable name.
+    pub(crate) fn of(&self, name: &ProtoName) -> Option<PeerIdentity> {
+        let key = readable(name)?;
+        let members = self.members.lock();
+        if name.id() != NameId::NULL_COMPONENT {
+            return members.get(&(key, name.id())).cloned();
+        }
+        members
+            .iter()
+            .find(|((readable, _), _)| *readable == key)
+            .map(|(_, identity)| identity.clone())
     }
 }
 

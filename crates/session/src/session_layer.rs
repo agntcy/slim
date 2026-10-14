@@ -431,9 +431,45 @@ where
     #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn create_session(
         &self,
+        session_config: SessionConfig,
+        local_name: ProtoName,
+        destination: ProtoName,
+        id: Option<u32>,
+    ) -> Result<(SessionContext, CompletionHandle), SessionError> {
+        self.create_session_with_pin(session_config, local_name, destination, None, id)
+            .await
+    }
+
+    /// [`Self::create_session`] for a point-to-point session that admits its
+    /// peer only if it is verified as `expected_subject` (its DID, for a
+    /// `did:key` identity). For a multicast session, pin each member with
+    /// `SessionController::invite_participant_pinned` instead; a multicast
+    /// config here is an error.
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
+    pub async fn create_session_pinned(
+        &self,
+        session_config: SessionConfig,
+        local_name: ProtoName,
+        destination: ProtoName,
+        expected_subject: impl Into<String>,
+        id: Option<u32>,
+    ) -> Result<(SessionContext, CompletionHandle), SessionError> {
+        if session_config.session_type != ProtoSessionType::PointToPoint {
+            return Err(SessionError::SessionTypeUnknown(
+                session_config.session_type,
+            ));
+        }
+        let pin = Some(expected_subject.into());
+        self.create_session_with_pin(session_config, local_name, destination, pin, id)
+            .await
+    }
+
+    async fn create_session_with_pin(
+        &self,
         mut session_config: SessionConfig,
         local_name: ProtoName,
         destination: ProtoName,
+        pin: Option<String>,
         id: Option<u32>,
     ) -> Result<(SessionContext, CompletionHandle), SessionError> {
         // Sanity check
@@ -470,10 +506,14 @@ where
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
         let init_ack = if is_p2p {
-            session
+            let controller = session
                 .session()
                 .upgrade()
-                .ok_or(SessionError::SessionNotFound(u32::MAX))?
+                .ok_or(SessionError::SessionNotFound(u32::MAX))?;
+            if let Some(subject) = pin {
+                controller.pin_peer(&destination_proto, subject);
+            }
+            controller
                 .invite_participant_internal(&destination_proto)
                 .await
                 .inspect_err(|_| {
