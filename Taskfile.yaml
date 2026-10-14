@@ -314,6 +314,8 @@ tasks:
     cmds:
       - cargo test --target wasm32-unknown-unknown -p agntcy-slim-datapath --test wasm_browser_test {{.ARGS}}
       - cargo test --target wasm32-unknown-unknown -p agntcy-slim-config --test wasm_client_test {{.ARGS}}
+      # The browser bindings build the session stack for wasm32.
+      - cargo check --target wasm32-unknown-unknown -p agntcy-slim-bindings --features web {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--locked"}}'
 
