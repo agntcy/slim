@@ -7,8 +7,8 @@
 //!
 //! Unified spire interface: the `SpireIdentityManager` encapsulates both
 //! credential acquisition (X.509 & JWT SVIDs) and verification (JWT validation
-//! plus access to X.509 trust bundles) using a single configuration struct
-//! `SpireConfig`.
+//! plus access to X.509 trust bundles), configured through
+//! `SpireIdentityManagerBuilder`.
 //!
 //! Features:
 //! - Single struct for providing and verifying identities (`SpireIdentityManager`)
@@ -20,19 +20,20 @@
 //! - Trust domain bundle retrieval (`get_x509_bundle`)
 //!
 //! Primary types:
-//! - `SpireConfig`: configuration (socket path, target SPIFFE ID for JWT requests, audiences)
+//! - `SpireIdentityManagerBuilder`: configuration (socket path, target SPIFFE ID for JWT requests, audiences)
 //! - `SpireIdentityManager`: unified provider + verifier
 //!
 //! Basic usage:
 //! ```rust,no_run
-//! use slim_auth::spire::{SpireIdentityManager, SpireConfig};
+//! use slim_auth::spire::SpireIdentityManager;
+//! use slim_auth::traits::{TokenProvider, Verifier};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut mgr = SpireIdentityManager::new(SpireConfig {
-//!     socket_path: None,              // Use SPIFFE_ENDPOINT_SOCKET env var
-//!     target_spiffe_id: None,         // Optional: specify a target for JWT SVID
-//!     jwt_audiences: vec!["my-app".into()],
-//! });
+//! // Socket path defaults to the SPIFFE_ENDPOINT_SOCKET env var, and the
+//! // target SPIFFE ID for JWT SVIDs is optional.
+//! let mut mgr = SpireIdentityManager::builder()
+//!     .with_jwt_audiences(vec!["my-app".into()])
+//!     .build()?;
 //! mgr.initialize().await?;
 //!
 //! // Obtain JWT token

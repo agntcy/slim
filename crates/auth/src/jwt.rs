@@ -199,12 +199,20 @@ impl<T> Jwt<T> {
     ///
     /// This should not be called directly. Use the builder pattern instead:
     /// ```
-    /// let jwt = Jwt::builder()
+    /// use slim_auth::builder::JwtBuilder;
+    /// use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
+    ///
+    /// let jwt = JwtBuilder::new()
     ///     .issuer("my-issuer")
-    ///     .audience("my-audience")
+    ///     .audience(&["my-audience"])
     ///     .subject("user-123")
-    ///     .private_key("secret-key")
+    ///     .private_key(&Key {
+    ///         algorithm: Algorithm::HS256,
+    ///         format: KeyFormat::Pem,
+    ///         key: KeyData::Data("secret-key".into()),
+    ///     })
     ///     .build()?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new(
         claims: StandardClaims,
