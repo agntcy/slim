@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.8](https://github.com/agntcy/slim/compare/slim-service-v0.13.7...slim-service-v0.13.8) - 2026-10-14
+
+### Added
+
+- *(session)* pin peers to an expected identity and expose verified identities ([#2270](https://github.com/agntcy/slim/pull/2270))
+
+### Fixed
+
+- *(session)* hold peers' name ids and channels to their verified identities ([#2267](https://github.com/agntcy/slim/pull/2267))
+
 ## [0.13.7](https://github.com/agntcy/slim/compare/slim-service-v0.13.6...slim-service-v0.13.7) - 2026-10-13
 
 ### Fixed
