@@ -35,6 +35,7 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoName as Name;
 use slim_datapath::api::ProtoSessionType;
 use slim_service::app::App as SlimApp;
+use slim_session::PeerIdentity;
 use slim_session::errors::SessionError;
 
 // ── Multicast response types ──────────────────────────────────────────────────
@@ -57,6 +58,69 @@ pub struct MulticastItem<T> {
     pub context: MessageContext,
     /// The decoded response message.
     pub message: T,
+}
+
+/// A multicast response with the verified identity of the member that sent
+/// it, from the `multicast_*_verified` methods.
+///
+/// Unlike [`MulticastItem`], the source keeps its id, so two members under
+/// the same readable name stay apart.
+#[derive(Debug, Clone)]
+pub struct VerifiedMulticastItem<T> {
+    source: Name,
+    identity: Option<PeerIdentity>,
+    message: T,
+}
+
+impl<T> VerifiedMulticastItem<T> {
+    /// The full name, id included, of the member that sent the response.
+    pub fn source(&self) -> &Name {
+        &self.source
+    }
+
+    /// The identity the member with this name was verified as when it joined,
+    /// or `None` if it wasn't verified, as in a session without MLS.
+    pub fn identity(&self) -> Option<&PeerIdentity> {
+        self.identity.as_ref()
+    }
+
+    /// The decoded response.
+    pub fn message(&self) -> &T {
+        &self.message
+    }
+
+    /// The decoded response, taken out of the item.
+    pub fn into_message(self) -> T {
+        self.message
+    }
+}
+
+/// A response as received, before it is shaped for the caller.
+struct Response<T> {
+    /// The sender's full name, id included.
+    source: Name,
+    /// The identity the sender was verified as when it joined.
+    identity: Option<PeerIdentity>,
+    message: T,
+}
+
+impl<T> Response<T> {
+    fn into_item(self) -> MulticastItem<T> {
+        let mut source = self.source;
+        source.reset_id();
+        MulticastItem {
+            context: MessageContext { source },
+            message: self.message,
+        }
+    }
+
+    fn into_verified(self) -> VerifiedMulticastItem<T> {
+        VerifiedMulticastItem {
+            source: self.source,
+            identity: self.identity,
+            message: self.message,
+        }
+    }
 }
 
 use super::{
@@ -185,12 +249,18 @@ fn generate_rpc_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-async fn send_invite(session_tx: &SessionTx, member: &Name) -> Result<(), RpcError> {
+async fn send_invite(
+    session_tx: &SessionTx,
+    member: &Name,
+    pin: Option<&str>,
+) -> Result<(), RpcError> {
     tracing::debug!("Inviting member to rpc channel.. {}", member);
-    session_tx
-        .controller()
-        .invite_participant(member)
-        .await
+    let controller = session_tx.controller();
+    let invite = match pin {
+        Some(subject) => controller.invite_participant_pinned(member, subject).await,
+        None => controller.invite_participant(member).await,
+    };
+    invite
         .map_err(|e| RpcError::internal(format!("Failed to invite {member}: {e}")))?
         .await
         .map_err(|e| RpcError::internal(format!("Failed to invite {member}: {e}")))
@@ -253,6 +323,8 @@ pub struct Channel {
     /// session on the first call. Dynamically invited members are stored
     /// in `ChannelSession::members` and inherited across session recreations.
     initial_members: HashSet<Name>,
+    /// The identity each member must be verified as, by readable name.
+    pins: HashMap<Name, String>,
     connection_id: Option<u64>,
     pub(crate) runtime: tokio::runtime::Handle,
     /// Persistent session (lazily initialised, recreated when dead).
@@ -297,10 +369,41 @@ impl Channel {
             remote,
             is_group,
             initial_members: members_set,
+            pins: HashMap::new(),
             connection_id,
             runtime,
             session: Arc::new(tokio::sync::Mutex::new(None)),
         })
+    }
+
+    /// A channel whose members are each admitted only if verified as the
+    /// subject paired with them.
+    #[cfg(not(feature = "uniffi"))]
+    pub(crate) fn new_pinned_internal(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        members: Vec<(Name, String)>,
+        is_group: bool,
+        connection_id: Option<u64>,
+        runtime: tokio::runtime::Handle,
+    ) -> Result<Self, RpcError> {
+        let names = members.iter().map(|(name, _)| name.clone()).collect();
+        let mut channel =
+            Self::new_with_members_internal(app, names, is_group, connection_id, runtime)?;
+        channel.pins = members
+            .into_iter()
+            .map(|(mut name, subject)| {
+                name.reset_id();
+                (name, subject)
+            })
+            .collect();
+        Ok(channel)
+    }
+
+    /// The identity `member` must be verified as, if it is pinned.
+    fn pin_for(&self, member: &Name) -> Option<&str> {
+        let mut name = member.clone();
+        name.reset_id();
+        self.pins.get(&name).map(String::as_str)
     }
 
     // ── Session management ────────────────────────────────────────────────────
@@ -367,7 +470,7 @@ impl Channel {
         // Invite all members whenever the GROUP session is (re)created.
         if self.is_group {
             for member in &self.initial_members {
-                send_invite(&session_tx, member).await?;
+                send_invite(&session_tx, member, self.pin_for(member)).await?;
             }
         }
 
@@ -381,6 +484,9 @@ impl Channel {
     ) -> Result<(SessionTx, SessionRx), RpcError> {
         let app = self.app.clone();
         let remote = self.remote.clone();
+        let pin = (!self.is_group)
+            .then(|| self.pin_for(&remote).map(str::to_string))
+            .flatten();
         let runtime = &self.runtime;
 
         // Runs in a tokio task because create_session needs tokio runtime
@@ -396,9 +502,14 @@ impl Channel {
                 mls_settings: Some(MlsSettings::default()),
             };
 
-            let (session_ctx, completion) = app
-                .create_session(slim_config, remote.clone(), None)
-                .await
+            let created = match pin {
+                Some(subject) => {
+                    app.create_session_pinned(slim_config, remote.clone(), subject, None)
+                        .await
+                }
+                None => app.create_session(slim_config, remote.clone(), None).await,
+            };
+            let (session_ctx, completion) = created
                 .map_err(|e| RpcError::unavailable(format!("Failed to create session: {e}")))?;
 
             completion
@@ -500,7 +611,7 @@ impl Channel {
         request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
-    ) -> impl Stream<Item = Result<MulticastItem<Res>, RpcError>>
+    ) -> impl Stream<Item = Result<Response<Res>, RpcError>>
     where
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
@@ -580,6 +691,7 @@ impl Channel {
                     Ok(Some(m)) => m,
                 };
 
+                let full_source = received.source.clone();
                 let mut source = received.source.clone();
                 source.reset_id();
 
@@ -618,7 +730,12 @@ impl Channel {
                         continue;
                     }
                 };
-                yield Ok(MulticastItem { context: MessageContext { source }, message: response });
+                let identity = if channel.is_group {
+                    session_tx.controller().participant_identity(&full_source)
+                } else {
+                    session_tx.peer_identity()
+                };
+                yield Ok(Response { source: full_source, identity, message: response });
             }
         }
     }
@@ -754,6 +871,7 @@ impl Channel {
             timeout,
             metadata,
         )
+        .map(|r| r.map(Response::into_item))
     }
 
     /// Multicast unary-stream: broadcast one request, receive a stream of `MulticastItem`s.
@@ -783,6 +901,7 @@ impl Channel {
             timeout,
             metadata,
         )
+        .map(|r| r.map(Response::into_item))
     }
 
     /// Multicast stream-unary: broadcast a request stream, receive one `MulticastItem` per member.
@@ -809,6 +928,7 @@ impl Channel {
             timeout,
             metadata,
         )
+        .map(|r| r.map(Response::into_item))
     }
 
     /// Multicast stream-stream: broadcast a request stream, receive a stream of `MulticastItem`s.
@@ -839,6 +959,110 @@ impl Channel {
             timeout,
             metadata,
         )
+        .map(|r| r.map(Response::into_item))
+    }
+
+    /// [`Self::multicast_unary`], with each response's sender identified by
+    /// its full name and verified identity.
+    pub fn multicast_unary_verified<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request: Req,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<VerifiedMulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            futures::stream::once(std::future::ready(request)),
+            timeout,
+            metadata,
+        )
+        .map(|r| r.map(Response::into_verified))
+    }
+
+    /// [`Self::multicast_unary_stream`], with each response's sender
+    /// identified by its full name and verified identity.
+    pub fn multicast_unary_stream_verified<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request: Req,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<VerifiedMulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.multicast_unary_verified(service_name, method_name, request, timeout, metadata)
+    }
+
+    /// [`Self::multicast_stream_unary`], with each response's sender
+    /// identified by its full name and verified identity.
+    pub fn multicast_stream_unary_verified<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<VerifiedMulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.responses_from_stream_input(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+        )
+        .map(|r| r.map(Response::into_verified))
+    }
+
+    /// [`Self::multicast_stream_stream`], with each response's sender
+    /// identified by its full name and verified identity.
+    pub fn multicast_stream_stream_verified<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<VerifiedMulticastItem<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.multicast_stream_unary_verified(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+        )
+    }
+
+    /// The verified identity of a P2P channel's peer, once a call has set up
+    /// its session. `None` before the first call, in a session without MLS,
+    /// and for a GROUP channel, whose members the `multicast_*_verified`
+    /// methods identify.
+    pub async fn peer_identity(&self) -> Option<PeerIdentity> {
+        if self.is_group {
+            return None;
+        }
+        let guard = self.session.lock().await;
+        guard
+            .as_ref()
+            .filter(|cs| cs.is_alive())
+            .and_then(|cs| cs.tx.peer_identity())
     }
 
     pub fn app(&self) -> &Arc<SlimApp<AuthProvider, AuthVerifier>> {
@@ -903,11 +1127,43 @@ impl Channel {
         .expect("single non-empty member list is always valid")
     }
 
+    /// A P2P channel that sets up a session with `remote` only if it is
+    /// verified as `expected_subject`, its DID for a `did:key` identity. A
+    /// peer verified as anyone else is refused, and the call fails.
+    pub fn new_pinned(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        remote: Arc<Name>,
+        expected_subject: impl Into<String>,
+    ) -> Self {
+        Self::new_pinned_internal(
+            app,
+            vec![(remote.as_ref().clone(), expected_subject.into())],
+            false,
+            None,
+            tokio::runtime::Handle::current(),
+        )
+        .expect("single non-empty member list is always valid")
+    }
+
     pub fn new_group(
         app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
         members: Vec<Arc<Name>>,
     ) -> Result<Self, RpcError> {
         Self::new_group_with_connection(app, members, None)
+    }
+
+    /// A GROUP channel that admits each member only if it is verified as the
+    /// subject paired with its name. A member verified as anyone else isn't
+    /// admitted, and the call that would invite it fails.
+    pub fn new_group_pinned(
+        app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+        members: Vec<(Arc<Name>, String)>,
+    ) -> Result<Self, RpcError> {
+        let members = members
+            .into_iter()
+            .map(|(name, subject)| (name.as_ref().clone(), subject))
+            .collect();
+        Self::new_pinned_internal(app, members, true, None, tokio::runtime::Handle::current())
     }
 
     pub fn new_group_with_connection(
