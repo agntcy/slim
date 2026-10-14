@@ -63,13 +63,38 @@ pub(super) async fn save_link(
     status: LinkStatus,
     ctx: &str,
 ) -> bool {
-    link.status = status;
-    link.status_msg = String::new();
-    link.last_updated = SystemTime::now();
-    if let Err(e) = db.update_link(link.clone()).await {
+    let updated = link.clone();
+    replace_link(db, link, updated, status, ctx).await
+}
+
+/// Store `updated` with `status` in place of `link`, and update `link` only
+/// once that succeeds. A link's id and endpoint are part of its storage key,
+/// so a link whose id or endpoint changes replaces its record.
+pub(super) async fn replace_link(
+    db: &SharedDb,
+    link: &mut crate::db::Link,
+    mut updated: crate::db::Link,
+    status: LinkStatus,
+    ctx: &str,
+) -> bool {
+    updated.status = status;
+    updated.status_msg = String::new();
+    updated.last_updated = SystemTime::now();
+    let saved = if updated.storage_key() == link.storage_key() {
+        db.update_link(updated.clone()).await
+    } else {
+        match db.delete_link(link).await {
+            Ok(()) | Err(crate::error::Error::LinkNotFound { .. }) => {
+                db.add_link(updated.clone()).await.map(|_| ())
+            }
+            Err(e) => Err(e),
+        }
+    };
+    if let Err(e) = saved {
         tracing::warn!("node_registered: {ctx}: {e}");
         return false;
     }
+    *link = updated;
     true
 }
 
