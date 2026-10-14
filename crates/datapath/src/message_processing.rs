@@ -55,6 +55,7 @@ use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::utils::SlimHeaderFlags;
+use crate::negotiation::NegotiationResult;
 use crate::sync::peer as sync_peer;
 use crate::sync::remote::{RemoteSync, SubscriptionInfo};
 use crate::tables::connection_table::ConnectionTable;
@@ -677,7 +678,23 @@ impl MessageProcessor {
         self.send_msg_raw(msg, out_conn).await
     }
 
-    async fn send_msg_raw(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+    /// Write `msg` to `out_conn`.
+    ///
+    /// A logical id is expanded to one live sub-connection here rather than
+    /// earlier because everything downstream is per-socket: the SLIM header MAC
+    /// is signed with the individual connection's HMAC session and link id.
+    async fn send_msg_raw(&self, msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+        let physical = self
+            .forwarder()
+            .select_sub_connection(out_conn)
+            .ok_or_else(|| {
+                debug!(%out_conn, "logical connection has no live sub-connections");
+                DataPathError::ConnectionNotFound(out_conn)
+            })?;
+        self.send_on_physical(msg, physical).await
+    }
+
+    async fn send_on_physical(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
@@ -1542,6 +1559,48 @@ impl MessageProcessor {
         }
     }
 
+    /// Group a freshly negotiated connection under a logical connection.
+    ///
+    /// The grouping key is the remote's advertised `node_id`, which is exactly
+    /// "which node is on the other end of this socket".
+    ///
+    /// When the remote advertised no identity the connection is left ungrouped
+    /// and keeps using its physical id as its routing id — the pre-existing
+    /// behaviour. Grouping on an empty key would merge every anonymous peer into
+    /// one logical connection and silently blackhole traffic between them, which
+    /// is far worse than the forwarding loop this feature exists to fix.
+    fn attach_logical_connection(&self, conn_index: u64, result: &NegotiationResult) {
+        if result.remote_node_id.is_empty() {
+            debug!(
+                %conn_index,
+                "remote advertised no node_id; leaving connection ungrouped",
+            );
+            return;
+        }
+
+        // Namespace by connection type: the same node reached as a Peer and as
+        // a Remote plays different roles in the forwarding rules (see
+        // `MatchFilter`), so those must stay separate entries.
+        let key = format!(
+            "{}/{}",
+            result.connection_type.index(),
+            result.remote_node_id
+        );
+
+        let logical_id = self.forwarder().attach_sub_connection(conn_index, &key);
+
+        let count = self
+            .forwarder()
+            .logical_connections
+            .sub_conn_count(logical_id);
+        if count > 1 {
+            info!(
+                %conn_index, %logical_id, %key, sub_conns = count,
+                "joined existing logical connection",
+            );
+        }
+    }
+
     /// Perform link negotiation, register the connection, and handle peer upgrade.
     ///
     /// Returns `Some((conn_index, category))` on success or `None` on failure.
@@ -1611,6 +1670,10 @@ impl MessageProcessor {
         };
 
         debug!(%idx, "connection registered after link negotiation");
+
+        // Group this physical connection with any sibling connections reaching the
+        // same remote node, so the routing tables see one entry per peer.
+        self.attach_logical_connection(idx, &result);
 
         // Handle connection-type-specific post-negotiation logic.
         let link_id = self
@@ -2381,6 +2444,103 @@ mod tests {
                 .is_err(),
             "message was forwarded back and would create a mutual gateway loop"
         );
+    }
+
+    #[tokio::test]
+    async fn grouped_edge_sockets_do_not_loop_on_publish() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "mcast"]);
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor
+            .forwarder()
+            .attach_sub_connection(sock0, "3/peer-a");
+        processor
+            .forwarder()
+            .attach_sub_connection(sock1, "3/peer-a");
+
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock1, ConnType::Edge, true, 2)
+            .unwrap();
+
+        let result = processor
+            .process_message(make_publish(dest), sock0, ConnType::Edge)
+            .await;
+
+        assert_no_match(result);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), rx0.recv())
+                .await
+                .is_err(),
+            "must not bounce on the incoming socket"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), rx1.recv())
+                .await
+                .is_err(),
+            "must not bounce on a sibling sub-connection"
+        );
+    }
+
+    #[tokio::test]
+    async fn grouped_edge_send_uses_one_socket_and_survives_a_drop() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "routed"]);
+        let (local, _tx, _rx) = processor.register_local_connection(false).unwrap();
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor
+            .forwarder()
+            .attach_sub_connection(sock0, "3/peer-a");
+        processor
+            .forwarder()
+            .attach_sub_connection(sock1, "3/peer-a");
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+
+        processor
+            .process_message(make_publish(dest.clone()), local, ConnType::Local)
+            .await
+            .unwrap();
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), rx0.recv())
+                .await
+                .expect("first live sub-connection should receive")
+                .expect("channel open")
+                .is_ok()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), rx1.recv())
+                .await
+                .is_err(),
+            "only one sub-connection should be used"
+        );
+
+        processor
+            .forwarder()
+            .on_connection_drop(sock0, ConnType::Edge);
+        assert_eq!(
+            processor
+                .forwarder()
+                .physical_ids(processor.forwarder().routing_id(sock1)),
+            vec![sock1]
+        );
+
+        processor
+            .process_message(make_publish(dest), local, ConnType::Local)
+            .await
+            .unwrap();
+        assert!(rx1.recv().await.unwrap().is_ok());
     }
 
     #[tokio::test]

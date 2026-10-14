@@ -22,6 +22,7 @@ pub mod forwarder;
 // negotiation.
 pub mod header_mac;
 pub mod link_ecdh;
+pub mod logical_connection;
 pub mod message_processing;
 mod negotiation;
 pub mod sync;
