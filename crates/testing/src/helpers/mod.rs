@@ -9,7 +9,7 @@ mod spawn;
 
 pub use crate::common::reserve_local_port as reserve_port;
 pub use command::{run_combined_output_until, run_combined_output_with_retry, run_slimctl_cm};
-pub use config::{new_temp_dir, write_temp_config};
+pub use config::{new_temp_dir, write_signing_key, write_temp_config};
 pub use log::{ProcessLogWatcher, contains_semver_fragment, wait_for_log};
 pub use process::{session_still_running, terminate_session};
 pub use routing::{

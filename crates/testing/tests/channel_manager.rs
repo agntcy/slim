@@ -144,6 +144,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     let client = require_client_binary();
     let slimctl = require_slimctl_binary();
     let cm_endpoint = format!("127.0.0.1:{channel_manager_port}");
+    let owner_key = write_signing_key(temp_dir.path(), "owner-key.pem");
 
     let mut slim_session = Some(spawn_slim(&slim, &server_config));
     let slim_logs = ProcessLogWatcher::attach(slim_session.as_mut().expect("slim session"));
@@ -214,10 +215,17 @@ fn slim_node_manages_channel_participants_and_messaging() {
             });
     }
 
-    run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("created successfully"));
+    run_slimctl_cm(
+        &slimctl,
+        &cm_endpoint,
+        &owner_key,
+        &["create-channel", CHANNEL_NAME],
+    )
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(format!(
+        "Channel {CHANNEL_NAME} created, owned by did:key:"
+    )));
 
     let participant_a = "org/default/a";
     let participant_b = "org/default/b";
@@ -226,6 +234,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
+        &owner_key,
         &["add-participant", CHANNEL_NAME, participant_a],
     )
     .assert()
@@ -245,6 +254,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
+        &owner_key,
         &["add-participant", CHANNEL_NAME, participant_b],
     )
     .assert()
@@ -264,6 +274,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
+        &owner_key,
         &["add-participant", CHANNEL_NAME, participant_c],
     )
     .assert()
@@ -305,6 +316,7 @@ fn slim_node_manages_channel_participants_and_messaging() {
     run_slimctl_cm(
         &slimctl,
         &cm_endpoint,
+        &owner_key,
         &["delete-participant", CHANNEL_NAME, participant_c],
     )
     .assert()
@@ -320,9 +332,14 @@ fn slim_node_manages_channel_participants_and_messaging() {
             panic!("client C session was not closed:\n{output}");
         });
 
-    run_slimctl_cm(&slimctl, &cm_endpoint, &["delete-channel", CHANNEL_NAME])
-        .assert()
-        .success();
+    run_slimctl_cm(
+        &slimctl,
+        &cm_endpoint,
+        &owner_key,
+        &["delete-channel", CHANNEL_NAME],
+    )
+    .assert()
+    .success();
     client_a_logs
         .wait_contains(MSG_SESSION_CLOSED, Duration::from_secs(15))
         .unwrap_or_else(|output| {

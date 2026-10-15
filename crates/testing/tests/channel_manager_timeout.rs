@@ -89,6 +89,7 @@ fn add_nonexistent_participant_fails() {
     let channel_manager = require_channel_manager_binary();
     let slimctl = require_slimctl_binary();
     let cm_endpoint = format!("127.0.0.1:{channel_manager_port}");
+    let owner_key = write_signing_key(temp_dir.path(), "owner-key.pem");
 
     let mut slim_session = Some(spawn_slim(&slim, &server_config));
     let slim_logs = ProcessLogWatcher::attach(slim_session.as_mut().expect("slim session"));
@@ -116,9 +117,14 @@ fn add_nonexistent_participant_fails() {
             panic!("channel manager did not start gRPC server:\n{output}");
         });
 
-    run_slimctl_cm(&slimctl, &cm_endpoint, &["create-channel", CHANNEL_NAME])
-        .assert()
-        .success();
+    run_slimctl_cm(
+        &slimctl,
+        &cm_endpoint,
+        &owner_key,
+        &["create-channel", CHANNEL_NAME],
+    )
+    .assert()
+    .success();
 
     // Inviting a participant that never connected must fail; the invite error is
     // reported on stderr by slimctl's anyhow error handler.
@@ -129,6 +135,8 @@ fn add_nonexistent_participant_fails() {
         .arg("org/default/a")
         .arg("--server")
         .arg(&cm_endpoint)
+        .arg("--key")
+        .arg(&owner_key)
         .assert()
         .failure()
         .stderr(predicate::str::contains("failed to invite participant"));
