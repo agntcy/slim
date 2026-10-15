@@ -112,7 +112,7 @@ jobs:
       - name: Install release-plz
         uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
-          tool: release-plz@0.3.169
+          tool: release-plz@0.3.170
 
       - name: Run release-plz update
         # cargo-semver-checks isn't installed, so release-plz skips its
