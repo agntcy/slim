@@ -89,6 +89,14 @@ impl Session {
         }
     }
 
+    /// For a restored session: peers' streams continue from before the
+    /// restart instead of starting at their first message.
+    pub(crate) fn resume_streams(&mut self) {
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.resume_streams();
+        }
+    }
+
     pub fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
         match message {
             SessionMessage::OnMessage {
