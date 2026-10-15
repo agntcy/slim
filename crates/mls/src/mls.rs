@@ -279,6 +279,20 @@ where
         Ok(ret)
     }
 
+    /// The verified identity (`sub`) of a key package, read without adding it
+    /// to the group, so a caller can check whom it is about to add.
+    pub async fn key_package_identity(
+        &self,
+        key_package_bytes: &[u8],
+    ) -> Result<MlsIdentity, MlsError> {
+        let key_package = MlsMessage::from_bytes(key_package_bytes)?
+            .into_key_package()
+            .ok_or(MlsError::UnknownPayloadType)?;
+        SlimIdentityProvider::new(self.identity_verifier.clone())
+            .identity(key_package.signing_identity(), &ExtensionList::default())
+            .await
+    }
+
     pub async fn add_member(
         &mut self,
         key_package_bytes: &[u8],
@@ -524,6 +538,34 @@ where
                 "Message was not an application message",
             )),
         }
+    }
+
+    /// [`Self::decrypt_message`], also returning the verified identity (`sub`)
+    /// of the group member that sent the message.
+    pub async fn decrypt_message_from_sender(
+        &mut self,
+        encrypted_message: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>, MlsIdentity), MlsError> {
+        let group = self.group.as_mut().ok_or(MlsError::GroupNotExists)?;
+        let message = MlsMessage::from_bytes(encrypted_message)?;
+        let ReceivedMessage::ApplicationMessage(app_msg) =
+            group.process_incoming_message(message).await?
+        else {
+            return Err(MlsError::verification_failed(
+                "Message was not an application message",
+            ));
+        };
+        let sender = group.member_at_index(app_msg.sender_index).ok_or_else(|| {
+            MlsError::IdentifierNotFound(format!("sender leaf {}", app_msg.sender_index))
+        })?;
+        let identity = SlimIdentityProvider::new(self.identity_verifier.clone())
+            .identity(&sender.signing_identity, &sender.extensions)
+            .await?;
+        Ok((
+            app_msg.data().to_vec(),
+            app_msg.authenticated_data.to_vec(),
+            identity,
+        ))
     }
 
     pub async fn write_to_storage(&mut self) -> Result<(), MlsError> {

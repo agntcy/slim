@@ -3,6 +3,7 @@
 
 use std::{collections::HashMap, time::Duration};
 
+use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::{
     api::{
@@ -14,6 +15,7 @@ use slim_datapath::{
 
 use tracing::debug;
 
+use crate::identity_check::{binding_mismatch, same_name};
 use crate::{
     common::{MessageDirection, SessionMessage, SessionOutput},
     errors::SessionError,
@@ -92,6 +94,10 @@ where
         moderator_name: Option<ProtoName>,
         group_list: HashMap<ProtoName, Participant>,
     ) -> Self {
+        let mut mls_state = mls_state;
+        if let Some(state) = mls_state.as_mut() {
+            state.identity_binding = settings.identity_binding;
+        }
         let common = SessionControllerCommon::new(settings);
 
         SessionParticipant {
@@ -128,10 +134,11 @@ where
                     self.common.settings.group_storage.clone(),
                 )
                 .with_enforce_pqc(self.common.settings.enforce_pqc);
-                let mls_state =
+                let mut mls_state =
                     MlsState::new(mls, mls_settings.header_integrity_validation_percent)
                         .await
                         .expect("failed to create MLS state");
+                mls_state.identity_binding = self.common.settings.identity_binding;
                 Some(mls_state)
             } else {
                 None
@@ -525,6 +532,10 @@ where
         message: Message,
         ack_tx: Option<tokio::sync::oneshot::Sender<Result<(), SessionError>>>,
     ) -> Result<SessionOutput, SessionError> {
+        if direction == MessageDirection::North && self.rejects_non_moderator(&message) {
+            return Ok(SessionOutput::new());
+        }
+
         match message.get_session_message_type() {
             ProtoSessionMessageType::JoinRequest => self.on_join_request(message).await,
             ProtoSessionMessageType::GroupWelcome => self.on_welcome(message).await,
@@ -584,6 +595,46 @@ where
                 Ok(SessionOutput::new())
             }
         }
+    }
+
+    /// Whether to drop a control message only the moderator may send that comes
+    /// from another name: membership changes, the group's welcome and close,
+    /// replies to this participant's leave and rejoin, and further invites. A
+    /// peer may announce only its own state.
+    fn rejects_non_moderator(&self, msg: &Message) -> bool {
+        let mode = self.common.settings.identity_binding;
+        // Before the first invite there is no moderator yet.
+        let (true, Some(moderator)) = (mode != IdentityBinding::Off, &self.moderator_name) else {
+            return false;
+        };
+        let source = msg.get_source();
+        let from_moderator = same_name(moderator, &source);
+        let allowed = match msg.get_session_message_type() {
+            ProtoSessionMessageType::JoinRequest
+            | ProtoSessionMessageType::GroupWelcome
+            | ProtoSessionMessageType::GroupUpdate
+            | ProtoSessionMessageType::LeaveRequest
+            | ProtoSessionMessageType::GroupClose
+            | ProtoSessionMessageType::LeaveReply
+            | ProtoSessionMessageType::RejoinReply => from_moderator,
+            ProtoSessionMessageType::UpdateParticipantState => {
+                from_moderator
+                    || msg
+                        .get_payload()
+                        .and_then(|p| p.as_command_payload().ok())
+                        .and_then(|p| p.as_update_participant_state_payload().ok())
+                        .and_then(|p| p.participant.as_ref())
+                        .is_some_and(|participant| same_name(participant, &source))
+            }
+            _ => true,
+        };
+        !allowed
+            && binding_mismatch(
+                mode,
+                "control message only the moderator may send, from another member",
+                msg,
+                None,
+            )
     }
 
     async fn on_join_request(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
@@ -1596,6 +1647,7 @@ mod tests {
             max_seen_control_message_ids_size:
                 crate::session_settings::DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
             enforce_pqc: false,
+            identity_binding: slim_auth::identity_binding::IdentityBinding::Warn,
             kv_store: None,
             group_storage: None,
         };
@@ -1625,6 +1677,86 @@ mod tests {
         let result = participant.init().await;
         assert!(result.is_ok());
         assert!(participant.mls_state.is_none()); // MLS is disabled in test setup
+    }
+
+    /// A control message of `kind` from `source`, with `payload`.
+    fn control_from(
+        source: &ProtoName,
+        kind: ProtoSessionMessageType,
+        payload: CommandPayload,
+    ) -> Message {
+        Message::builder()
+            .source(source.clone())
+            .destination(make_name(&["org", "ns", "participant"]).with_id(9))
+            .identity("")
+            .forward_to(0)
+            .session_type(ProtoSessionType::Multicast)
+            .session_message_type(kind)
+            .session_id(1)
+            .message_id(7)
+            .payload(payload.as_content())
+            .build_publish()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn only_the_moderator_may_change_membership() {
+        let (mut participant, _rx_slim, _rx_session_layer, _rx_session) =
+            setup_participant(ProtoSessionType::Multicast);
+        participant.common.settings.identity_binding = IdentityBinding::Enforce;
+        let moderator = make_name(&["org", "ns", "moderator"]).with_id(1);
+        let member = make_name(&["org", "ns", "member"]).with_id(2);
+        let other = make_name(&["org", "ns", "other"]).with_id(3);
+        participant.moderator_name = Some(moderator.clone());
+        let builder = CommandPayload::builder;
+
+        for kind in [
+            ProtoSessionMessageType::JoinRequest,
+            ProtoSessionMessageType::GroupWelcome,
+            ProtoSessionMessageType::GroupUpdate,
+            ProtoSessionMessageType::LeaveRequest,
+            ProtoSessionMessageType::GroupClose,
+            ProtoSessionMessageType::LeaveReply,
+            ProtoSessionMessageType::RejoinReply,
+        ] {
+            let payload = || builder().leave_request();
+            let from_moderator = control_from(&moderator, kind, payload());
+            assert!(
+                !participant.rejects_non_moderator(&from_moderator),
+                "{kind:?}"
+            );
+            let from_member = control_from(&member, kind, payload());
+            assert!(participant.rejects_non_moderator(&from_member), "{kind:?}");
+        }
+
+        // A peer may announce its own state, but not another's.
+        let state = |from: &ProtoName, about: &ProtoName| {
+            control_from(
+                from,
+                ProtoSessionMessageType::UpdateParticipantState,
+                builder().update_participant_state(about.clone(), ParticipantState::Offline, 0),
+            )
+        };
+        assert!(!participant.rejects_non_moderator(&state(&member, &member)));
+        assert!(participant.rejects_non_moderator(&state(&member, &other)));
+        assert!(!participant.rejects_non_moderator(&state(&moderator, &other)));
+
+        // Any member may send heartbeats.
+        let heartbeat = control_from(
+            &member,
+            ProtoSessionMessageType::Heartbeat,
+            builder().heartbeat(0),
+        );
+        assert!(!participant.rejects_non_moderator(&heartbeat));
+
+        // Under warn, a mismatch is only logged.
+        participant.common.settings.identity_binding = IdentityBinding::Warn;
+        let update = control_from(
+            &member,
+            ProtoSessionMessageType::GroupUpdate,
+            builder().leave_request(),
+        );
+        assert!(!participant.rejects_non_moderator(&update));
     }
 
     #[tokio::test]

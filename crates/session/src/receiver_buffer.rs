@@ -42,6 +42,16 @@ impl Default for ReceiverBuffer {
 impl ReceiverBuffer {
     const MAX_ID: usize = MAX_PUBLISH_ID as usize;
 
+    /// A buffer for a stream known to start at `first_id`. Unlike the default,
+    /// which starts at whatever arrives first, it holds later messages until
+    /// `first_id` arrives or is lost.
+    pub(crate) fn starting_at(first_id: usize) -> Self {
+        ReceiverBuffer {
+            last_sent: (first_id + Self::MAX_ID) % (Self::MAX_ID + 1),
+            ..Default::default()
+        }
+    }
+
     // Helper function to compute distance between two IDs with wraparound
     // Returns the forward distance from 'from' to 'to'
     fn id_distance(from: usize, to: usize) -> usize {
@@ -883,5 +893,46 @@ mod tests {
         assert!(buffer.message_already_received(id_zero as usize));
         // 1 should not be received yet
         assert!(!buffer.message_already_received(id_one as usize));
+    }
+
+    /// A stream known to start at 1 holds 2 until 1 arrives; without a known
+    /// start, 2 starts the stream and a later 1 is dropped.
+    #[test]
+    fn a_stream_starting_at_1_waits_for_1() {
+        let message = |id: u32| {
+            let src = Name::from_strings(["org", "ns", "type"]).with_id(0);
+            let dst = Name::from_strings(["org", "ns", "type"]).with_id(1);
+            let src_id = src.to_string();
+            Message::builder()
+                .with_slim_header(SlimHeader::new(src, dst, &src_id, None))
+                .with_session_header(SessionHeader::new(
+                    ProtoSessionType::PointToPoint.into(),
+                    ProtoSessionMessageType::Msg.into(),
+                    0,
+                    id,
+                ))
+                .application_payload("", vec![])
+                .build_publish()
+                .unwrap()
+        };
+        let (m1, m2, m3) = (message(1), message(2), message(3));
+
+        let mut buffer = ReceiverBuffer::starting_at(1);
+        assert_eq!(buffer.on_received_message(m2.clone()), (vec![], vec![1]));
+        assert_eq!(
+            buffer.on_received_message(m1.clone()),
+            (vec![Some(m1.clone()), Some(m2.clone())], vec![])
+        );
+        assert_eq!(
+            buffer.on_received_message(m3.clone()),
+            (vec![Some(m3)], vec![])
+        );
+
+        let mut buffer = ReceiverBuffer::default();
+        assert_eq!(
+            buffer.on_received_message(m2.clone()),
+            (vec![Some(m2)], vec![])
+        );
+        assert_eq!(buffer.on_received_message(m1), (vec![], vec![]));
     }
 }

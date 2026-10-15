@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.5](https://github.com/agntcy/slim/compare/slim-config-v0.17.4...slim-config-v0.17.5) - 2026-10-14
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth
+
+## [0.17.4](https://github.com/agntcy/slim/compare/slim-config-v0.17.3...slim-config-v0.17.4) - 2026-10-14
+
+### Fixed
+
+- *(auth)* bind a token's sub to the trust-list key that signed it ([#2265](https://github.com/agntcy/slim/pull/2265))
+
+## [0.17.3](https://github.com/agntcy/slim/compare/slim-config-v0.17.2...slim-config-v0.17.3) - 2026-10-13
+
+### Fixed
+
+- *(test)* reserve test ports below the ephemeral range ([#2252](https://github.com/agntcy/slim/pull/2252))
+
+## [0.17.2](https://github.com/agntcy/slim/compare/slim-config-v0.17.1...slim-config-v0.17.2) - 2026-10-12
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth
+
 ## [0.17.1](https://github.com/agntcy/slim/compare/slim-config-v0.17.0...slim-config-v0.17.1) - 2026-10-11
 
 ### Fixed

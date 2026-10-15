@@ -152,13 +152,14 @@ channel-manager:
       mls-enabled: true
 
     - name: "agntcy/ns/broadcast"
-      participants: []
+      participants:
+        - "agntcy/ns/subscriber-1"
       mls-enabled: false
 
   # ---------------------------------------------------------------------------
   # persistence: optional state store so session state survives restarts.
-  # Both path and encryption-passphrase support ${ENV_VAR} and ${file:/path}
-  # substitution for secrets manager integration (Kubernetes Secret, Vault,
+  # Every string value in this file supports ${env:VAR} and ${file:/path}
+  # substitution, for secrets manager integration (Kubernetes Secret, Vault,
   # External Secrets Operator, etc.).
   # In production use a private directory with restrictive permissions and
   # never store the passphrase in the config file directly.
@@ -193,7 +194,7 @@ The SLIM name the Channel Manager registers as. Use a unique three-component nam
 
 ### `audience`
 
-Optional. The value an owner's signed create and delete requests must name as their `audience` ([Channel Ownership, Grants and Expiry](./ownership.md#create-request)), so a request signed for one Channel Manager can't be replayed against another. Defaults to `local-name`. Set it to a value unique to the deployment when several deployments share a `local-name`, for example development and production.
+Optional. The value an owner's signed create and delete requests must name as their `audience` ([Concepts and Ownership](./ownership.md#create-request)), so a request signed for one Channel Manager can't be replayed against another. Defaults to `local-name`. Set it to a value unique to the deployment when several deployments share a `local-name`, for example development and production.
 
 ### `require-signatures`
 
@@ -222,10 +223,12 @@ Optional. The identity of the app that asks channel owners for approval, `<local
 Channels listed here are created at startup. For each channel:
 
 - `name` — the SLIM channel name (`org/namespace/channel`, three components)
-- `participants` — SLIM application names to invite; the Channel Manager performs discovery and the full invitation handshake for each
+- `participants` — SLIM application names to invite; the Channel Manager performs discovery and the full invitation handshake for each. At least one is required: an empty list is a configuration error
 - `mls-enabled` — whether to enable MLS end-to-end encryption for the channel (defaults to `true`)
 
-Channels can also be created and participants managed at runtime using `slimctl channel-manager` commands after the service is running.
+Declaring any channel here puts the Channel Manager in **config mode**, in which the configuration file is the single source of truth: every mutating API call is refused, for these channels and any other. Each declared channel's participants must be running and reachable at startup, or reconciliation fails and the Channel Manager exits. Channels have no owner and no expiry in this mode.
+
+Leave this section out to run in **API mode**, where channels are created through the API, owned by whoever signs the create request, and changed without restarting the service. See [Config mode and API mode](./ownership.md#config-mode-and-api-mode).
 
 ### `persistence`
 
@@ -245,7 +248,9 @@ The Channel Manager refuses to start if `persistence` is configured but channel 
 
 ## Related
 
-- [Installation Guide](./install.md) — Build and run the Channel Manager
-- [Channel Ownership, Grants and Expiry](./ownership.md) — Owners, grants and time to live for channels created through the API
+- [Installation and Walkthrough](./install.md) — Build and run the Channel Manager, and manage an owned channel
+- [Concepts and Ownership](./ownership.md) — The model behind these settings: owners, grants, operators and time to live
+- [Security Model](./security.md) — What each authentication option identifies, and what authorizes a change
+- [Deployment Guide](./deploy.md) — Choosing identities, an `audience` and persistence for a real deployment
 - [Groups](../../architecture/sessions/group.md) — The group communication model and moderator role
 - [Authentication](../../architecture/authentication.md) — TLS, mTLS, JWT, and SPIRE authentication options

@@ -1,6 +1,6 @@
 # slimctl channel-manager delete-channel
 
-Delete a group channel, with a delete request signed by its owner or by an operator: signed here with `--key`, or signed elsewhere and forwarded with `--signed-request-file`. See [Channel Ownership, Grants and Expiry](../../../channel-manager/ownership.md#delete-request).
+Delete a group channel, with a delete request signed by its owner or by an operator: signed here with `--key`, or signed elsewhere and forwarded with `--signed-request-file`. See [Channel Manager: Concepts and Ownership](../../../channel-manager/ownership.md#delete-request).
 
 **Aliases:** `dc`
 

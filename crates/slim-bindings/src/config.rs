@@ -828,7 +828,11 @@ mod tests {
         use std::io::Write;
 
         // Create a temporary config file with multiple services
-        let config_content = r#"# Copyright AGNTCY Contributors (https://github.com/agntcy)
+        let config_content = {
+            let [p0, p1, p2, p3] =
+                std::array::from_fn(|_| slim_testing::common::reserve_local_port());
+            format!(
+                r#"# Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
 tracing:
@@ -845,36 +849,41 @@ services:
   slim/0:
     dataplane:
       servers:
-        - endpoint: "0.0.0.0:56357"
+        - endpoint: "127.0.0.1:{p0}"
           tls:
             insecure: true
       clients: []
   slim/1:
     dataplane:
       servers:
-        - endpoint: "0.0.0.0:56358"
+        - endpoint: "127.0.0.1:{p1}"
           tls:
             insecure: true
       clients: []
   slim/2:
     dataplane:
       servers:
-        - endpoint: "0.0.0.0:56359"
+        - endpoint: "127.0.0.1:{p2}"
           tls:
             insecure: true
       clients: []
   slim/3:
     dataplane:
       servers:
-        - endpoint: "0.0.0.0:56360"
+        - endpoint: "127.0.0.1:{p3}"
           tls:
             insecure: true
       clients: []
-"#;
+"#
+            )
+        };
 
-        // Write to a temporary file
+        // Write to a temporary file of its own, so parallel runs don't share it
         let temp_dir = std::env::temp_dir();
-        let config_path = temp_dir.join("test-multi-service-order.yaml");
+        let config_path = temp_dir.join(format!(
+            "test-multi-service-order-{}.yaml",
+            std::process::id()
+        ));
         let mut file =
             std::fs::File::create(&config_path).expect("Failed to create temp config file");
         file.write_all(config_content.as_bytes())

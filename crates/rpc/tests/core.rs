@@ -20,8 +20,10 @@ use futures::pin_mut;
 use futures::stream::{self, StreamExt};
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
+use slim_auth::traits::TokenProvider;
 use slim_config::component::id::{ID, Kind};
 use slim_datapath::api::ProtoName as Name;
+use slim_service::app::App as SlimApp;
 use slim_service::service::Service;
 use tokio::sync::Mutex;
 
@@ -107,6 +109,11 @@ impl Decoder for EmptyResponse {
 struct TestEnv {
     service: Arc<Service>,
     server: Arc<Server>,
+    /// The server's full name and identity (`sub`).
+    server_name: Name,
+    server_sub: String,
+    /// The client app, for building other channels.
+    client_app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
     channel: Channel,
 }
 
@@ -118,6 +125,7 @@ impl TestEnv {
 
         let server_name = Name::from_strings(["org", "ns", "server"]);
         let secret = SharedSecret::new("server", TEST_VALID_SECRET).unwrap();
+        let server_sub = secret.get_id().unwrap();
 
         let (server_app, server_notifications) = service
             .create_app(
@@ -127,6 +135,7 @@ impl TestEnv {
             )
             .unwrap();
         let server_app = Arc::new(server_app);
+        let server_name = server_app.app_name().clone();
 
         let server = Arc::new(Server::new(
             server_app.clone(),
@@ -157,6 +166,9 @@ impl TestEnv {
         Self {
             service,
             server,
+            server_name,
+            server_sub,
+            client_app,
             channel,
         }
     }
@@ -2870,6 +2882,71 @@ async fn test_server_shutdown_during_handler_execution() {
         "Expected Cancelled error when server shuts down during handler execution, got: {:?}",
         error.code()
     );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_a_pinned_channel_requires_and_reports_its_peer() {
+    let mut env = TestEnv::new("test-service-pinned").await;
+    env.server.register_unary_unary(
+        "TestService",
+        "Echo",
+        |request: TestRequest, _ctx: Context| async move {
+            Ok(TestResponse {
+                result: request.message,
+                count: request.value,
+            })
+        },
+    );
+    env.start_server().await;
+    let request = || TestRequest {
+        message: "Hello".to_string(),
+        value: 1,
+    };
+    let server = Arc::new(env.server_name.clone());
+
+    // Pinned to the server's own identity: the call goes through, and the
+    // channel reports the identity it verified.
+    let pinned = Channel::new_pinned(
+        env.client_app.clone(),
+        server.clone(),
+        env.server_sub.clone(),
+    );
+    let response: TestResponse = pinned
+        .unary(
+            "TestService",
+            "Echo",
+            request(),
+            Some(Duration::from_secs(5)),
+            None,
+        )
+        .await
+        .expect("pinned call failed");
+    assert_eq!(response.result, "Hello");
+    let peer = pinned
+        .peer_identity()
+        .await
+        .map(|p| p.subject().to_string());
+    assert_eq!(peer, Some(env.server_sub.clone()));
+    pinned.close(None).await.unwrap();
+
+    // Pinned to another identity: no session, so the call fails.
+    let mispinned = Channel::new_pinned(env.client_app.clone(), server, "someone-else");
+    let result: Result<TestResponse, _> = mispinned
+        .unary(
+            "TestService",
+            "Echo",
+            request(),
+            Some(Duration::from_secs(3)),
+            None,
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "a call pinned to another identity succeeded"
+    );
+    assert!(mispinned.peer_identity().await.is_none());
 
     env.shutdown().await;
 }

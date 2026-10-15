@@ -149,9 +149,14 @@ nav:
               - Configuration Reference: slim/components/controller/config.md
           - SLIM Channel Manager:
               - slim/components/channel-manager/index.md
-              - Installation Guide: slim/components/channel-manager/install.md
+              - Concepts and Ownership: slim/components/channel-manager/ownership.md
+              - Installation and Walkthrough: slim/components/channel-manager/install.md
+              - Managing Channels with slimctl: slim/components/channel-manager/slimctl.md
+              - Deployment Guide: slim/components/channel-manager/deploy.md
+              - Security Model: slim/components/channel-manager/security.md
               - Configuration Reference: slim/components/channel-manager/config.md
-              - Ownership, Grants and Expiry: slim/components/channel-manager/ownership.md
+              - API Reference: slim/components/channel-manager/api.md
+              - Operations and Troubleshooting: slim/components/channel-manager/operations.md
           - SLIM CLI:
               - slim/components/cli/index.md
               - Installation: slim/components/cli/install.md

@@ -424,16 +424,8 @@ mod tests {
     use super::*;
 
     use crate::tls::client::TlsClientConfig;
-    use std::net::TcpListener;
+    use slim_testing::common::reserve_local_port;
     use std::time::Duration;
-
-    fn available_port() -> u16 {
-        TcpListener::bind("127.0.0.1:0")
-            .expect("bind")
-            .local_addr()
-            .expect("local_addr")
-            .port()
-    }
 
     #[tokio::test]
     async fn test_websocket_client_invalid_endpoint_scheme() {
@@ -446,7 +438,7 @@ mod tests {
     #[tokio::test]
     async fn test_websocket_client_connect_refused() {
         // Bind to grab a port, then drop the listener to guarantee it's closed.
-        let port = available_port();
+        let port = reserve_local_port();
         let cfg = ClientConfig::with_endpoint(&format!("ws://127.0.0.1:{port}"))
             .with_tls_setting(TlsClientConfig::insecure())
             .with_backoff(crate::client::BackoffConfig::new_fixed_interval(

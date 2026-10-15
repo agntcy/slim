@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.21](https://github.com/agntcy/slim/compare/slim-session-v0.7.20...slim-session-v0.7.21) - 2026-10-14
+
+### Fixed
+
+- *(session)* build for wasm32 again ([#2289](https://github.com/agntcy/slim/pull/2289))
+
+## [0.7.20](https://github.com/agntcy/slim/compare/slim-session-v0.7.19...slim-session-v0.7.20) - 2026-10-14
+
+### Added
+
+- *(session)* pin peers to an expected identity and expose verified identities ([#2270](https://github.com/agntcy/slim/pull/2270))
+
+### Fixed
+
+- *(session)* sign control-message payloads ([#2283](https://github.com/agntcy/slim/pull/2283))
+- *(session)* tie data messages and peer_subject() to the MLS sender ([#2282](https://github.com/agntcy/slim/pull/2282))
+- *(session)* accept membership changes only from the moderator ([#2281](https://github.com/agntcy/slim/pull/2281))
+- *(session)* hold peers' name ids and channels to their verified identities ([#2267](https://github.com/agntcy/slim/pull/2267))
+
+## [0.7.19](https://github.com/agntcy/slim/compare/slim-session-v0.7.18...slim-session-v0.7.19) - 2026-10-13
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-datapath, agntcy-slim-auth, agntcy-slim-mls
+
+## [0.7.18](https://github.com/agntcy/slim/compare/slim-session-v0.7.17...slim-session-v0.7.18) - 2026-10-12
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-datapath, agntcy-slim-mls
+
 ## [0.7.17](https://github.com/agntcy/slim/compare/slim-session-v0.7.16...slim-session-v0.7.17) - 2026-10-11
 
 ### Fixed

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim"
-version = "3.2.1"
+version = "3.4.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -20,16 +20,16 @@ dependencies = [
  "num_cpus",
  "serde",
  "serde_json",
- "serde_yaml",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-test",
+ "yaml_serde",
 ]
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.17.1"
+version = "0.17.5"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "3.2.1"
+version = "3.4.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -93,6 +93,7 @@ dependencies = [
  "agntcy-slim-service",
  "agntcy-slim-session",
  "agntcy-slim-signal",
+ "agntcy-slim-testing",
  "agntcy-slim-tracing",
  "agntcy-slim-version",
  "cfg-if",
@@ -115,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-version = "3.2.1"
+version = "3.4.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -141,7 +142,6 @@ dependencies = [
  "rcgen",
  "serde",
  "serde_json",
- "serde_yaml",
  "tempfile",
  "tokio",
  "tonic",
@@ -150,11 +150,12 @@ dependencies = [
  "tracing",
  "uuid",
  "x509-parser",
+ "yaml_serde",
 ]
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.17.1"
+version = "0.17.5"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -189,7 +190,6 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha1 0.11.0",
  "tempfile",
  "thiserror 2.0.21",
@@ -210,11 +210,12 @@ dependencies = [
  "tracing-test",
  "uuid",
  "wasm-bindgen-test",
+ "yaml_serde",
 ]
 
 [[package]]
 name = "agntcy-slim-control-plane"
-version = "3.2.1"
+version = "3.4.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -244,7 +245,6 @@ dependencies = [
  "rlimit",
  "serde",
  "serde_json",
- "serde_yaml",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -256,11 +256,12 @@ dependencies = [
  "tracing-subscriber",
  "tracing-test",
  "uuid",
+ "yaml_serde",
 ]
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.13.7"
+version = "0.13.11"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -292,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.19.5"
+version = "0.19.9"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -325,7 +326,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2 0.11.0",
  "thiserror 2.0.21",
  "tokio",
@@ -344,11 +344,12 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "x25519-dalek",
+ "yaml_serde",
 ]
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.4.5"
+version = "0.4.9"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -390,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-proto"
-version = "0.7.2"
+version = "0.8.3"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -408,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-rpc"
-version = "3.2.1"
+version = "3.4.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-bindings",
@@ -428,6 +429,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "tracing-subscriber",
  "tracing-test",
  "uniffi",
  "uuid",
@@ -435,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.13.5"
+version = "0.13.9"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -460,13 +462,12 @@ dependencies = [
  "tokio_with_wasm",
  "tracing",
  "tracing-test",
- "twox-hash",
  "uuid",
 ]
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.7.17"
+version = "0.7.21"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -503,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-signal"
-version = "0.1.31"
+version = "0.1.35"
 dependencies = [
  "agntcy-slim-version",
  "tokio",
@@ -547,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.4.27"
+version = "0.4.31"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -570,11 +571,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "3.2.1"
+version = "3.4.1"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "3.2.1"
+version = "3.4.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -600,7 +601,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "serde_yaml",
  "sha2 0.11.0",
  "tempfile",
  "tokio",
@@ -609,6 +609,7 @@ dependencies = [
  "tonic-prost",
  "url",
  "uuid",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -5634,19 +5635,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
-dependencies = [
- "indexmap",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml",
-]
-
-[[package]]
 name = "serdect"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6874,12 +6862,6 @@ dependencies = [
  "uniffi_meta",
  "weedle2",
 ]
-
-[[package]]
-name = "unsafe-libyaml"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

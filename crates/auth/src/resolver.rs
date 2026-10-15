@@ -4,7 +4,9 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use jsonwebtoken::jwk::KeyAlgorithm;
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, KeyAlgorithm};
 use jsonwebtoken::{
     Algorithm, DecodingKey, Header,
     jwk::{Jwk, JwkSet},
@@ -33,6 +35,58 @@ pub(crate) fn require_https(url: &str) -> Result<Url, AuthError> {
         return Err(AuthError::OidcInsecureIssuerUrl(url.to_string()));
     }
     Ok(parsed)
+}
+
+/// The peer a static trust-list key belongs to: its `kid`, and the `did:key`
+/// its public key encodes (Ed25519 keys only).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct KeyOwner {
+    kid: Option<String>,
+    did: Option<String>,
+}
+
+impl KeyOwner {
+    fn of(jwk: &Jwk) -> Self {
+        let did = match &jwk.algorithm {
+            AlgorithmParameters::OctetKeyPair(okp) if okp.curve == EllipticCurve::Ed25519 => {
+                URL_SAFE_NO_PAD
+                    .decode(&okp.x)
+                    .ok()
+                    .filter(|public| public.len() == 32)
+                    .map(|public| crate::did_key::ed25519_did_key(&public))
+            }
+            _ => None,
+        };
+        KeyOwner {
+            kid: jwk.common.key_id.clone(),
+            did,
+        }
+    }
+
+    /// Whether `sub` names this key's owner.
+    pub(crate) fn owns(&self, sub: &str) -> bool {
+        self.kid.as_deref() == Some(sub) || self.did.as_deref() == Some(sub)
+    }
+
+    pub(crate) fn kid(&self) -> Option<&str> {
+        self.kid.as_deref()
+    }
+}
+
+/// A key that may have signed a token.
+pub(crate) struct Candidate {
+    pub(crate) key: DecodingKey,
+    pub(crate) algorithm: Algorithm,
+    /// The key's owner when it comes from a static trust list, where each key
+    /// is one peer's. `None` for an identity provider's keys, which sign
+    /// tokens for many subjects.
+    pub(crate) owner: Option<KeyOwner>,
+}
+
+impl Candidate {
+    fn into_key(self) -> (DecodingKey, Algorithm) {
+        (self.key, self.algorithm)
+    }
 }
 
 /// Cache entry for a JWKS.
@@ -79,14 +133,20 @@ impl JwksCache {
 ///
 /// Example usage:
 ///
-/// ```
+/// ```rust,no_run
+/// use std::time::Duration;
+/// use slim_auth::builder::JwtBuilder;
+/// use slim_auth::resolver::KeyResolver;
+///
 /// let resolver = KeyResolver::new()
 ///     .with_jwks_ttl(Duration::from_secs(1800));  // 30 minute cache TTL
 ///
-/// let jwt = Jwt::builder()
+/// let verifier = JwtBuilder::new()
 ///     .issuer("https://your-oidc-provider.com")
-///     .key_resolver(resolver)
-///     .build()?;
+///     .auto_resolve_keys(true)
+///     .build()?
+///     .with_key_resolver(resolver);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug)]
 pub struct KeyResolver {
@@ -184,21 +244,31 @@ impl KeyResolver {
         issuer: &str,
         token_header: &Header,
     ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
+        let candidates = self.resolve_candidates(issuer, token_header).await?;
+        Ok(candidates.into_iter().map(Candidate::into_key).collect())
+    }
+
+    /// [`Self::resolve_keys`], with the owner of each static trust-list key.
+    pub(crate) async fn resolve_candidates(
+        &self,
+        issuer: &str,
+        token_header: &Header,
+    ) -> Result<Vec<Candidate>, AuthError> {
         // Check if we have a static JWKS entry
         if let Some(cache_entry) = self.jwks_cache.read().get(Self::STATIC_JWKS_ENTRY) {
             // If we have a static JWKS, use it directly
-            return self.candidate_keys_from_cache(cache_entry, token_header);
+            return self.candidates_from_cache(cache_entry, token_header, true);
         }
 
         // Try to get cached keys if available
-        if let Ok(cached_keys) = self.get_cached_keys(issuer, token_header) {
-            return Ok(cached_keys);
+        if let Ok(candidates) = self.cached_candidates(issuer, token_header) {
+            return Ok(candidates);
         }
 
         // Try to fetch the keys from the well-known JWKS endpoint (also caches it
         // with its `by_kid` index for subsequent O(1) lookups).
         self.fetch_jwks(issuer).await?;
-        self.get_cached_keys(issuer, token_header)
+        self.cached_candidates(issuer, token_header)
     }
 
     /// Convert a JWK to a DecodingKey
@@ -239,11 +309,23 @@ impl KeyResolver {
     /// selector. The previous behaviour returned only the *first* algorithm match,
     /// so with a multi-key allow-list every member other than keys[0] failed with
     /// `InvalidSignature`.
-    fn candidate_keys_from_cache(
+    ///
+    /// `peer_keys` marks a static trust list, where each key belongs to one
+    /// peer: its candidates then carry their [`KeyOwner`].
+    fn candidates_from_cache(
         &self,
         cache: &JwksCache,
         token_header: &Header,
-    ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
+        peer_keys: bool,
+    ) -> Result<Vec<Candidate>, AuthError> {
+        let candidate = |jwk: &Jwk, algorithm| -> Result<Candidate, AuthError> {
+            Ok(Candidate {
+                key: self.jwk_to_decoding_key(jwk)?,
+                algorithm,
+                owner: peer_keys.then(|| KeyOwner::of(jwk)),
+            })
+        };
+
         // Fast path: exact `kid` hit via the precomputed index.
         if let Some(kid) = &token_header.kid
             && let Some(jwk) = cache.by_kid.get(kid)
@@ -254,7 +336,7 @@ impl KeyResolver {
                 .as_ref()
                 .ok_or(AuthError::JwksNoSuitableKey)
                 .and_then(|a| self.key_alg_to_algorithm(a))?;
-            return Ok(vec![(self.jwk_to_decoding_key(jwk)?, alg)]);
+            return Ok(vec![candidate(jwk, alg)?]);
         }
 
         // Fallback: every key whose algorithm matches the token.
@@ -264,7 +346,7 @@ impl KeyResolver {
                 && let Ok(algorithm) = self.key_alg_to_algorithm(alg)
                 && algorithm == token_header.alg
             {
-                candidates.push((self.jwk_to_decoding_key(key)?, algorithm));
+                candidates.push(candidate(key, algorithm)?);
             }
         }
 
@@ -292,13 +374,23 @@ impl KeyResolver {
         issuer: &str,
         token_header: &Header,
     ) -> Result<Vec<(DecodingKey, Algorithm)>, AuthError> {
+        let candidates = self.cached_candidates(issuer, token_header)?;
+        Ok(candidates.into_iter().map(Candidate::into_key).collect())
+    }
+
+    /// [`Self::get_cached_keys`], with the owner of each static trust-list key.
+    pub(crate) fn cached_candidates(
+        &self,
+        issuer: &str,
+        token_header: &Header,
+    ) -> Result<Vec<Candidate>, AuthError> {
         // Check if we have a cached JWKS that's still valid
         let cache = self.jwks_cache.read();
 
         // Check static JWKS entry first
         if let Some(cache_entry) = cache.get(Self::STATIC_JWKS_ENTRY) {
             // no need to check the elapsed time for static JWKS
-            return self.candidate_keys_from_cache(cache_entry, token_header);
+            return self.candidates_from_cache(cache_entry, token_header, true);
         }
 
         let cache_entry = cache.get(issuer);
@@ -317,7 +409,7 @@ impl KeyResolver {
         }
 
         // If we have a valid cache entry, collect the candidate keys
-        self.candidate_keys_from_cache(cache_entry, token_header)
+        self.candidates_from_cache(cache_entry, token_header, false)
     }
 
     /// Fetch JWKS from the issuer's endpoint

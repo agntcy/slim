@@ -14,6 +14,7 @@ use tokio::sync::Semaphore;
 use tokio::sync::mpsc::Sender;
 use tracing::{Instrument, debug, error, warn};
 
+use slim_auth::identity_binding::IdentityBinding;
 #[cfg(not(target_arch = "wasm32"))]
 use slim_auth::traits::ExportedIdentity;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -24,7 +25,10 @@ use slim_datapath::api::{
 
 use crate::common::SessionMessage;
 use crate::completion_handle::CompletionHandle;
+use crate::identity_check::binding_mismatch;
+use crate::name_id;
 use crate::notification::Notification;
+use crate::peer_identity::PeerIdentity;
 use crate::session_config::SessionConfig;
 use crate::session_controller::SessionController;
 use crate::subscription_manager::SubscriptionManager;
@@ -427,9 +431,45 @@ where
     #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
     pub async fn create_session(
         &self,
+        session_config: SessionConfig,
+        local_name: ProtoName,
+        destination: ProtoName,
+        id: Option<u32>,
+    ) -> Result<(SessionContext, CompletionHandle), SessionError> {
+        self.create_session_with_pin(session_config, local_name, destination, None, id)
+            .await
+    }
+
+    /// [`Self::create_session`] for a point-to-point session that admits its
+    /// peer only if it is verified as `expected_subject` (its DID, for a
+    /// `did:key` identity). For a multicast session, pin each member with
+    /// `SessionController::invite_participant_pinned` instead; a multicast
+    /// config here is an error.
+    #[tracing::instrument(skip_all, fields(service_id = %self.service_id))]
+    pub async fn create_session_pinned(
+        &self,
+        session_config: SessionConfig,
+        local_name: ProtoName,
+        destination: ProtoName,
+        expected_subject: impl Into<String>,
+        id: Option<u32>,
+    ) -> Result<(SessionContext, CompletionHandle), SessionError> {
+        if session_config.session_type != ProtoSessionType::PointToPoint {
+            return Err(SessionError::SessionTypeUnknown(
+                session_config.session_type,
+            ));
+        }
+        let pin = Some(expected_subject.into());
+        self.create_session_with_pin(session_config, local_name, destination, pin, id)
+            .await
+    }
+
+    async fn create_session_with_pin(
+        &self,
         mut session_config: SessionConfig,
         local_name: ProtoName,
         destination: ProtoName,
+        pin: Option<String>,
         id: Option<u32>,
     ) -> Result<(SessionContext, CompletionHandle), SessionError> {
         // Sanity check
@@ -439,49 +479,21 @@ where
         let is_p2p = session_config.session_type == ProtoSessionType::PointToPoint;
         let destination_proto = destination.clone();
 
-        let (dest_with_id, control_with_id) = if session_config.session_type
-            == ProtoSessionType::Multicast
-        {
-            let token_id = self.identity_provider.get_id()?;
+        let (dest_with_id, control_with_id) =
+            if session_config.session_type == ProtoSessionType::Multicast {
+                let token_id = self.identity_provider.get_id()?;
 
-            let (c0, c1, c2) = destination.str_components();
-            let data_input = format!("{}/{}/{}/{}/data", token_id, c0, c1, c2);
-            let ctrl_input = format!("{}/{}/{}/{}/control", token_id, c0, c1, c2);
+                let (c0, c1, c2) = destination.str_components();
+                let (data_id, ctrl_id) = crate::name_id::channel_ids(&token_id, c0, c1, c2)
+                    .ok_or(SessionError::SessionBuilderIncomplete)?;
 
-            let mut data_id;
-            let mut ctrl_id;
-            let mut salt = 0u64;
-            loop {
-                data_id = twox_hash::XxHash3_128::oneshot_with_seed(salt, data_input.as_bytes());
-                if NameId::is_reserved_id(data_id) {
-                    data_id = (data_id % (u128::MAX - NameId::RESERVED_IDS - 1)) + 1;
-                }
-
-                ctrl_id = twox_hash::XxHash3_128::oneshot_with_seed(salt, ctrl_input.as_bytes());
-                if NameId::is_reserved_id(ctrl_id) {
-                    ctrl_id = (ctrl_id % (u128::MAX - NameId::RESERVED_IDS - 1)) + 1;
-                }
-
-                if data_id != ctrl_id {
-                    break;
-                }
-                warn!(
-                    salt,
-                    "data_id == ctrl_id hash collision, retrying with new salt"
-                );
-                salt += 1;
-                if salt > 10 {
-                    return Err(SessionError::SessionBuilderIncomplete);
-                }
-            }
-
-            (
-                destination.clone().with_id(data_id),
-                destination.clone().with_id(ctrl_id),
-            )
-        } else {
-            (destination.clone(), destination.clone())
-        };
+                (
+                    destination.clone().with_id(data_id),
+                    destination.clone().with_id(ctrl_id),
+                )
+            } else {
+                (destination.clone(), destination.clone())
+            };
 
         let session = self.create_session_internal(
             session_config,
@@ -494,10 +506,14 @@ where
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
         let init_ack = if is_p2p {
-            session
+            let controller = session
                 .session()
                 .upgrade()
-                .ok_or(SessionError::SessionNotFound(u32::MAX))?
+                .ok_or(SessionError::SessionNotFound(u32::MAX))?;
+            if let Some(subject) = pin {
+                controller.pin_peer(&destination_proto, subject);
+            }
+            controller
                 .invite_participant_internal(&destination_proto)
                 .await
                 .inspect_err(|_| {
@@ -947,23 +963,54 @@ where
                 Err(_) => return,
             };
 
-            if let Err(e) =
-                // For Discovery messages header validation is always turned on because at this
-                // point there is no Session to collect the MlsSettings from.
-                crate::session_controller::verify_identity(
-                    &message,
-                    &layer.identity_verifier,
-                    true,
-                )
-                .await
+            // For Discovery messages header validation is always turned on because at this
+            // point there is no Session to collect the MlsSettings from.
+            let claims = match crate::session_controller::verify_identity(
+                &message,
+                &layer.identity_verifier,
+                true,
+            )
+            .await
             {
-                let err = e.chain();
-                error!(
-                    error = %err,
-                    msg_type = %ProtoSessionMessageType::DiscoveryRequest.as_str_name(),
-                    "dropping pre-session message: identity verification failed",
-                );
-                return;
+                Ok(claims) => claims,
+                Err(e) => {
+                    let err = e.chain();
+                    error!(
+                        error = %err,
+                        msg_type = %ProtoSessionMessageType::DiscoveryRequest.as_str_name(),
+                        "dropping pre-session message: identity verification failed",
+                    );
+                    return;
+                }
+            };
+
+            // The inviter's name id must be the one its identity derives, and
+            // its payload signed.
+            let mode = IdentityBinding::from_env();
+            if let Some(verified) = &claims
+                && let Some(identity) = PeerIdentity::from_claims(&verified.claims)
+            {
+                let sub = identity.subject();
+                if message.get_source().id() != name_id::app_id(sub)
+                    && binding_mismatch(
+                        mode,
+                        "discovery request from a name id its verified identity doesn't derive",
+                        &message,
+                        Some(sub),
+                    )
+                {
+                    return;
+                }
+                if !verified.payload_signed
+                    && binding_mismatch(
+                        mode,
+                        "discovery request whose payload isn't signed",
+                        &message,
+                        Some(sub),
+                    )
+                {
+                    return;
+                }
             }
 
             if let Err(e) = layer

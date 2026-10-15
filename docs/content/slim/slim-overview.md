@@ -62,18 +62,18 @@ SLIM natively supports four interaction patterns between agents:
 
 | Pattern | Description |
 |---------|-------------|
-| **Point-to-Point** | One agent sends directly to another, identified by a hierarchical DID-based name |
+| **Point-to-Point** | One agent sends directly to another, identified by a hierarchical name |
 | **Group / Multicast** | One agent broadcasts to a shared channel; all members receive the message |
 | **RPC (P2P)** | Request-response between two agents — like gRPC but over SLIM's encrypted overlay |
 | **RPC (Multicast)** | One client calls many servers simultaneously — fan-out requests to a group channel |
 
-Agents are identified using a hierarchical naming scheme based on Decentralized Identifiers:
+Agents are identified by hierarchical names whose last component is an ID derived from their identity, such as a DID (see [Naming](./architecture/naming.md)):
 
 ```text
-organization/namespace/service/<hash-of-public-key>
+organization/namespace/service/<id>
 ```
 
-Group channels use the same four-component scheme. The last component is a UUID derived from the moderator's key material. Each group gets two channel names — a data channel and a control channel — that differ only in their final UUID component.
+Group channels use the same four-component scheme. Each group gets two channel names — a data channel and a control channel — that differ only in their final component, an ID derived from the moderator's identity and the channel's name.
 
 ## SLIM vs. Message Queues
 

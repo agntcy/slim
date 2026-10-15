@@ -2,7 +2,7 @@
 name = "agntcy-slim-service"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.13.5"
+version = "0.13.9"
 description = "Main service and public API to interact with SLIM data plane."
 
 [lib]
@@ -25,7 +25,6 @@ display-error-chain = { workspace = true }
 thiserror = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-twox-hash = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 agntcy-slim-controller = { workspace = true }

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.9](https://github.com/agntcy/slim/compare/slim-service-v0.13.8...slim-service-v0.13.9) - 2026-10-14
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-session, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-mls, agntcy-slim-controller
+
+## [0.13.8](https://github.com/agntcy/slim/compare/slim-service-v0.13.7...slim-service-v0.13.8) - 2026-10-14
+
+### Added
+
+- *(session)* pin peers to an expected identity and expose verified identities ([#2270](https://github.com/agntcy/slim/pull/2270))
+
+### Fixed
+
+- *(session)* hold peers' name ids and channels to their verified identities ([#2267](https://github.com/agntcy/slim/pull/2267))
+
+## [0.13.7](https://github.com/agntcy/slim/compare/slim-service-v0.13.6...slim-service-v0.13.7) - 2026-10-13
+
+### Fixed
+
+- *(test)* reserve test ports below the ephemeral range ([#2252](https://github.com/agntcy/slim/pull/2252))
+
+## [0.13.6](https://github.com/agntcy/slim/compare/slim-service-v0.13.5...slim-service-v0.13.6) - 2026-10-12
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-mls, agntcy-slim-session, agntcy-slim-controller
+
 ## [0.13.5](https://github.com/agntcy/slim/compare/slim-service-v0.13.4...slim-service-v0.13.5) - 2026-10-11
 
 ### Fixed

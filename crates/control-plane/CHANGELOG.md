@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.1](https://github.com/agntcy/slim/compare/slim-control-plane-v3.4.0...slim-control-plane-v3.4.1) - 2026-10-14
+
+### Fixed
+
+- *(control-plane)* restore a link when its node is back on a new endpoint ([#2292](https://github.com/agntcy/slim/pull/2292))
+
+## [3.3.1](https://github.com/agntcy/slim/compare/slim-control-plane-v3.3.0...slim-control-plane-v3.3.1) - 2026-10-13
+
+### Fixed
+
+- *(control-plane)* restore routes when a reconnecting node reports first ([#2251](https://github.com/agntcy/slim/pull/2251))
+
 ## [3.2.1](https://github.com/agntcy/slim/compare/slim-control-plane-v3.2.0...slim-control-plane-v3.2.1) - 2026-10-11
 
 ### Other

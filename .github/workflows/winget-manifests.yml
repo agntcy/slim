@@ -253,28 +253,49 @@ jobs:
             exit 0
           fi
           manifest_dir="$GITHUB_WORKSPACE/dist/winget/$MANIFEST_REL_DIR"
+          if [ ! -d "$manifest_dir" ]; then
+            echo "::error::rendered manifests are not at $manifest_dir"
+            exit 1
+          fi
+          if ! gh repo view "$FORK_OWNER/winget-pkgs" >/dev/null 2>&1; then
+            echo "::error::Expected an existing fork at $FORK_OWNER/winget-pkgs. Create it before running this workflow."
+            exit 1
+          fi
 
           gh auth setup-git >/dev/null
           gh repo clone "$FORK_OWNER/winget-pkgs" "$RUNNER_TEMP/winget-pkgs" -- --depth 1
           cd "$RUNNER_TEMP/winget-pkgs"
-          git remote add upstream https://github.com/microsoft/winget-pkgs.git
+          # gh repo clone already adds the parent as `upstream` for a fork.
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/microsoft/winget-pkgs.git
+          else
+            git remote add upstream https://github.com/microsoft/winget-pkgs.git
+          fi
           git fetch --depth 1 upstream master
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
           branch="automation/winget-slimctl-$PACKAGE_VERSION"
           git checkout -B "$branch" upstream/master
+          # winget-pkgs titles a first submission "New package", later ones "New version".
+          if git ls-tree -d --name-only upstream/master "$(dirname "$MANIFEST_REL_DIR")/" | grep -q .; then
+            kind="New version"
+          else
+            kind="New package"
+          fi
           mkdir -p "$(dirname "$MANIFEST_REL_DIR")"
+          # Replace, so a re-run for the same version leaves no stale files.
+          rm -rf "$MANIFEST_REL_DIR"
           cp -R "$manifest_dir" "$(dirname "$MANIFEST_REL_DIR")/"
           git add --all "$MANIFEST_REL_DIR"
           if git diff --cached --quiet -- "$MANIFEST_REL_DIR"; then
             echo "WinGet manifests are already up to date for $RELEASE_TAG"
             exit 0
           fi
-          git commit -m "New version: $PACKAGE_IDENTIFIER version $PACKAGE_VERSION"
+          git commit -m "$kind: $PACKAGE_IDENTIFIER version $PACKAGE_VERSION"
           git push --force --set-upstream origin "$branch"
 
-          pr=$(gh pr list --repo microsoft/winget-pkgs --head "$FORK_OWNER:$branch" --state open \
+          pr=$(gh pr list --repo microsoft/winget-pkgs --head "$FORK_OWNER:$branch" --base master --state open \
             --json number --jq '.[0].number // ""' 2>/dev/null || true)
           {
             echo "### WinGet manifests for $PACKAGE_IDENTIFIER $PACKAGE_VERSION"

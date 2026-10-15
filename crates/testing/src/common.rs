@@ -18,28 +18,47 @@ use tokio::sync::mpsc;
 pub const DEFAULT_DATAPLANE_PORT: u16 = 46357;
 pub const DEFAULT_SERVICE_ID: &str = "slim/0";
 
+/// First port [`reserve_local_port`] hands out.
+const TEST_PORTS_START: u16 = 20000;
+/// How many ports it can hand out: up to 32767, just below the ephemeral
+/// range of every OS (Linux 32768–60999, macOS and Windows 49152–65535).
+const TEST_PORTS_COUNT: u16 = 12768;
+
 /// Reserve a local TCP port for a test server.
 ///
-/// Uses a process-wide set to ensure the same port is never returned twice,
-/// preventing races between parallel tests within the same binary.
+/// The port is free when returned, and stays free until the test binds it:
+/// it comes from below the ephemeral range, which the OS never hands out as
+/// the local end of an outgoing connection. A port picked by binding port 0
+/// comes from that range, so any client connecting anywhere could take it
+/// before the server binds it -- which made tests fail with "address already
+/// in use". Each process starts at its own offset, so test binaries running
+/// side by side rarely try the same ports, and none is returned twice within
+/// a process.
 pub fn reserve_local_port() -> u16 {
-    use std::collections::HashSet;
     use std::sync::LazyLock;
 
     use parking_lot::Mutex;
 
-    static ALLOCATED: LazyLock<Mutex<HashSet<u16>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+    // Offset from the start of the range for the next port to try.
+    static NEXT: LazyLock<Mutex<u16>> = LazyLock::new(|| {
+        let spread = std::process::id().wrapping_mul(7919);
+        Mutex::new((spread % u32::from(TEST_PORTS_COUNT)) as u16)
+    });
 
-    loop {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind test port");
-        let port = listener
-            .local_addr()
-            .expect("failed to read test port")
-            .port();
-        if ALLOCATED.lock().insert(port) {
+    let mut next = NEXT.lock();
+    for _ in 0..TEST_PORTS_COUNT {
+        let port = TEST_PORTS_START + *next;
+        *next = (*next + 1) % TEST_PORTS_COUNT;
+        // Never handed out before (`next` only moves forward), so only
+        // another process can hold it.
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
             return port;
         }
     }
+    panic!(
+        "no free test port in {TEST_PORTS_START}..{}",
+        TEST_PORTS_START + TEST_PORTS_COUNT
+    );
 }
 
 /// Runs a SLIM node server that listens on the provided dataplane port.
@@ -105,4 +124,21 @@ pub async fn create_and_subscribe_app(
     app.subscribe(name, Some(conn_id)).await?;
 
     Ok((app, rx, conn_id, svc))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reserved_ports_are_distinct_and_below_the_ephemeral_range() {
+        let ports: Vec<u16> = (0..200).map(|_| reserve_local_port()).collect();
+        let distinct: std::collections::HashSet<_> = ports.iter().collect();
+        assert_eq!(distinct.len(), ports.len());
+        assert!(
+            ports
+                .iter()
+                .all(|p| (TEST_PORTS_START..TEST_PORTS_START + TEST_PORTS_COUNT).contains(p))
+        );
+    }
 }

@@ -748,6 +748,26 @@ The following key types are supported:
         # data: '{"keys":[{"kty":"RSA","n":"...","e":"AQAB"}]}'
     ```
 
+!!! note "A JWKS of peer keys"
+    When each key in the JWKS belongs to one peer, set `subject_binding` so
+    that a peer can sign only its own identity: a token's `sub` must be the
+    `kid` of the key that signed it or, for an Ed25519 key, its `did:key`.
+    `warn` logs a mismatch, `enforce` rejects the token, and `off` turns the
+    check off. Leave it unset for an identity provider's keys, which sign
+    tokens for many subjects.
+
+    ```yaml
+    auth:
+      type: jwt
+      subject_binding: enforce
+      key:
+        type: decoding
+        algorithm: "EdDSA"
+        format: jwks
+        key:
+          file: "./keys/peers.jwks.json"
+    ```
+
 !!! tip "Shared Secret Security"
     - Both client and server must use the **same** shared secret
     - Both must use the **same** HMAC algorithm (HS256, HS384, or HS512)

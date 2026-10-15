@@ -32,8 +32,10 @@ use futures::pin_mut;
 use futures::stream;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_auth::shared_secret::SharedSecret;
+use slim_auth::traits::TokenProvider;
 use slim_config::component::id::{ID, Kind};
 use slim_datapath::api::ProtoName as Name;
+use slim_service::app::App as SlimApp;
 use slim_service::service::Service;
 
 const TEST_VALID_SECRET: &str = "test-shared-secret-value-0123456789abcdef";
@@ -100,6 +102,14 @@ struct MulticastTestEnv {
     service: Arc<Service>,
     /// Member servers — each registered under its own unique app name.
     member_servers: Vec<Arc<Server>>,
+    /// Each member's readable name, full name and identity (`sub`).
+    member_names: Vec<Name>,
+    member_full_names: Vec<Name>,
+    member_subs: Vec<String>,
+    /// The client app, for building other channels.
+    client_app: Arc<SlimApp<AuthProvider, AuthVerifier>>,
+    /// The client app's identity (`sub`).
+    client_sub: String,
     /// Channel used as the multicast broadcaster.
     ///
     /// Created with `Channel::new_with_members` so the GROUP session
@@ -118,9 +128,12 @@ impl MulticastTestEnv {
         // making it reachable for the invite discovery-request sent by the Channel.
         let mut member_servers = Vec::new();
         let mut member_app_names = Vec::new();
+        let mut member_full_names = Vec::new();
+        let mut member_subs = Vec::new();
         for i in 0..num_members {
             let member_app_name = Name::from_strings(["org", "ns", &format!("member-{i}")]);
             let secret = SharedSecret::new("test", TEST_VALID_SECRET).unwrap();
+            member_subs.push(secret.get_id().unwrap());
             let (app, notifications) = service
                 .create_app(
                     &member_app_name,
@@ -129,6 +142,7 @@ impl MulticastTestEnv {
                 )
                 .unwrap();
             let app = Arc::new(app);
+            member_full_names.push(app.app_name().clone());
             let server = Arc::new(Server::new(
                 app.clone(),
                 member_app_name.clone(),
@@ -143,6 +157,7 @@ impl MulticastTestEnv {
         // the first multicast call.
         let client_name = Name::from_strings(["org", "ns", "client"]);
         let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
+        let client_sub = secret.get_id().unwrap();
         let (client_app, _) = service
             .create_app(
                 &client_name,
@@ -150,12 +165,19 @@ impl MulticastTestEnv {
                 AuthVerifier::shared_secret(secret),
             )
             .unwrap();
-        let channel = Channel::new_with_members(Arc::new(client_app), member_app_names, true, None)
-            .expect("failed to create channel");
+        let client_app = Arc::new(client_app);
+        let channel =
+            Channel::new_with_members(client_app.clone(), member_app_names.clone(), true, None)
+                .expect("failed to create channel");
 
         Self {
             service,
             member_servers,
+            member_names: member_app_names,
+            member_full_names,
+            member_subs,
+            client_app,
+            client_sub,
             channel,
         }
     }
@@ -1089,6 +1111,261 @@ async fn test_channel_close_after_rpc() {
         collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "second call").await;
     assert_eq!(responses.len(), NUM_MEMBERS);
     assert!(responses.iter().all(|r| r.message.result == "second"));
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test 12 — a member's error goes only to the caller
+// ============================================================================
+
+/// Log output written on the current thread.
+#[derive(Clone, Default)]
+struct LogCapture(Arc<parking_lot::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogCapture {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl LogCapture {
+    /// Whether one line contains every one of `parts`.
+    fn has_line_with(&self, parts: &[&str]) -> bool {
+        String::from_utf8_lossy(&self.0.lock())
+            .lines()
+            .any(|line| parts.iter().all(|p| line.contains(p)))
+    }
+}
+
+/// Member 0's error must reach the caller only. A member that receives
+/// another's response drops it with a "Skipping server response" trace naming
+/// the sender; the servers run on this single-threaded runtime, so capturing
+/// this thread's logs sees it.
+#[tokio::test]
+async fn test_multicast_error_goes_only_to_the_caller() {
+    let logs = LogCapture::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_ansi(false)
+        .with_writer({
+            let logs = logs.clone();
+            move || logs.clone()
+        })
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    const NUM_MEMBERS: usize = 3;
+    let mut env = MulticastTestEnv::new("test-multicast-error-only-to-caller", NUM_MEMBERS).await;
+
+    env.member_servers[0].register_unary_unary(
+        "TestService",
+        "Echo",
+        move |_req: TestRequest, _ctx: Context| async move {
+            Err::<TestResponse, _>(RpcError::internal("member 0 failed"))
+        },
+    );
+    for i in 1..NUM_MEMBERS {
+        env.member_servers[i].register_unary_unary(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "hello".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let results = collect_n_mixed(
+        stream,
+        NUM_MEMBERS,
+        Duration::from_secs(10),
+        "error_only_to_caller",
+    )
+    .await;
+    assert_eq!(results.iter().filter(|r| r.is_err()).count(), 1);
+    assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 2);
+
+    env.shutdown().await;
+    assert!(
+        !logs.has_line_with(&["Skipping server response", "src=org/ns/member-"]),
+        "another member received member 0's error"
+    );
+}
+
+// ============================================================================
+// Test 13 — verified identities and pinned members
+// ============================================================================
+
+/// Register an Echo handler that reports which member answered.
+fn register_echo(env: &MulticastTestEnv) {
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_unary_unary(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
+}
+
+fn hello() -> TestRequest {
+    TestRequest {
+        message: "hello".to_string(),
+        value: 1,
+    }
+}
+
+#[tokio::test]
+async fn test_multicast_verified_items_carry_each_members_identity() {
+    const NUM_MEMBERS: usize = 3;
+    let mut env = MulticastTestEnv::new("test-multicast-verified", NUM_MEMBERS).await;
+    register_echo(&env);
+    env.start_all_servers().await;
+
+    {
+        let stream = env
+            .channel
+            .multicast_unary_verified::<TestRequest, TestResponse>(
+                "TestService",
+                "Echo",
+                hello(),
+                Some(Duration::from_secs(10)),
+                None,
+            );
+        pin_mut!(stream);
+        let mut seen = 0;
+        while let Some(item) = stream.next().await {
+            let item = item.expect("member failed");
+            let i = item.message().member_id;
+            assert_eq!(
+                item.source(),
+                &env.member_full_names[i],
+                "member {i}'s full name"
+            );
+            let subject = item
+                .identity()
+                .map(|identity| identity.subject().to_string());
+            assert_eq!(subject.as_deref(), Some(env.member_subs[i].as_str()));
+            seen += 1;
+        }
+        assert_eq!(seen, NUM_MEMBERS);
+    }
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_multicast_pinned_group_admits_only_the_pinned_identities() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = MulticastTestEnv::new("test-multicast-pinned", NUM_MEMBERS).await;
+    register_echo(&env);
+    env.start_all_servers().await;
+    let names: Vec<Arc<Name>> = env.member_names.iter().cloned().map(Arc::new).collect();
+    let pins = |subs: Vec<String>| names.iter().cloned().zip(subs).collect::<Vec<_>>();
+
+    // Each member pinned to its own identity: the call goes through.
+    let pinned = Channel::new_group_pinned(env.client_app.clone(), pins(env.member_subs.clone()))
+        .expect("failed to create pinned channel");
+    let stream = pinned.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        hello(),
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "pinned").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+    pinned.close(None).await.unwrap();
+
+    // Member 1 pinned to another identity: it isn't admitted, so the call fails.
+    let subs = vec![env.member_subs[0].clone(), "someone-else".to_string()];
+    let mispinned = Channel::new_group_pinned(env.client_app.clone(), pins(subs))
+        .expect("failed to create pinned channel");
+    let stream = mispinned.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        hello(),
+        Some(Duration::from_secs(3)),
+        None,
+    );
+    pin_mut!(stream);
+    let first = stream.next().await;
+    assert!(matches!(first, Some(Err(_))), "unexpected: {first:?}");
+    mispinned.close(None).await.ok();
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_multicast_handlers_see_the_requesters_identity() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = MulticastTestEnv::new("test-multicast-requester", NUM_MEMBERS).await;
+    let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let seen = seen.clone();
+        server.register_unary_unary(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, ctx: Context| {
+                let seen = seen.clone();
+                async move {
+                    let sender = ctx
+                        .metadata_ref()
+                        .get(slim_session::PEER_SUBJECT_KEY)
+                        .cloned();
+                    seen.lock().await.push((ctx.peer_subject(), sender));
+                    Ok(TestResponse {
+                        member_id: i,
+                        result: req.message,
+                        count: req.value,
+                    })
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        hello(),
+        Some(Duration::from_secs(10)),
+        None,
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "requester").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+
+    // Each request names its MLS sender, the client, as the verified requester.
+    let client = Some(env.client_sub.clone());
+    let seen = seen.lock().await.clone();
+    assert_eq!(seen, vec![(client.clone(), client); NUM_MEMBERS]);
 
     env.shutdown().await;
 }

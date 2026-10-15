@@ -235,11 +235,12 @@ impl super::RouteService {
         }
 
         // Endpoint changed or DP says link is dead — refresh config and reset to Pending.
+        let mut updated = link.clone();
         if conn_details_updated {
             match self.get_client_config(&link.source_node_id, node_id).await {
                 Ok((endpoint, config_data)) => {
-                    link.dest_endpoint = endpoint;
-                    link.conn_config_data = config_data;
+                    updated.dest_endpoint = endpoint;
+                    updated.conn_config_data = config_data;
                 }
                 Err(e) => {
                     tracing::error!(
@@ -249,13 +250,8 @@ impl super::RouteService {
                 }
             }
         }
-        save_link(
-            &self.0.db,
-            link,
-            LinkStatus::Pending,
-            &format!("failed to reset link {} to pending", link.link_id),
-        )
-        .await;
+        let ctx = format!("failed to reset link {} to pending", link.link_id);
+        replace_link(&self.0.db, link, updated, LinkStatus::Pending, &ctx).await;
         link_reconcile_nodes.insert(link.source_node_id.clone());
     }
 
@@ -270,11 +266,13 @@ impl super::RouteService {
             return;
         };
         if link.link_id != rc.link_id || link.conn_config_data != rc.config_data {
-            link.link_id = rc.link_id.clone();
-            link.conn_config_data = rc.config_data.clone();
-            save_link(
+            let mut updated = link.clone();
+            updated.link_id = rc.link_id.clone();
+            updated.conn_config_data = rc.config_data.clone();
+            replace_link(
                 &self.0.db,
                 link,
+                updated,
                 LinkStatus::Applied,
                 "failed to adopt static connection for link",
             )
@@ -302,22 +300,17 @@ impl super::RouteService {
             return;
         };
 
+        let mut updated = link.clone();
         if let Ok((endpoint, config_data)) = self
             .get_client_config(&link.source_node_id, &link.dest_node_id)
             .await
         {
-            link.dest_endpoint = endpoint;
-            link.conn_config_data = config_data;
+            updated.dest_endpoint = endpoint;
+            updated.conn_config_data = config_data;
         }
 
-        if save_link(
-            &self.0.db,
-            link,
-            LinkStatus::Pending,
-            &format!("failed to restore link {} (src={source_id})", link.link_id),
-        )
-        .await
-        {
+        let ctx = format!("failed to restore link {} (src={source_id})", link.link_id);
+        if replace_link(&self.0.db, link, updated, LinkStatus::Pending, &ctx).await {
             link_reconcile_nodes.insert(reconcile_id);
         }
     }
@@ -754,5 +747,92 @@ impl super::RouteService {
             self.expand_all_wildcard_routes(&remaining_nodes, &all_links)
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::SystemTime;
+
+    use slim_config::client::ServerConnectionConfig;
+
+    use super::super::save_link;
+    use super::super::test_utils::{make_conn_details, make_node, make_route_service};
+    use crate::db::inmemory::InMemoryDb;
+    use crate::db::{Link, LinkStatus};
+
+    /// node-a's link to node-b, soft-deleted when node-b left from `endpoint`.
+    fn deleted_link(endpoint: &str) -> Link {
+        Link {
+            link_id: "link-ab".to_string(),
+            source_node_id: "node-a".to_string(),
+            source_domain: "domain-a".to_string(),
+            dest_node_id: "node-b".to_string(),
+            dest_domain: "domain-b".to_string(),
+            dest_endpoint: endpoint.to_string(),
+            conn_config_data: ServerConnectionConfig::default(),
+            status: LinkStatus::Deleted,
+            status_msg: String::new(),
+            created_at: SystemTime::now(),
+            last_updated: SystemTime::now(),
+        }
+    }
+
+    /// A node back on a new endpoint while its old link is still soft-deleted
+    /// gets that link back, on the new endpoint.
+    #[tokio::test]
+    async fn reregistering_on_a_new_endpoint_restores_the_link() {
+        let db = InMemoryDb::shared();
+        db.save_node(make_node(
+            "node-a",
+            Some("domain-a"),
+            vec![make_conn_details("127.0.0.1:1000", Some("node-a:1000"))],
+        ))
+        .await
+        .unwrap();
+        db.save_node(make_node(
+            "node-b",
+            Some("domain-b"),
+            vec![make_conn_details("127.0.0.1:2002", Some("node-b:2002"))],
+        ))
+        .await
+        .unwrap();
+        let svc = make_route_service(db.clone());
+        db.add_link(deleted_link("node-b:2001")).await.unwrap();
+
+        svc.node_registered("node-b", "domain-b", true, vec![], vec![])
+            .await;
+
+        let live: Vec<Link> = db
+            .list_all_links()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|l| l.status != LinkStatus::Deleted)
+            .collect();
+        assert_eq!(
+            live.len(),
+            1,
+            "domain-a and domain-b should be linked: {live:?}"
+        );
+        assert_eq!(
+            live[0].link_id, "link-ab",
+            "the old link should be restored"
+        );
+        assert!(
+            live[0].dest_endpoint.contains("2002"),
+            "the link should use node-b's new endpoint: {live:?}"
+        );
+    }
+
+    /// A link whose save fails keeps its old state, so it isn't taken for a
+    /// live link.
+    #[tokio::test]
+    async fn a_failed_save_leaves_the_link_unchanged() {
+        let db = InMemoryDb::shared();
+        let mut link = deleted_link("node-b:2001");
+
+        assert!(!save_link(&db, &mut link, LinkStatus::Pending, "test").await);
+        assert_eq!(link.status, LinkStatus::Deleted);
     }
 }

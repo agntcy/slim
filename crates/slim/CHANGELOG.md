@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.1](https://github.com/agntcy/slim/compare/slim-v3.3.0...slim-v3.3.1) - 2026-10-13
+
+### Other
+
+- update Cargo.toml dependencies
+
+## [3.3.0](https://github.com/agntcy/slim/compare/slim-v3.2.1...slim-v3.3.0) - 2026-10-12
+
+### Fixed
+
+- report the crate version in slim and slimctl build info ([#2227](https://github.com/agntcy/slim/pull/2227))
+
 ## [3.2.1](https://github.com/agntcy/slim/compare/slim-v3.2.0...slim-v3.2.1) - 2026-10-11
 
 ### Other
