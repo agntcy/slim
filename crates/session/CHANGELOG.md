@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.22](https://github.com/agntcy/slim/compare/slim-session-v0.7.21...slim-session-v0.7.22) - 2026-10-15
+
+### Fixed
+
+- *(session)* keep a p2p session's first message when it arrives late ([#2303](https://github.com/agntcy/slim/pull/2303))
+
+### Other
+
+- *(session)* end-to-end p2p delivery when the first message is lost ([#2309](https://github.com/agntcy/slim/pull/2309))
+
 ## [0.7.21](https://github.com/agntcy/slim/compare/slim-session-v0.7.20...slim-session-v0.7.21) - 2026-10-14
 
 ### Fixed

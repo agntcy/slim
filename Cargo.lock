@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.13.11"
+version = "0.13.12"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.19.9"
+version = "0.19.10"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.13.9"
+version = "0.13.10"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.7.21"
+version = "0.7.22"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
