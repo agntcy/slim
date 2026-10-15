@@ -850,6 +850,13 @@
     "aliases": []
   },
   {
+    "version": "slim-datapath-v0.19.10",
+    "title": "slim-datapath-v0.19.10",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-datapath-v0.19.8",
     "title": "slim-datapath-v0.19.8",
     "aliases": []
@@ -1277,9 +1284,7 @@
   {
     "version": "slim-channel-manager-v3.4.1",
     "title": "slim-channel-manager-v3.4.1",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-channel-manager-v3.4.0",
