@@ -5,6 +5,10 @@ use std::time::{Duration, Instant};
 
 const SLIMCTL_CM_RETRY_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The audience signed create and delete requests must name: the channel
+/// manager's `local-name` in `testdata/channel-manager-config.yaml`.
+const CM_AUDIENCE: &str = "org/default/channel-manager";
+
 /// Run a command until it succeeds or `timeout` elapses, retrying every 200 ms.
 ///
 /// Returns the successful [`Output`] so callers can layer `assert_cmd` assertions
@@ -116,9 +120,13 @@ pub(crate) fn combined_output(output: &Output) -> Vec<u8> {
 
 /// Run `slimctl cm …` until it succeeds or the channel-manager retry budget elapses.
 ///
+/// `key` is the Ed25519 PKCS#8 PEM every channel change is signed with (see
+/// [`write_signing_key`](crate::helpers::write_signing_key)): slimctl never
+/// sends an unsigned create, delete or participant change.
+///
 /// Returns the successful [`Output`]; assert on it with `assert_cmd`, e.g.
 /// `run_slimctl_cm(...).assert().success().stdout(predicate::str::contains("..."))`.
-pub fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, args: &[&str]) -> Output {
+pub fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, key: &Path, args: &[&str]) -> Output {
     let endpoint = cm_endpoint.to_string();
     run_combined_output_with_retry(SLIMCTL_CM_RETRY_TIMEOUT, || {
         let mut cmd = Command::new(slimctl);
@@ -126,7 +134,10 @@ pub fn run_slimctl_cm(slimctl: &Path, cm_endpoint: &str, args: &[&str]) -> Outpu
         for arg in args {
             cmd.arg(arg);
         }
-        cmd.arg("--server").arg(&endpoint);
+        cmd.arg("--server").arg(&endpoint).arg("--key").arg(key);
+        // Only create-channel and delete-channel take --audience; the env var
+        // lets one helper serve the participant commands too.
+        cmd.env("SLIMCTL_CM_AUDIENCE", CM_AUDIENCE);
         cmd
     })
 }
