@@ -407,9 +407,7 @@
   {
     "version": "slim-tracing-v0.4.32",
     "title": "slim-tracing-v0.4.32",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-tracing-v0.4.27",
@@ -445,6 +443,13 @@
     "version": "slim-testutils-v0.7.2",
     "title": "slim-testutils-v0.7.2",
     "aliases": []
+  },
+  {
+    "version": "slim-signal-v0.1.36",
+    "title": "slim-signal-v0.1.36",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-signal-v0.1.34",
