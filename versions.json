@@ -555,6 +555,13 @@
     "aliases": []
   },
   {
+    "version": "slim-service-v0.13.10",
+    "title": "slim-service-v0.13.10",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-service-v0.13.9",
     "title": "slim-service-v0.13.9",
     "aliases": []
@@ -952,9 +959,7 @@
   {
     "version": "slim-controller-v0.13.12",
     "title": "slim-controller-v0.13.12",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-controller-v0.13.11",
