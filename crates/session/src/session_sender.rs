@@ -19,6 +19,9 @@ use crate::{
     timer_factory::{TimerFactory, TimerSettings},
 };
 
+/// The id of a new session's first sequenced message.
+pub(crate) const FIRST_MESSAGE_ID: u32 = 1;
+
 /// used a result in OnMessage function
 #[derive(PartialEq, Clone)]
 enum SenderDrainStatus {
@@ -108,7 +111,7 @@ impl SessionSender {
             pending_acks: HashMap::new(),
             pending_acks_per_endpoint: HashMap::new(),
             endpoints_list: HashMap::new(),
-            next_id: 0,
+            next_id: FIRST_MESSAGE_ID - 1,
             session_id,
             session_type,
             to_flush: false,
