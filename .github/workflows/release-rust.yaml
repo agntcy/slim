@@ -247,6 +247,8 @@ jobs:
     name: Publish slimctl Homebrew cask
     needs: [release-crates, resolve-slimctl-release, release-slimctl-binaries, release-slimctl-sign]
     runs-on: ubuntu-latest
+    # For the build bot's token: a PR pushed with GITHUB_TOKEN gets no CI.
+    environment: release
     permissions:
       contents: write
       pull-requests: write
@@ -316,12 +318,20 @@ jobs:
       - name: Create Pull Request for Homebrew cask
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          commit-message: Update Homebrew cask for slimctl
-          title: Update slimctl cask to latest version
+          token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+          author: Agntcy Build Bot <build@agntcy.io>
+          committer: Agntcy Build Bot <build@agntcy.io>
+          signoff: true
+          commit-message: "chore(slimctl): update the Homebrew cask to ${{ steps.version.outputs.version }}"
+          title: "chore(slimctl): update the Homebrew cask to ${{ steps.version.outputs.version }}"
+          # The merge queue builds the merge commit from the PR body, and the
+          # DCO app checks it.
           body: |
-            Update Homebrew cask to reflect release changes
+            Update the Homebrew cask to slimctl ${{ steps.version.outputs.version }}.
 
-            Release: ${{ needs.resolve-slimctl-release.outputs.release_tag }}
+            Release: ${{ steps.version.outputs.tag }}
+
+            Signed-off-by: Agntcy Build Bot <build@agntcy.io>
           branch: update-slimctl-cask
           base: main
 
