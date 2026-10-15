@@ -240,6 +240,23 @@ impl PrefixEntry {
         }
     }
 
+    /// True when any slot, of any category, lists `conn`.
+    fn has_conn(&self, conn: u64) -> bool {
+        self.aggregates.iter().any(|a| a.contains(&conn))
+    }
+
+    /// Remove `conn` from every slot, whatever its category.
+    fn remove_conn(&mut self, conn: u64) {
+        for slot_vec in &mut self.slots {
+            for list in slot_vec {
+                list.remove(conn);
+            }
+        }
+        for aggregate in &mut self.aggregates {
+            aggregate.retain(|&c| c != conn);
+        }
+    }
+
     /// Return the per-slot ConnLists in filter priority order: local, peer, remote.
     fn filtered_slots(&self, idx: usize, filter: MatchFilter) -> impl Iterator<Item = &ConnList> {
         ConnType::ALL
@@ -832,6 +849,31 @@ impl SubscriptionTable for SubscriptionTableImpl {
 }
 
 impl SubscriptionTableImpl {
+    /// Remove `conn` from the routes of every name. The subscription records
+    /// stay, so that dropping the connection still reports its names.
+    pub fn remove_routes_to(&self, conn: u64) {
+        // Held like on every write, so that no write is lost between the
+        // clone and the store.
+        let _ss = self.subscription_state.lock();
+
+        let current = self.routing.load();
+        if !current.values().any(|pe| pe.has_conn(conn)) {
+            return;
+        }
+        let mut rs = (**current).clone();
+        drop(current);
+        rs.retain(|_, entry| {
+            if !entry.has_conn(conn) {
+                return true;
+            }
+            let pe = Arc::make_mut(entry);
+            pe.remove_conn(conn);
+            pe.retain_non_empty();
+            !pe.is_empty()
+        });
+        self.routing.store(Arc::new(rs));
+    }
+
     /// Iterate all subscriptions, yielding `(ProtoName, sub_id, conn_id, category)` for each.
     ///
     /// This locks the subscription state and resolves names from the routing snapshot.

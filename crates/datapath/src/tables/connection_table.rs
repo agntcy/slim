@@ -92,6 +92,11 @@ where
         self.pool.load().get(id).cloned()
     }
 
+    /// True when the table has a connection with the given ID.
+    pub fn contains(&self, id: u64) -> bool {
+        self.pool.load().get(id).is_some()
+    }
+
     /// Call `f(id, connection)` for every live connection.
     pub fn for_each<F>(&self, mut f: F)
     where

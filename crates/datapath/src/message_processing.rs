@@ -771,8 +771,7 @@ impl MessageProcessor {
 
     async fn match_and_forward_msg(
         &self,
-        #[cfg(feature = "otel_tracing")] mut msg: Message,
-        #[cfg(not(feature = "otel_tracing"))] msg: Message,
+        mut msg: Message,
         in_connection: u64,
         fanout: u32,
         filter: MatchFilter,
@@ -809,13 +808,27 @@ impl MessageProcessor {
                     len as u32,
                 );
 
-                let mut i = 0usize;
-                while i < len - 1 {
-                    self.send_msg_raw(msg.clone(), out_vec[i]).await?;
-                    i += 1;
+                // A failed send must not cut off the connections after it,
+                // so the fanout fails only if every send did.
+                let mut failed = 0;
+                let mut error = None;
+                for (i, &out_conn) in out_vec.iter().enumerate() {
+                    // The last connection gets the message itself.
+                    let out_msg = if i + 1 < len {
+                        msg.clone()
+                    } else {
+                        std::mem::take(&mut msg)
+                    };
+                    if let Err(e) = self.send_msg_raw(out_msg, out_conn).await {
+                        debug!(%out_conn, error = %e.chain(), "failed to forward message");
+                        failed += 1;
+                        error = Some(e);
+                    }
                 }
-                self.send_msg_raw(msg, out_vec[i]).await?;
-                Ok(())
+                match error {
+                    Some(e) if failed == len => Err(e),
+                    _ => Ok(()),
+                }
             }
             Err(e) => {
                 if category.is_local() && matches!(e, DataPathError::NoMatchEncoded(..)) {
@@ -2065,6 +2078,7 @@ mod tests {
     use crate::api::{ProtoMessage, ProtoName, ProtoSubscriptionAck};
     use crate::header_mac::HeaderMacSession;
     use crate::sync::remote::SubscriptionInfo;
+    use crate::tables::SubscriptionTable;
     use tonic::Status;
 
     async fn assert_failed_subscription_ack_is_sent(add: bool) {
@@ -2416,6 +2430,85 @@ mod tests {
                 "a {connection_type:?} connection was incorrectly used as the default gateway"
             );
         }
+    }
+
+    /// Subscribes `name` on a first and a second Remote connection, in this
+    /// order, so that matches list the first one before the second.
+    fn subscribe_on_two_connections(
+        processor: &MessageProcessor,
+        name: &ProtoName,
+    ) -> [(u64, tokio::sync::mpsc::Receiver<Result<Message, Status>>); 2] {
+        [1, 2].map(|sub_id| {
+            let (conn, rx) = make_server_conn_of_type(processor, ConnType::Remote);
+            processor
+                .forwarder()
+                .on_subscription_msg(name.clone(), conn, ConnType::Remote, true, sub_id)
+                .unwrap();
+            (conn, rx)
+        })
+    }
+
+    fn routes_to(processor: &MessageProcessor, name: ProtoName) -> Vec<u64> {
+        let encoded = make_publish(name).get_slim_header().get_encoded_dst();
+        processor
+            .forwarder()
+            .subscription_table
+            .match_all(&encoded, u64::MAX, MatchFilter::ALL)
+            .unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn a_fanout_reaches_the_connections_after_a_failed_send() {
+        let processor = MessageProcessor::new();
+        let (local, _local_tx, _local_rx) = processor.register_local_connection(false).unwrap();
+        let group = ProtoName::from_strings(["org", "ns", "group"]);
+        let [(closed, closed_rx), (live, mut live_rx)] =
+            subscribe_on_two_connections(&processor, &group);
+
+        // The first connection is closing: sending to it fails.
+        drop(closed_rx);
+
+        let mut msg = make_publish(group.clone());
+        msg.set_fanout(u32::MAX);
+        let result = processor.process_message(msg, local, ConnType::Local).await;
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), live_rx.recv())
+                .await
+                .is_ok_and(|msg| msg.is_some_and(|msg| msg.is_ok())),
+            "the connection after the failed one got nothing"
+        );
+        assert!(result.is_ok(), "{result:?}");
+        // The closing connection may be reconnecting: its routes stay.
+        assert_eq!(routes_to(&processor, group), [closed, live]);
+    }
+
+    #[tokio::test]
+    async fn a_unicast_skips_a_connection_that_no_longer_exists() {
+        let processor = MessageProcessor::new();
+        let (local, _local_tx, _local_rx) = processor.register_local_connection(false).unwrap();
+        let agent = ProtoName::from_strings(["org", "ns", "agent"]).with_id(7);
+        let [(gone, _gone_rx), (live, mut live_rx)] =
+            subscribe_on_two_connections(&processor, &agent);
+
+        // A stale route: its connection no longer exists.
+        processor.forwarder().connection_table.remove(gone);
+
+        // Round-robin alternates between the two routes.
+        for i in 0..4 {
+            let result = processor
+                .process_message(make_publish(agent.clone()), local, ConnType::Local)
+                .await;
+
+            assert!(result.is_ok(), "message {i}: {result:?}");
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), live_rx.recv())
+                    .await
+                    .is_ok_and(|msg| msg.is_some_and(|msg| msg.is_ok())),
+                "message {i} was lost"
+            );
+        }
+        assert_eq!(routes_to(&processor, agent), [live]);
     }
 
     #[tokio::test]

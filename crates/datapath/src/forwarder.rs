@@ -12,7 +12,7 @@ use crate::api::{EncodedName, ProtoName};
 use crate::connection::Connection;
 use crate::errors::DataPathError;
 use crate::tables::default_gateway::{DefaultGateway, Gateway};
-use tracing::debug;
+use tracing::{debug, warn};
 
 #[derive(Debug)]
 pub struct Forwarder<T>
@@ -117,6 +117,9 @@ where
         }
     }
 
+    /// Returns the connections to forward a message for `encoded` to. A route
+    /// to a connection that no longer exists is stale: its routes are removed
+    /// and the name is matched again.
     pub fn on_publish_msg_match(
         &self,
         encoded: EncodedName,
@@ -124,13 +127,28 @@ where
         fanout: u32,
         filter: MatchFilter,
     ) -> Result<Vec<u64>, DataPathError> {
-        if fanout == 1 {
-            self.subscription_table
-                .match_one(&encoded, incoming_conn, filter)
-                .map(|out| vec![out])
-        } else {
-            self.subscription_table
-                .match_all(&encoded, incoming_conn, filter)
+        loop {
+            let mut out = if fanout == 1 {
+                self.subscription_table
+                    .match_one(&encoded, incoming_conn, filter)
+                    .map(|out| vec![out])
+            } else {
+                self.subscription_table
+                    .match_all(&encoded, incoming_conn, filter)
+            }?;
+
+            out.retain(|&conn| {
+                let exists = self.connection_table.contains(conn);
+                if !exists {
+                    warn!(%conn, "removing the routes to a connection that no longer exists");
+                    self.subscription_table.remove_routes_to(conn);
+                }
+                exists
+            });
+
+            if !out.is_empty() {
+                return Ok(out);
+            }
         }
     }
 
@@ -193,6 +211,9 @@ mod tests {
         let name = ProtoName::from_strings(["agntcy", "default", "class"]);
 
         let fwd = Forwarder::<u32>::new();
+        for conn in [10, 12] {
+            fwd.on_connection_established(0, Some(conn));
+        }
 
         assert!(
             fwd.on_subscription_msg(name.clone(), 10, ConnType::Remote, true, 1)
@@ -228,6 +249,47 @@ mod tests {
 
         let err = fwd.on_subscription_msg(name.clone(), 10, ConnType::Remote, false, 1);
         assert!(matches!(err, Err(DataPathError::IdNotFound(_))));
+    }
+
+    #[test]
+    #[traced_test]
+    fn a_match_drops_the_routes_to_a_connection_that_no_longer_exists() {
+        let name = ProtoName::from_strings(["agntcy", "default", "class"]);
+        let (gone, live) = (10, 12);
+
+        for fanout in [1, u32::MAX] {
+            let fwd = Forwarder::<u32>::new();
+            for (conn, sub_id) in [(gone, 1), (live, 2)] {
+                fwd.on_connection_established(0, Some(conn));
+                fwd.on_subscription_msg(name.clone(), conn, ConnType::Remote, true, sub_id)
+                    .unwrap();
+            }
+            fwd.connection_table.remove(gone);
+
+            // A unicast alternates between the routes.
+            for _ in 0..2 {
+                assert_eq!(
+                    fwd.on_publish_msg_match(enc(&name), 100, fanout, MatchFilter::ALL)
+                        .unwrap(),
+                    [live]
+                );
+            }
+            assert_eq!(
+                fwd.subscription_table
+                    .match_all(&enc(&name), 100, MatchFilter::ALL)
+                    .unwrap(),
+                [live]
+            );
+
+            // The subscription is still reported when the connection drops.
+            assert_eq!(fwd.on_connection_drop(gone, ConnType::Remote).len(), 1);
+
+            fwd.connection_table.remove(live);
+            assert!(matches!(
+                fwd.on_publish_msg_match(enc(&name), 100, fanout, MatchFilter::ALL),
+                Err(DataPathError::NoMatchEncoded(..))
+            ));
+        }
     }
 
     fn dummy_conn(ty: ConnType) -> Connection {
