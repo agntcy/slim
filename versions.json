@@ -1,5 +1,12 @@
 [
   {
+    "version": "slimctl-v3.4.3",
+    "title": "slimctl-v3.4.3",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slimctl-v3.4.2",
     "title": "slimctl-v3.4.2",
     "aliases": []
@@ -1067,9 +1074,7 @@
   {
     "version": "slim-control-plane-v3.4.3",
     "title": "slim-control-plane-v3.4.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-control-plane-v3.4.2",
