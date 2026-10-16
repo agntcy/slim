@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.12](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.11...slim-datapath-v0.19.12) - 2026-10-16
+
+### Fixed
+
+- *(deps)* take rustls 0.23.46 and drop its advisory ignores ([#2315](https://github.com/agntcy/slim/pull/2315))
+
 ## [0.19.11](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.10...slim-datapath-v0.19.11) - 2026-10-15
 
 ### Other
