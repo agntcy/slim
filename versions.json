@@ -1180,6 +1180,13 @@
     "aliases": []
   },
   {
+    "version": "slim-config-v0.17.7",
+    "title": "slim-config-v0.17.7",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-config-v0.17.5",
     "title": "slim-config-v0.17.5",
     "aliases": []
@@ -1597,9 +1604,7 @@
   {
     "version": "slim-auth-v0.17.7",
     "title": "slim-auth-v0.17.7",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-auth-v0.17.6",
