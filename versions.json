@@ -895,6 +895,13 @@
     "aliases": []
   },
   {
+    "version": "slim-datapath-v0.19.12",
+    "title": "slim-datapath-v0.19.12",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-datapath-v0.19.10",
     "title": "slim-datapath-v0.19.10",
     "aliases": []
@@ -1182,9 +1189,7 @@
   {
     "version": "slim-config-v0.17.7",
     "title": "slim-config-v0.17.7",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-config-v0.17.5",
