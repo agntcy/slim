@@ -1360,6 +1360,13 @@
     "aliases": []
   },
   {
+    "version": "slim-channel-manager-v3.4.3",
+    "title": "slim-channel-manager-v3.4.3",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-channel-manager-v3.4.1",
     "title": "slim-channel-manager-v3.4.1",
     "aliases": []
@@ -1492,9 +1499,7 @@
   {
     "version": "slim-bindings-v3.4.3",
     "title": "slim-bindings-v3.4.3",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-bindings-v3.4.0",
