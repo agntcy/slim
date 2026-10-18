@@ -11,8 +11,9 @@ use slim_config::auth::jwt::{Claims as JwtClaims, JwtKey};
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use std::time::Duration;
 
-#[cfg_attr(target_family = "windows", allow(unused_imports))]
 use crate::common_config::SpireConfig;
+#[cfg(target_family = "windows")]
+use crate::common_config::spire_unsupported;
 use crate::errors::SlimError;
 
 /// Static JWT (Bearer token) authentication configuration
@@ -317,8 +318,8 @@ pub enum IdentityProviderConfig {
     StaticJwt { config: StaticJwtAuth },
     /// Dynamic JWT generation with signing key
     Jwt { config: ClientJwtAuth },
-    /// SPIRE-based identity provider (non-Windows only)
-    #[cfg(not(target_family = "windows"))]
+    /// SPIRE-based identity provider. Present on every platform to keep the uniffi
+    /// layout stable; rejected with an error on Windows.
     Spire { config: SpireConfig },
     /// No identity provider configured
     None,
@@ -339,6 +340,10 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
             #[cfg(not(target_family = "windows"))]
             IdentityProviderConfig::Spire { config } => {
                 CoreIdentityProviderConfig::Spire(config.into())
+            }
+            #[cfg(target_family = "windows")]
+            IdentityProviderConfig::Spire { .. } => {
+                panic!("SPIRE is not supported on Windows");
             }
             IdentityProviderConfig::None => CoreIdentityProviderConfig::None,
         }
@@ -373,8 +378,8 @@ pub enum IdentityVerifierConfig {
     SharedSecret { id: String, data: String },
     /// JWT verification with decoding key
     Jwt { config: JwtAuth },
-    /// SPIRE-based identity verifier (non-Windows only)
-    #[cfg(not(target_family = "windows"))]
+    /// SPIRE-based identity verifier. Present on every platform to keep the uniffi
+    /// layout stable; rejected with an error on Windows.
     Spire { config: SpireConfig },
     /// No identity verifier configured
     None,
@@ -392,6 +397,10 @@ impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
             #[cfg(not(target_family = "windows"))]
             IdentityVerifierConfig::Spire { config } => {
                 CoreIdentityVerifierConfig::Spire(config.into())
+            }
+            #[cfg(target_family = "windows")]
+            IdentityVerifierConfig::Spire { .. } => {
+                panic!("SPIRE is not supported on Windows");
             }
             IdentityVerifierConfig::None => CoreIdentityVerifierConfig::None,
         }
@@ -453,6 +462,8 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
                 let manager = builder.build()?;
                 Ok(AuthProvider::spire(manager))
             }
+            #[cfg(target_family = "windows")]
+            IdentityProviderConfig::Spire { .. } => Err(spire_unsupported()),
             IdentityProviderConfig::None => Err(SlimError::InvalidArgument {
                 message: "Cannot create AuthProvider from None variant".to_string(),
             }),
@@ -492,6 +503,8 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
                 let manager = builder.build()?;
                 Ok(AuthVerifier::spire(manager))
             }
+            #[cfg(target_family = "windows")]
+            IdentityVerifierConfig::Spire { .. } => Err(spire_unsupported()),
             IdentityVerifierConfig::None => Err(SlimError::InvalidArgument {
                 message: "Cannot create AuthVerifier from None variant".to_string(),
             }),

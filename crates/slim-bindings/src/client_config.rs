@@ -15,7 +15,7 @@ use slim_config::grpc::client::{
     BackoffConfig as CoreBackoffConfig, KeepaliveConfig as CoreKeepaliveConfig,
 };
 
-use crate::common_config::{ClientAuthenticationConfig, TlsClientConfig};
+use crate::common_config::{ClientAuthenticationConfig, TlsClientConfig, ensure_spire_supported};
 use crate::errors::SlimError;
 
 use slim_config::component::configuration::Configuration;
@@ -310,6 +310,19 @@ pub struct ClientConfig {
 
     /// When true, reject inter-node messages without a valid header MAC (strict mode).
     pub require_header_mac: Option<bool>,
+}
+
+impl ClientConfig {
+    /// Whether the TLS or authentication settings use SPIRE.
+    pub(crate) fn uses_spire(&self) -> bool {
+        self.tls.uses_spire() || self.auth.as_ref().is_some_and(|a| a.uses_spire())
+    }
+
+    /// Returns an error if the configuration needs a feature this platform lacks.
+    /// Call before converting to the core `ClientConfig`.
+    pub(crate) fn ensure_platform_supported(&self) -> Result<(), SlimError> {
+        ensure_spire_supported(self.uses_spire())
+    }
 }
 
 impl From<ClientConfig> for CoreClientConfig {
