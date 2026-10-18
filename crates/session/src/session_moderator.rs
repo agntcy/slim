@@ -18,7 +18,8 @@ use slim_datapath::{
 };
 use tokio::sync::oneshot;
 
-use tracing::debug;
+use display_error_chain::ErrorChainExt;
+use tracing::{debug, warn};
 
 use crate::identity_check::{binding_mismatch, same_name};
 use crate::name_id;
@@ -628,7 +629,9 @@ where
                 _ => None,
             };
             if let Some(tx) = ack_tx {
-                let _ = tx.send(Err(SessionError::cleanup_failed(&error)));
+                // The full chain, so the cause (e.g. a member's clock running
+                // ahead) reaches the caller, not just "mls operation error".
+                let _ = tx.send(Err(SessionError::cleanup_failed(error.chain())));
             }
         }
 
@@ -845,9 +848,22 @@ where
         // A failure here (e.g. the MLS group can't be created) ends the
         // AddParticipant task: report it to whoever asked for the invite,
         // who would otherwise wait for an answer that never comes.
-        self.on_discovery_reply_inner(msg)
-            .await
-            .map_err(|e| self.handle_task_error(e))
+        match self.on_discovery_reply_inner(msg).await {
+            Ok(output) => Ok(output),
+            Err(e) => Err(self.fail_task_and_continue(e).await),
+        }
+    }
+
+    /// End the current task with `error` (see `handle_task_error`), then start
+    /// the next queued one, so a failed invite doesn't hold up the invites
+    /// queued behind it (e.g. the remaining members of a group).
+    async fn fail_task_and_continue(&mut self, error: SessionError) -> SessionError {
+        warn!(error = %error.chain(), "moderator task failed");
+        let error = self.handle_task_error(error);
+        if let Err(e) = self.pop_task().await {
+            warn!(error = %e, "failed to start the next moderator task");
+        }
+        error
     }
 
     async fn on_discovery_reply_inner(
@@ -1035,6 +1051,18 @@ where
     }
 
     async fn on_join_reply(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
+        // A failure here (e.g. the joiner's MLS key package is rejected) ends
+        // the AddParticipant task. Without this the error was only logged by
+        // the session loop: no GroupWelcome went out, the members queued after
+        // this one were never invited, and the caller waited for its deadline
+        // (agntcy/slim#2325).
+        match self.on_join_reply_inner(msg).await {
+            Ok(output) => Ok(output),
+            Err(e) => Err(self.fail_task_and_continue(e).await),
+        }
+    }
+
+    async fn on_join_reply_inner(&mut self, msg: Message) -> Result<SessionOutput, SessionError> {
         debug!(
             source = %msg.get_source(),
             id = msg.get_id(),
@@ -1054,21 +1082,15 @@ where
             .unwrap()
             .join_complete(msg.get_id())?;
 
-        // at this point the participant is part of the group so we can add it to the list
         let new_participant = msg
             .extract_join_reply()?
             .participant
             .clone()
             .ok_or(SessionError::MissingParticipantSettings)?;
         let mut new_name = new_participant.get_name()?;
-        // notify the local session that a new participant was added to the group
-        debug!(session_name = %new_name, "add endpoint");
-        self.add_endpoint(&new_participant).await?;
 
-        new_name.reset_id();
-        self.group_list.insert(new_name, new_participant.clone());
-
-        // get mls data if MLS is enabled
+        // get mls data if MLS is enabled. Done before the participant is added
+        // to the roster, so a rejected key package leaves nothing half-added.
         let (commit, welcome) = if let Some(mls_state) = &mut self.mls_state {
             let (commit_payload, welcome_payload) = maybe_await!(mls_state.add_participant(&msg))?;
 
@@ -1088,6 +1110,14 @@ where
         } else {
             (None, None)
         };
+
+        // at this point the participant is part of the group so we can add it to the list
+        // notify the local session that a new participant was added to the group
+        debug!(session_name = %new_name, "add endpoint");
+        self.add_endpoint(&new_participant).await?;
+
+        new_name.reset_id();
+        self.group_list.insert(new_name, new_participant.clone());
 
         // Create participants list for the messages to send
         let participants_vec = self.group_list.values().cloned().collect::<Vec<_>>();
@@ -2222,6 +2252,172 @@ mod tests {
         // The invite is answered with an error rather than left waiting.
         assert!(matches!(ack_rx.try_recv(), Ok(Err(_))));
         assert!(moderator.current_task.is_none());
+    }
+
+    /// agntcy/slim#2325: when the moderator can't add a member that answered
+    /// the join (here its key package can't be verified; in the field, a key
+    /// package not yet valid by the moderator's clock), the invite fails and
+    /// the next queued invite starts. Before, the error was only logged: no
+    /// GroupWelcome, no further invites, and the caller waited for its deadline.
+    #[tokio::test]
+    async fn a_join_reply_the_moderator_cant_add_fails_the_invite_and_the_next_one_starts() {
+        use slim_auth::shared_secret::SharedSecret;
+        use slim_mls::mls::Mls;
+
+        const SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+        const OTHER_SECRET: &str = "another-shared-secret-0123456789-abcdefghijklmnopqrstuv";
+
+        let source = make_name(&["local", "moderator", "v1"]).with_id(100);
+        let first = make_name(&["remote", "first", "v1"]);
+        let second = make_name(&["remote", "second", "v1"]);
+
+        let (tx_slim, mut rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::unbounded_channel();
+        let (tx_session, mut rx_session) = mpsc::channel(16);
+        let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
+        let settings = SessionSettings {
+            id: 1,
+            source: source.clone(),
+            destination: first.clone(),
+            control: first.clone(),
+            config: SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                max_retries: Some(3),
+                interval: Some(std::time::Duration::from_secs(1)),
+                mls_settings: Some(MlsSettings::default()),
+                initiator: true,
+                metadata: Default::default(),
+            },
+            direction: Direction::Bidirectional,
+            slim_tx: tx_slim.clone(),
+            app_tx: tx_app,
+            tx_session,
+            tx_to_session_layer: tx_session_layer,
+            identity_provider: SharedSecret::new("moderator", SECRET).unwrap(),
+            identity_verifier: SharedSecret::new("moderator", SECRET).unwrap(),
+            graceful_shutdown_timeout: None,
+            subscription_manager: crate::subscription_manager::SubscriptionManager::new(tx_slim),
+            service_id: String::new(),
+            max_seen_control_message_ids_size: DEFAULT_MAX_SEEN_CONTROL_MESSAGE_IDS_SIZE,
+            kv_store: None,
+            group_storage: None,
+            enforce_pqc: false,
+            identity_binding: IdentityBinding::Warn,
+        };
+        let mut moderator = SessionModerator::new(MockInnerHandler::new(), settings);
+        moderator.init().await.unwrap();
+
+        let invite = |to: &ProtoName, id: u32| {
+            Message::builder()
+                .source(source.clone())
+                .destination(to.clone())
+                .identity("")
+                .forward_to(0)
+                .session_type(ProtoSessionType::PointToPoint)
+                .session_message_type(ProtoSessionMessageType::DiscoveryRequest)
+                .session_id(1)
+                .message_id(id)
+                .payload(CommandPayload::builder().discovery_request().as_content())
+                .build_publish()
+                .unwrap()
+        };
+        let sent_id = |output: &SessionOutput, kind: ProtoSessionMessageType| {
+            output
+                .messages
+                .iter()
+                .find_map(|m| match m {
+                    OutboundMessage::ToSlim(m) if m.get_session_message_type() == kind => {
+                        Some(m.get_id())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no {kind:?} sent"))
+        };
+
+        // Invite the first member, and queue the second behind it.
+        let (ack_first, mut ack_first_rx) = oneshot::channel();
+        let output = moderator
+            .on_discovery_request(invite(&first, 1), Some(ack_first))
+            .await
+            .unwrap();
+        let discovery_id = sent_id(&output, ProtoSessionMessageType::DiscoveryRequest);
+        let (ack_second, _ack_second_rx) = oneshot::channel();
+        moderator
+            .on_discovery_request(invite(&second, 2), Some(ack_second))
+            .await
+            .unwrap();
+        assert_eq!(moderator.tasks_todo.len(), 1);
+
+        // The first member answers the discovery; the moderator sends the join.
+        let first_member = first.clone().with_id(500);
+        let discovery_reply = Message::builder()
+            .source(first_member.clone())
+            .destination(source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::DiscoveryReply)
+            .session_id(1)
+            .message_id(discovery_id)
+            .payload(CommandPayload::builder().discovery_reply().as_content())
+            .build_publish()
+            .unwrap();
+        let sub_mgr = moderator.common.settings.subscription_manager.clone();
+        let output = run_with_acks(
+            moderator.on_discovery_reply(discovery_reply),
+            &mut rx_slim,
+            &sub_mgr,
+        )
+        .await
+        .unwrap();
+        let join_id = sent_id(&output, ProtoSessionMessageType::JoinRequest);
+
+        // It answers the join with a key package the moderator can't verify.
+        let member = SharedSecret::new("member", OTHER_SECRET).unwrap();
+        let mut member_mls = Mls::new(member.clone(), member);
+        member_mls.initialize().await.unwrap();
+        let key_package = member_mls.generate_key_package().unwrap();
+        let join_reply = Message::builder()
+            .source(first_member.clone())
+            .destination(source.clone())
+            .identity("")
+            .forward_to(0)
+            .incoming_conn(1)
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::JoinReply)
+            .session_id(1)
+            .message_id(join_id)
+            .payload(
+                CommandPayload::builder()
+                    .join_reply(
+                        Some(key_package),
+                        Participant::new(first_member, ParticipantSettings::bidirectional()),
+                    )
+                    .as_content(),
+            )
+            .build_publish()
+            .unwrap();
+        let result =
+            run_with_acks(moderator.on_join_reply(join_reply), &mut rx_slim, &sub_mgr).await;
+        assert!(result.is_err());
+
+        // The first invite fails instead of waiting for the caller's deadline,
+        // without adding the member...
+        assert!(matches!(ack_first_rx.try_recv(), Ok(Err(_))));
+        assert!(moderator.group_list.keys().all(|n| !n.match_prefix(&first)));
+        // ...and the second invite is taken off the queue and restarted.
+        assert!(moderator.tasks_todo.is_empty());
+        match rx_session.try_recv() {
+            Ok(SessionMessage::OnMessage { message, .. }) => {
+                assert_eq!(
+                    message.get_session_message_type(),
+                    ProtoSessionMessageType::DiscoveryRequest
+                );
+                assert!(message.get_dst().match_prefix(&second));
+            }
+            _ => panic!("the queued invite was not restarted"),
+        }
     }
 
     fn setup_moderator() -> (

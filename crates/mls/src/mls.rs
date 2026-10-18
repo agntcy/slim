@@ -8,9 +8,59 @@ use mls_rs::{
     crypto::{SignaturePublicKey, SignatureSecretKey},
     group::ReceivedMessage,
     identity::{SigningIdentity, basic::BasicCredential},
+    time::MlsTime,
 };
 use std::collections::HashSet;
+use std::time::Duration;
 use tracing::debug;
+
+/// Clock skew tolerated between the member that makes a key package and the
+/// group members that validate it.
+///
+/// A key package is valid from its `not_before`, which `mls-rs` sets from the
+/// maker's clock in whole seconds, and every member that adds it or processes
+/// the add checks it against its own clock. With no slack, even well
+/// synchronized clocks a few milliseconds apart fail now and then across a
+/// second boundary (agntcy/slim#2325). The same leeway as for JWTs absorbs
+/// that; a member whose clock is further off can't join, and the error says
+/// why (see `explain_key_package_error`).
+const KEY_PACKAGE_CLOCK_SKEW: Duration = Duration::from_secs(60);
+
+/// `not_before` for a new key package: now, minus the tolerated skew.
+fn key_package_not_before() -> MlsTime {
+    MlsTime::now() - KEY_PACKAGE_CLOCK_SKEW
+}
+
+/// Time to validate key packages against when adding them: now, plus the
+/// tolerated skew, so key packages from members that don't back-date
+/// `not_before` yet get the same leeway.
+fn add_commit_time() -> MlsTime {
+    MlsTime::now() + KEY_PACKAGE_CLOCK_SKEW
+}
+
+/// Turn a rejected key package lifetime into an error that names the clock
+/// offset, so whoever invited the member learns why it couldn't join.
+fn explain_key_package_error(error: mls_rs::error::MlsError) -> MlsError {
+    match error {
+        mls_rs::error::MlsError::InvalidLifetime {
+            not_before,
+            not_after,
+            ..
+        } => {
+            let now = MlsTime::now().seconds_since_epoch();
+            if not_before.seconds_since_epoch() > now {
+                MlsError::KeyPackageNotYetValid {
+                    seconds: not_before.seconds_since_epoch() - now,
+                }
+            } else {
+                MlsError::KeyPackageExpired {
+                    seconds: now.saturating_sub(not_after.seconds_since_epoch()),
+                }
+            }
+        }
+        other => MlsError::from(other),
+    }
+}
 
 use slim_auth::traits::{TokenProvider, Verifier};
 
@@ -271,7 +321,11 @@ where
         let client = self.client.as_ref().ok_or(MlsError::ClientNotInitialized)?;
 
         let key_package = client
-            .generate_key_package_message(Default::default(), Default::default(), None)
+            .generate_key_package_message(
+                Default::default(),
+                Default::default(),
+                Some(key_package_not_before()),
+            )
             .await?;
 
         let ret = key_package.to_bytes()?;
@@ -314,8 +368,12 @@ where
             ids.insert(identifier);
         }
 
-        let commit = group.commit_builder().add_member(key_package)?;
-        let commit = commit.build().await?;
+        let commit = group
+            .commit_builder()
+            .commit_time(add_commit_time())
+            .add_member(key_package)
+            .map_err(explain_key_package_error)?;
+        let commit = commit.build().await.map_err(explain_key_package_error)?;
 
         // create the commit message to broadcast in the group
         let commit_msg = commit.commit_message.to_bytes()?;
@@ -391,10 +449,13 @@ where
         // Build a single commit that removes and re-adds the member
         let commit = group
             .commit_builder()
+            .commit_time(add_commit_time())
             .remove_member(m.index)?
-            .add_member(key_package)?
+            .add_member(key_package)
+            .map_err(explain_key_package_error)?
             .build()
-            .await?;
+            .await
+            .map_err(explain_key_package_error)?;
 
         // Serialize the commit message
         let commit_msg = commit.commit_message.to_bytes()?;
@@ -766,6 +827,91 @@ mod tests {
     use std::time::Duration;
 
     const SHARED_SECRET: &str = "kjandjansdiasb8udaijdniasdaindasndasndasndasndasndasndasndas";
+
+    /// A key package as made by a member whose clock is `offset` ahead.
+    fn key_package_from_a_clock_ahead(
+        member: &Mls<SharedSecret, SharedSecret>,
+        offset: Duration,
+    ) -> Vec<u8> {
+        member
+            .client
+            .as_ref()
+            .unwrap()
+            .generate_key_package_message(
+                Default::default(),
+                Default::default(),
+                Some(MlsTime::now() + offset),
+            )
+            .unwrap()
+            .to_bytes()
+            .unwrap()
+    }
+
+    async fn new_member(name: &str) -> Mls<SharedSecret, SharedSecret> {
+        let mut mls = Mls::new(
+            SharedSecret::new(name, SHARED_SECRET).unwrap(),
+            SharedSecret::new(name, SHARED_SECRET).unwrap(),
+        );
+        mls.initialize().await.unwrap();
+        mls
+    }
+
+    /// agntcy/slim#2325: a key package is valid from its maker's clock, so
+    /// with no slack a member whose clock ran even slightly ahead of the
+    /// moderator's could not be added, intermittently. A skew within
+    /// `KEY_PACKAGE_CLOCK_SKEW` is tolerated.
+    #[tokio::test]
+    async fn a_member_within_the_clock_tolerance_can_be_added() {
+        let mut moderator = new_member("moderator").await;
+        moderator.create_group().unwrap();
+        let mut member = new_member("member").await;
+
+        let key_package = key_package_from_a_clock_ahead(&member, Duration::from_secs(30));
+        let add = moderator.add_member(&key_package).unwrap();
+        member.process_welcome(&add.welcome_message).unwrap();
+    }
+
+    /// A member whose clock runs further ahead can't join, and the error says
+    /// it's the clock and by how much, so the caller can act on it.
+    #[tokio::test]
+    async fn a_member_whose_clock_runs_too_far_ahead_gets_a_clock_error() {
+        let mut moderator = new_member("moderator").await;
+        moderator.create_group().unwrap();
+        let member = new_member("member").await;
+
+        let key_package = key_package_from_a_clock_ahead(&member, Duration::from_secs(120));
+        let Err(error) = moderator.add_member(&key_package) else {
+            panic!("a key package 120s ahead was added");
+        };
+        assert!(error.to_string().contains("clock"), "{error}");
+        match error {
+            MlsError::KeyPackageNotYetValid { seconds } => {
+                assert!((119..=121).contains(&seconds), "offset {seconds}s");
+            }
+            other => panic!("expected a clock error, got {other:?}"),
+        }
+    }
+
+    /// Key packages are valid from before the moment they are made, so the
+    /// members already in the group accept them when they process the commit
+    /// even if their clocks run behind the new member's.
+    #[tokio::test]
+    async fn existing_members_accept_a_new_member_added_in_the_same_second() {
+        let mut moderator = new_member("moderator").await;
+        moderator.create_group().unwrap();
+        let mut first = new_member("first").await;
+        let add = moderator
+            .add_member(&first.generate_key_package().unwrap())
+            .unwrap();
+        first.process_welcome(&add.welcome_message).unwrap();
+
+        let mut second = new_member("second").await;
+        let add = moderator
+            .add_member(&second.generate_key_package().unwrap())
+            .unwrap();
+        first.process_commit(&add.commit_message).unwrap();
+        second.process_welcome(&add.welcome_message).unwrap();
+    }
 
     /// A moderator with disk-backed storage must be able to restart, reload its
     /// MLS group from disk via `load`, and keep talking to a member that joined
