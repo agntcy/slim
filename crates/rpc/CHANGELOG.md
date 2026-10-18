@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.5](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.4...slim-rpc-v3.4.5) - 2026-10-18
+
+### Fixed
+
+- *(session)* fail a group invite with a clear error when a member can't be added ([#2326](https://github.com/agntcy/slim/pull/2326))
+
 ## [3.4.2](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.1...slim-rpc-v3.4.2) - 2026-10-15
 
 ### Other
