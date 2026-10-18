@@ -41,6 +41,19 @@ pub enum MlsError {
     #[error("unknown payload type")]
     UnknownPayloadType,
 
+    // Key package validity, which is checked against the local clock
+    #[error(
+        "the member's key package is not valid for another {seconds}s: the member's clock \
+         runs ahead of this one; check that both clocks are synchronized (e.g. with NTP)"
+    )]
+    KeyPackageNotYetValid { seconds: u64 },
+    #[error(
+        "the member's key package expired {seconds}s ago: the member's clock runs behind \
+         this one or the key package is stale; check that both clocks are synchronized \
+         (e.g. with NTP)"
+    )]
+    KeyPackageExpired { seconds: u64 },
+
     // Storage / identity persistence
     #[error("failed to create storage directory: {0}")]
     StorageIo(std::io::Error),
