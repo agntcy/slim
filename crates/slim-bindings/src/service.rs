@@ -225,6 +225,7 @@ impl Service {
     pub async fn run_server_async(&self, config: ServerConfig) -> Result<(), SlimError> {
         // Use the runtime handle to spawn the task, ensuring proper tokio context
         let runtime = get_runtime();
+        config.ensure_platform_supported()?;
         let core_config: slim_config::grpc::server::ServerConfig = config.into();
         let inner = self.inner.clone();
 
@@ -252,6 +253,7 @@ impl Service {
 
     /// Connect to a remote endpoint as a client
     pub async fn connect_async(&self, config: ClientConfig) -> Result<u64, SlimError> {
+        config.ensure_platform_supported()?;
         let core_config: slim_config::grpc::client::ClientConfig = config.into();
         let inner = self.inner.clone();
         let runtime = get_runtime();

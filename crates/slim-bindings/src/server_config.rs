@@ -7,7 +7,10 @@ use slim_auth::metadata::MetadataMap;
 use slim_config::grpc::server::KeepaliveServerParameters as CoreKeepaliveServerParameters;
 use slim_config::grpc::server::ServerConfig as CoreServerConfig;
 
-use crate::common_config::{ServerAuthenticationConfig, TlsServerConfig, TlsSource};
+use crate::common_config::{
+    ServerAuthenticationConfig, TlsServerConfig, TlsSource, ensure_spire_supported,
+};
+use crate::errors::SlimError;
 
 /// Keepalive configuration for the server
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
@@ -133,6 +136,19 @@ impl Default for ServerConfig {
             negotiation_timeout_secs: None,
             link_hmac_poll_interval_ms: None,
         }
+    }
+}
+
+impl ServerConfig {
+    /// Whether the TLS or authentication settings use SPIRE.
+    pub(crate) fn uses_spire(&self) -> bool {
+        self.tls.uses_spire() || self.auth.as_ref().is_some_and(|a| a.uses_spire())
+    }
+
+    /// Returns an error if the configuration needs a feature this platform lacks.
+    /// Call before converting to the core `ServerConfig`.
+    pub(crate) fn ensure_platform_supported(&self) -> Result<(), SlimError> {
+        ensure_spire_supported(self.uses_spire())
     }
 }
 
