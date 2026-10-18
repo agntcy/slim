@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.26](https://github.com/agntcy/slim/compare/slim-session-v0.7.25...slim-session-v0.7.26) - 2026-10-18
+
+### Fixed
+
+- *(session)* fail a group invite with a clear error when a member can't be added ([#2326](https://github.com/agntcy/slim/pull/2326))
+
 ## [0.7.25](https://github.com/agntcy/slim/compare/slim-session-v0.7.24...slim-session-v0.7.25) - 2026-10-18
 
 ### Other
