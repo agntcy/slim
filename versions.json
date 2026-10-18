@@ -300,6 +300,13 @@
     "aliases": []
   },
   {
+    "version": "slim-v3.4.4",
+    "title": "slim-v3.4.4",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-v3.4.3",
     "title": "slim-v3.4.3",
     "aliases": []
@@ -607,9 +614,7 @@
   {
     "version": "slim-service-v0.13.13",
     "title": "slim-service-v0.13.13",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-service-v0.13.12",
