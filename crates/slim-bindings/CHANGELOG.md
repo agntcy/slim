@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.4](https://github.com/agntcy/slim/compare/slim-bindings-v3.4.3...slim-bindings-v3.4.4) - 2026-10-18
+
+### Fixed
+
+- *(slim-bindings)* keep SPIRE enum variants on Windows ([#2319](https://github.com/agntcy/slim/pull/2319))
+
 ## [3.4.2](https://github.com/agntcy/slim/compare/slim-bindings-v3.4.1...slim-bindings-v3.4.2) - 2026-10-15
 
 ### Other
