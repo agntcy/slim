@@ -122,11 +122,11 @@ jobs:
   windows-build:
     name: Build (Windows)
     needs: [changes]
-    # Run only on pushes to main, not on PRs, and only when the workspace
-    # actually changed -- the `on:` filter used to imply the latter.
-    if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/main'
-      && needs.changes.outputs.workspace == 'true'
+    # Run on pull requests and in the merge queue as well as on main, so
+    # Windows-only code (`cfg(target_family = "windows")`) is compiled before
+    # it merges (agntcy/slim#2320). Skip only when the workspace didn't change;
+    # a job skipped by its own `if:` still reports a conclusion.
+    if: needs.changes.outputs.workspace == 'true'
     runs-on: windows-latest
     defaults:
       run:
