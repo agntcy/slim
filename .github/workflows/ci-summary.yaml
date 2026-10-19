@@ -1,0 +1,75 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Single required status check for the repository. It waits for every other
+# check on the commit to complete and fails if any of them did not succeed, so
+# the rulesets only need to require "CI Summary" (plus DCO) instead of listing
+# every job.
+#
+# Polling rather than reacting to check_suite: GitHub does not deliver
+# check_suite events to workflows when the suite was created by GitHub
+# Actions, so an event-driven gate would stay red after the first evaluation.
+
+name: CI Summary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Wait for all other checks
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const self = 'CI Summary';
+            const ref = context.payload.pull_request
+              ? context.payload.pull_request.head.sha
+              : context.sha;
+            const okConclusions = ['success', 'neutral', 'skipped'];
+            const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
+
+            console.log(`Evaluating all checks for commit ${ref}`);
+
+            // Give the other workflows time to register their check runs.
+            await sleep(60);
+
+            for (;;) {
+              const runs = await github.paginate(github.rest.checks.listForRef, {
+                owner, repo, ref, per_page: 100, filter: 'latest',
+              });
+              const others = runs.filter((c) => c.name !== self);
+              const pending = others.filter((c) => c.status !== 'completed');
+              const failed = others.filter(
+                (c) => c.status === 'completed' && !okConclusions.includes(c.conclusion),
+              );
+
+              for (const c of others) {
+                console.log(`- [${c.name}] status=${c.status} conclusion=${c.conclusion}`);
+              }
+
+              if (failed.length > 0) {
+                core.setFailed(`Failing checks: ${failed.map((c) => c.name).join(', ')}`);
+                return;
+              }
+              if (pending.length === 0) {
+                console.log(`All ${others.length} checks passed`);
+                return;
+              }
+              console.log(`Waiting on: ${pending.map((c) => c.name).join(', ')}`);
+              await sleep(30);
+            }
