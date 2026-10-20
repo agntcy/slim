@@ -136,7 +136,7 @@ minijinja = { version = "2.24.0", features = ["json"] }
 ml-kem = { version = "0.3.2", default-features = false, features = ["alloc"] }
 mls-rs = { version = "0.56" }
 mls-rs-core = { version = "0.27" }
-mls-rs-crypto-awslc = { version = "0.25.1" }
+mls-rs-crypto-awslc = { version = "0.26.0" }
 # wasm32-only MLS crypto provider (browser SubtleCrypto, async-only).
 mls-rs-crypto-webcrypto = { version = "0.15" }
 # Plain (statically-bundled) SQLite backend for the persistence crate; values
