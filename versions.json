@@ -505,6 +505,13 @@
     "aliases": []
   },
   {
+    "version": "slim-signal-v0.1.40",
+    "title": "slim-signal-v0.1.40",
+    "aliases": [
+      "latest"
+    ]
+  },
+  {
     "version": "slim-signal-v0.1.38",
     "title": "slim-signal-v0.1.38",
     "aliases": []
@@ -882,9 +889,7 @@
   {
     "version": "slim-proto-v0.8.8",
     "title": "slim-proto-v0.8.8",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-persistence-v0.2.0",
