@@ -1,0 +1,10 @@
+# Keep the WebSocket test helper reproducible. Hashes cover the universal wheel,
+# source distribution, and Linux x86_64 wheels supported by GitHub-hosted runners.
+websockets==16.0 \
+    --hash=sha256:1637db62fad1dc833276dded54215f2c7fa46912301a24bd94d45d46a011ceec \
+    --hash=sha256:5f6261a5e56e8d5c42a4497b364ea24d94d9563e8fbd44e78ac40879c60179b5 \
+    --hash=sha256:7d837379b647c0c4c2355c2499723f82f1635fd2c26510e1f587d89bc2199e72 \
+    --hash=sha256:08d7af67b64d29823fed316505a89b86705f2b7981c07848fb5e3ea3020c1abe \
+    --hash=sha256:9b5aca38b67492ef518a8ab76851862488a478602229112c4b0d58d63a7a4d5c \
+    --hash=sha256:95724e638f0f9c350bb1c2b0a7ad0e83d9cc0c9259f3ea94e40d7b02a2179ae5 \
+    --hash=sha256:781caf5e8eee67f663126490c2f96f40906594cb86b408a703630f95550a8c3e
