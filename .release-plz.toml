@@ -2,12 +2,13 @@
 release_always = false
 # do not release packages by default
 release = false
+semver_check = false
 
 # Remove agntcy- from git tag and release names
 git_tag_name = "{{ package | replace(from='agntcy-', to='') }}-v{{ version }}"
 git_release_name = "{{ package | replace(from='agntcy-', to='') }} v{{ version }}"
 
-# release-plz's default PR body (as of 0.3.169) plus the bot's sign-off. The
+# release-plz's default PR body (as of 0.3.170) plus the bot's sign-off. The
 # merge queue builds the release commit from the PR body, and the DCO app
 # checks it; release-plz can't sign off its own commits.
 pr_body = '''

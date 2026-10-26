@@ -89,6 +89,14 @@ impl Session {
         }
     }
 
+    /// For a restored session: peers' streams continue from before the
+    /// restart instead of starting at their first message.
+    pub(crate) fn resume_streams(&mut self) {
+        if let Some(receiver) = self.receiver.as_mut() {
+            receiver.resume_streams();
+        }
+    }
+
     pub fn on_message(&mut self, message: SessionMessage) -> Result<SessionOutput, SessionError> {
         match message {
             SessionMessage::OnMessage {
@@ -823,5 +831,151 @@ mod tests {
             no_timer.is_err(),
             "Expected no timer signal after ack, but got one"
         );
+    }
+
+    /// What the network does with a copy of a data message.
+    enum Fate {
+        Deliver,
+        Drop,
+        Hold,
+    }
+
+    /// Runs two p2p sessions, the sender's app sending messages 1 and 2, over
+    /// a network that decides each data message's fate from its id, which copy
+    /// it is, and the ids that already reached the receiver. Returns the ids
+    /// the receiver's app got.
+    async fn p2p_delivery(mut network: impl FnMut(u32, u32, &[u32]) -> Fate) -> Vec<u32> {
+        let sender_name = ProtoName::from_strings(["org", "ns", "sender"]);
+        let receiver_name = ProtoName::from_strings(["org", "ns", "receiver"]);
+        let session = |name: &ProtoName, peer: &ProtoName, initiator, tx| {
+            let config = SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                max_retries: Some(5),
+                interval: Some(Duration::from_millis(100)),
+                mls_settings: None,
+                initiator,
+                metadata: HashMap::new(),
+            };
+            let mut session = Session::new(10, config, name, tx, Direction::Bidirectional);
+            session
+                .add_endpoint(&Participant::new(
+                    peer.clone(),
+                    ParticipantSettings::bidirectional(),
+                ))
+                .unwrap();
+            session
+        };
+        let (tx_sender, mut rx_sender) = tokio::sync::mpsc::channel(64);
+        let (tx_receiver, mut rx_receiver) = tokio::sync::mpsc::channel(64);
+        let mut sender = session(&sender_name, &receiver_name, true, tx_sender);
+        let mut receiver = session(&receiver_name, &sender_name, false, tx_receiver);
+
+        // Routes a session's output: to the network, or to its app.
+        let route = |output: SessionOutput, network: &mut Vec<Message>, app: &mut Vec<u32>| {
+            for out in output.messages {
+                match out {
+                    OutboundMessage::ToSlim(mut m) => {
+                        m.get_slim_header_mut().set_incoming_conn(Some(1));
+                        network.push(m);
+                    }
+                    OutboundMessage::ToApp(Ok(m)) => app.push(m.get_id()),
+                    OutboundMessage::ToApp(Err(e)) => panic!("error to the app: {e}"),
+                }
+            }
+        };
+        let incoming = |message| SessionMessage::OnMessage {
+            message,
+            direction: MessageDirection::North,
+            ack_tx: None,
+        };
+
+        let (mut to_receiver, mut to_sender) = (Vec::new(), Vec::new());
+        for payload in [1u8, 2] {
+            let mut message = Message::builder()
+                .source(sender_name.clone())
+                .destination(receiver_name.clone())
+                .application_payload("test", vec![payload])
+                .build_publish()
+                .unwrap();
+            message.set_session_message_type(ProtoSessionMessageType::Msg);
+            let output = sender
+                .on_message(SessionMessage::OnMessage {
+                    message,
+                    direction: MessageDirection::South,
+                    ack_tx: None,
+                })
+                .unwrap();
+            route(output, &mut to_receiver, &mut Vec::new());
+        }
+
+        let (mut copies, mut arrived, mut delivered) = (HashMap::new(), Vec::new(), Vec::new());
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while delivered.len() < 2 && tokio::time::Instant::now() < deadline {
+            for m in std::mem::take(&mut to_receiver) {
+                let data = matches!(
+                    m.get_session_message_type(),
+                    ProtoSessionMessageType::Msg | ProtoSessionMessageType::RtxReply
+                );
+                if data {
+                    let copy = copies.entry(m.get_id()).or_insert(0);
+                    *copy += 1;
+                    match network(m.get_id(), *copy, &arrived) {
+                        Fate::Drop => continue,
+                        Fate::Hold => {
+                            *copy -= 1;
+                            to_receiver.push(m);
+                            continue;
+                        }
+                        Fate::Deliver => arrived.push(m.get_id()),
+                    }
+                }
+                route(
+                    receiver.on_message(incoming(m)).unwrap(),
+                    &mut to_sender,
+                    &mut delivered,
+                );
+            }
+            for m in std::mem::take(&mut to_sender) {
+                route(
+                    sender.on_message(incoming(m)).unwrap(),
+                    &mut to_receiver,
+                    &mut Vec::new(),
+                );
+            }
+            tokio::select! {
+                Some(signal) = rx_sender.recv() => {
+                    route(sender.on_message(signal).unwrap(), &mut to_receiver, &mut Vec::new());
+                }
+                Some(signal) = rx_receiver.recv() => {
+                    route(receiver.on_message(signal).unwrap(), &mut to_sender, &mut delivered);
+                }
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+            }
+        }
+        delivered
+    }
+
+    /// The first copy of message 1 is lost, so message 2 arrives first.
+    #[tokio::test]
+    async fn a_p2p_session_delivers_a_lost_first_message_in_order() {
+        let delivered = p2p_delivery(|id, copy, _| match (id, copy) {
+            (1, 1) => Fate::Drop,
+            _ => Fate::Deliver,
+        })
+        .await;
+        assert_eq!(delivered, vec![1, 2]);
+    }
+
+    /// As in agntcy/slim#2302: both first copies are lost, and the resend of
+    /// message 2 arrives before the resend of message 1.
+    #[tokio::test]
+    async fn a_p2p_session_delivers_resends_that_arrive_out_of_order() {
+        let delivered = p2p_delivery(|id, copy, arrived| match (id, copy) {
+            (_, 1) => Fate::Drop,
+            (1, _) if !arrived.contains(&2) => Fate::Hold,
+            _ => Fate::Deliver,
+        })
+        .await;
+        assert_eq!(delivered, vec![1, 2]);
     }
 }

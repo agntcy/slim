@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.27](https://github.com/agntcy/slim/compare/slim-session-v0.7.26...slim-session-v0.7.27) - 2026-10-20
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-mls, agntcy-slim-datapath
+
+## [0.7.26](https://github.com/agntcy/slim/compare/slim-session-v0.7.25...slim-session-v0.7.26) - 2026-10-18
+
+### Fixed
+
+- *(session)* fail a group invite with a clear error when a member can't be added ([#2326](https://github.com/agntcy/slim/pull/2326))
+
+## [0.7.25](https://github.com/agntcy/slim/compare/slim-session-v0.7.24...slim-session-v0.7.25) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-datapath, agntcy-slim-mls
+
+## [0.7.24](https://github.com/agntcy/slim/compare/slim-session-v0.7.23...slim-session-v0.7.24) - 2026-10-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-datapath, agntcy-slim-persistence, agntcy-slim-mls
+
+## [0.7.23](https://github.com/agntcy/slim/compare/slim-session-v0.7.22...slim-session-v0.7.23) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-datapath, agntcy-slim-mls
+
+## [0.7.22](https://github.com/agntcy/slim/compare/slim-session-v0.7.21...slim-session-v0.7.22) - 2026-10-15
+
+### Fixed
+
+- *(session)* keep a p2p session's first message when it arrives late ([#2303](https://github.com/agntcy/slim/pull/2303))
+
+### Other
+
+- *(session)* end-to-end p2p delivery when the first message is lost ([#2309](https://github.com/agntcy/slim/pull/2309))
+
 ## [0.7.21](https://github.com/agntcy/slim/compare/slim-session-v0.7.20...slim-session-v0.7.21) - 2026-10-14
 
 ### Fixed

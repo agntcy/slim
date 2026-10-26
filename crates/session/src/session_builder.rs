@@ -537,7 +537,8 @@ where
                 };
 
                 let (mut wrapper, tx, rx, settings) =
-                    self.build_session_stack(move |inner, settings| {
+                    self.build_session_stack(move |mut inner, settings| {
+                        inner.resume_streams();
                         SessionModerator::restore(inner, settings, moderator_mls, roster)
                     })?;
                 wrapper.restore_reconnect(conn).await?;
@@ -567,7 +568,8 @@ where
                 };
 
                 let (mut wrapper, tx, rx, settings) =
-                    self.build_session_stack(move |inner, settings| {
+                    self.build_session_stack(move |mut inner, settings| {
+                        inner.resume_streams();
                         SessionParticipant::restore(inner, settings, mls_state, moderator, roster)
                     })?;
                 wrapper.restore_reconnect(conn).await?;

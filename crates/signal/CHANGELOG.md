@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.40](https://github.com/agntcy/slim/compare/slim-signal-v0.1.39...slim-signal-v0.1.40) - 2026-10-20
+
+### Other
+
+- updated the following local packages: agntcy-slim-version
+
+## [0.1.39](https://github.com/agntcy/slim/compare/slim-signal-v0.1.38...slim-signal-v0.1.39) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version
+
+## [0.1.38](https://github.com/agntcy/slim/compare/slim-signal-v0.1.37...slim-signal-v0.1.38) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version
+
+## [0.1.37](https://github.com/agntcy/slim/compare/slim-signal-v0.1.36...slim-signal-v0.1.37) - 2026-10-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-version
+
+## [0.1.36](https://github.com/agntcy/slim/compare/slim-signal-v0.1.35...slim-signal-v0.1.36) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-version
+
 ## [0.1.35](https://github.com/agntcy/slim/compare/slim-signal-v0.1.34...slim-signal-v0.1.35) - 2026-10-14
 
 ### Other

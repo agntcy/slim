@@ -240,6 +240,23 @@ impl PrefixEntry {
         }
     }
 
+    /// True when any slot, of any category, lists `conn`.
+    fn has_conn(&self, conn: u64) -> bool {
+        self.aggregates.iter().any(|a| a.contains(&conn))
+    }
+
+    /// Remove `conn` from every slot, whatever its category.
+    fn remove_conn(&mut self, conn: u64) {
+        for slot_vec in &mut self.slots {
+            for list in slot_vec {
+                list.remove(conn);
+            }
+        }
+        for aggregate in &mut self.aggregates {
+            aggregate.retain(|&c| c != conn);
+        }
+    }
+
     /// Return the per-slot ConnLists in filter priority order: local, peer, remote.
     fn filtered_slots(&self, idx: usize, filter: MatchFilter) -> impl Iterator<Item = &ConnList> {
         ConnType::ALL
@@ -342,7 +359,7 @@ impl Clone for PrefixEntry {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// SubRecord – flat write-path record stored per subscription_id.
+// SubRecord – flat write-path record stored per subscription.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy)]
@@ -350,6 +367,16 @@ struct SubRecord {
     encoded: EncodedName,
     conn_id: u64,
     category: ConnType,
+}
+
+/// Identifies a subscription. Clients choose the ids of their subscriptions,
+/// and replayed subscriptions carry none (id 0), so an id is unique only
+/// together with the connection and the name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SubKey {
+    conn_id: u64,
+    sub_id: u64,
+    encoded: EncodedName,
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -361,46 +388,43 @@ struct SubRecord {
 
 #[derive(Debug, Default)]
 struct SubscriptionState {
-    subscriptions: HashMap<u64, SubRecord>, // sub_id  → (encoded, conn_id)
-    conn_subs: HashMap<u64, HashSet<u64>>,  // conn_id → sub_ids
+    subscriptions: HashMap<SubKey, SubRecord>,
+    conn_subs: HashMap<u64, HashSet<SubKey>>, // conn_id → its subscriptions
 }
 
 impl SubscriptionState {
-    /// Record a new subscription and update the reverse conn→sub_ids map.
+    /// Record a new subscription and update the reverse conn→subscriptions map.
     fn add(&mut self, sub_id: u64, record: SubRecord) {
-        self.subscriptions.insert(sub_id, record);
+        let key = SubKey {
+            conn_id: record.conn_id,
+            sub_id,
+            encoded: record.encoded,
+        };
+        self.subscriptions.insert(key, record);
         self.conn_subs
             .entry(record.conn_id)
             .or_default()
-            .insert(sub_id);
+            .insert(key);
     }
 
-    /// Remove a subscription by `sub_id`, cleaning up `conn_subs` when empty.
-    /// Returns the removed record, or `None` if the `sub_id` was not present.
-    fn remove(&mut self, sub_id: u64) -> Option<SubRecord> {
-        let record = self.subscriptions.remove(&sub_id)?;
-        if let Some(set) = self.conn_subs.get_mut(&record.conn_id) {
-            set.remove(&sub_id);
-        }
-        if self
-            .conn_subs
-            .get(&record.conn_id)
-            .is_some_and(|s| s.is_empty())
-        {
-            self.conn_subs.remove(&record.conn_id);
+    /// Remove a subscription, cleaning up `conn_subs` when empty.
+    /// Returns the removed record, or `None` if it was not present.
+    fn remove(&mut self, key: &SubKey) -> Option<SubRecord> {
+        let record = self.subscriptions.remove(key)?;
+        if let Some(set) = self.conn_subs.get_mut(&key.conn_id) {
+            set.remove(key);
+            if set.is_empty() {
+                self.conn_subs.remove(&key.conn_id);
+            }
         }
         Some(record)
     }
 
     /// True when `conn` still has at least one subscription for `encoded`.
     fn conn_still_subscribed(&self, conn: u64, encoded: EncodedName) -> bool {
-        self.conn_subs.get(&conn).is_some_and(|subs| {
-            subs.iter().any(|&s| {
-                self.subscriptions
-                    .get(&s)
-                    .is_some_and(|r| r.encoded == encoded)
-            })
-        })
+        self.conn_subs
+            .get(&conn)
+            .is_some_and(|subs| subs.iter().any(|key| key.encoded == encoded))
     }
 }
 
@@ -571,22 +595,15 @@ impl SubscriptionTable for SubscriptionTableImpl {
             }
         }
 
-        // Validate the subscription record.
-        let record = ss
-            .subscriptions
-            .get(&subscription_id)
-            .copied()
-            .ok_or(DataPathError::SubscriptionIdNotFound(subscription_id))?;
-
-        if record.conn_id != conn {
-            return Err(DataPathError::ConnectionIdNotFound(conn));
-        }
-        if record.encoded != encoded {
+        // Remove the subscription from both maps (conn_subs is cleaned up when empty).
+        let key = SubKey {
+            conn_id: conn,
+            sub_id: subscription_id,
+            encoded,
+        };
+        if ss.remove(&key).is_none() {
             return Err(DataPathError::SubscriptionIdNotFound(subscription_id));
         }
-
-        // Remove sub_id from both maps (conn_subs is cleaned up when empty).
-        ss.remove(subscription_id);
 
         // Check whether the connection is still subscribed to the same encoded name via another
         // subscription_id.
@@ -622,20 +639,21 @@ impl SubscriptionTable for SubscriptionTableImpl {
         // subscription_state locked first; routing updated via clone-modify-store.
         let mut ss = self.subscription_state.lock();
 
-        let sub_ids = ss
+        let keys = ss
             .conn_subs
             .remove(&conn)
             .ok_or(DataPathError::ConnectionIdNotFound(conn))?;
 
-        let mut result: HashMap<ProtoName, HashSet<u64>> = HashMap::with_capacity(sub_ids.len());
+        let mut result: HashMap<ProtoName, HashSet<u64>> = HashMap::with_capacity(keys.len());
 
         // Pass 1: remove each subscription record and build the result map.
         // Use a read snapshot (no clone yet) for proto_name lookups.
         let mut encoded_names: Vec<EncodedName> = Vec::new();
 
         let current = self.routing.load();
-        for sub_id in sub_ids {
-            if let Some(record) = ss.subscriptions.remove(&sub_id) {
+        for key in keys {
+            let sub_id = key.sub_id;
+            if let Some(record) = ss.subscriptions.remove(&key) {
                 let prefix = [
                     record.encoded.component_0,
                     record.encoded.component_1,
@@ -831,6 +849,31 @@ impl SubscriptionTable for SubscriptionTableImpl {
 }
 
 impl SubscriptionTableImpl {
+    /// Remove `conn` from the routes of every name. The subscription records
+    /// stay, so that dropping the connection still reports its names.
+    pub fn remove_routes_to(&self, conn: u64) {
+        // Held like on every write, so that no write is lost between the
+        // clone and the store.
+        let _ss = self.subscription_state.lock();
+
+        let current = self.routing.load();
+        if !current.values().any(|pe| pe.has_conn(conn)) {
+            return;
+        }
+        let mut rs = (**current).clone();
+        drop(current);
+        rs.retain(|_, entry| {
+            if !entry.has_conn(conn) {
+                return true;
+            }
+            let pe = Arc::make_mut(entry);
+            pe.remove_conn(conn);
+            pe.retain_non_empty();
+            !pe.is_empty()
+        });
+        self.routing.store(Arc::new(rs));
+    }
+
     /// Iterate all subscriptions, yielding `(ProtoName, sub_id, conn_id, category)` for each.
     ///
     /// This locks the subscription state and resolves names from the routing snapshot.
@@ -841,7 +884,7 @@ impl SubscriptionTableImpl {
     {
         let ss = self.subscription_state.lock();
         let rs = self.routing.load();
-        for (&sub_id, record) in &ss.subscriptions {
+        for (&SubKey { sub_id, .. }, record) in &ss.subscriptions {
             let prefix = [
                 record.encoded.component_0,
                 record.encoded.component_1,
@@ -1652,5 +1695,50 @@ mod tests {
         assert!(result.contains(&22));
         assert!(!result.contains(&10));
         assert!(!result.contains(&11));
+    }
+
+    /// Replayed subscriptions carry no id (0). Each still belongs to its own
+    /// connection and name, so closing a connection removes exactly its routes.
+    #[test]
+    fn subscriptions_without_an_id_go_with_their_connection() {
+        let barolo = ProtoName::from_strings(["agntcy", "agentcon", "barolo"]).with_id(1);
+        let french = ProtoName::from_strings(["agntcy", "agentcon", "french"]).with_id(2);
+        let t = SubscriptionTableImpl::default();
+
+        // Two clients reconnect and replay their subscriptions without ids.
+        t.add_subscription(french.clone(), 6, ConnType::Remote, 0)
+            .unwrap();
+        t.add_subscription(barolo.clone(), 4, ConnType::Remote, 0)
+            .unwrap();
+
+        // French's connection closes: only French's route goes.
+        let removed = t.remove_connection(6, ConnType::Remote).unwrap();
+        let removed: Vec<EncodedName> = removed.keys().map(enc).collect();
+        assert_eq!(removed, vec![enc(&french)]);
+        assert!(t.match_one(&enc(&french), 100, MatchFilter::ALL).is_err());
+        assert_eq!(
+            t.match_one(&enc(&barolo), 100, MatchFilter::ALL).unwrap(),
+            4
+        );
+
+        // Then Barolo's: no route to the closed connection is left behind.
+        t.remove_connection(4, ConnType::Remote).unwrap();
+        assert!(t.match_one(&enc(&barolo), 100, MatchFilter::ALL).is_err());
+    }
+
+    /// Two names replayed without ids on one connection both go when it closes.
+    #[test]
+    fn names_without_an_id_on_one_connection_all_go() {
+        let buyer = ProtoName::from_strings(["agntcy", "agentcon", "buyer"]).with_id(1);
+        let group = ProtoName::from_strings(["agntcy", "agentcon", "buyer-group"]).with_id(1);
+        let t = SubscriptionTableImpl::default();
+        t.add_subscription(buyer.clone(), 5, ConnType::Remote, 0)
+            .unwrap();
+        t.add_subscription(group.clone(), 5, ConnType::Remote, 0)
+            .unwrap();
+
+        assert_eq!(t.remove_connection(5, ConnType::Remote).unwrap().len(), 2);
+        assert!(t.match_one(&enc(&buyer), 100, MatchFilter::ALL).is_err());
+        assert!(t.match_one(&enc(&group), 100, MatchFilter::ALL).is_err());
     }
 }

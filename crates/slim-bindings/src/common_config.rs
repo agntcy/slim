@@ -8,7 +8,32 @@ use slim_config::auth::oidc::Config as OidcAuthConfig;
 use slim_config::tls::client::TlsClientConfig as CoreTlsClientConfig;
 use slim_config::tls::server::TlsServerConfig as CoreTlsServerConfig;
 
+use crate::errors::SlimError;
 use crate::identity_config::{ClientJwtAuth, JwtAuth, StaticJwtAuth};
+
+/// Whether this platform supports SPIRE (the SPIFFE Workload API needs Unix sockets).
+///
+/// The `Spire` variants of the uniffi enums exist on every platform: uniffi encodes
+/// enum variants by position, and the foreign bindings are generated from one
+/// platform's library, so removing a variant on Windows would shift every variant
+/// after it. Instead, configurations that use SPIRE are rejected with an error on
+/// Windows, before they reach the core types (which have no SPIRE support there).
+pub(crate) const SPIRE_SUPPORTED: bool = cfg!(not(target_family = "windows"));
+
+/// The error returned for a SPIRE configuration on a platform without SPIRE support.
+pub(crate) fn spire_unsupported() -> SlimError {
+    SlimError::InvalidArgument {
+        message: "SPIRE is not supported on Windows".to_string(),
+    }
+}
+
+/// Returns an error when `uses_spire` is set on a platform without SPIRE support.
+pub(crate) fn ensure_spire_supported(uses_spire: bool) -> Result<(), SlimError> {
+    if uses_spire && !SPIRE_SUPPORTED {
+        return Err(spire_unsupported());
+    }
+    Ok(())
+}
 
 /// SPIRE configuration for SPIFFE Workload API integration
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
@@ -71,6 +96,12 @@ pub enum TlsSource {
     None,
 }
 
+impl TlsSource {
+    pub(crate) fn uses_spire(&self) -> bool {
+        matches!(self, TlsSource::Spire { .. })
+    }
+}
+
 impl From<TlsSource> for slim_config::tls::common::TlsSource {
     fn from(source: TlsSource) -> Self {
         match source {
@@ -118,6 +149,12 @@ pub enum CaSource {
     Spire { config: SpireConfig },
     /// No CA configured
     None,
+}
+
+impl CaSource {
+    pub(crate) fn uses_spire(&self) -> bool {
+        matches!(self, CaSource::Spire { .. })
+    }
 }
 
 impl From<CaSource> for slim_config::tls::common::CaSource {
@@ -184,6 +221,12 @@ impl Default for TlsClientConfig {
     }
 }
 
+impl TlsClientConfig {
+    pub(crate) fn uses_spire(&self) -> bool {
+        self.source.uses_spire() || self.ca_source.uses_spire()
+    }
+}
+
 impl From<TlsClientConfig> for CoreTlsClientConfig {
     fn from(config: TlsClientConfig) -> Self {
         CoreTlsClientConfig {
@@ -241,6 +284,12 @@ impl Default for TlsServerConfig {
             tls_version: None,
             reload_client_ca_file: None,
         }
+    }
+}
+
+impl TlsServerConfig {
+    pub(crate) fn uses_spire(&self) -> bool {
+        self.source.uses_spire() || self.client_ca.uses_spire()
     }
 }
 
@@ -422,8 +471,8 @@ pub enum ClientAuthenticationConfig {
     Jwt {
         config: ClientJwtAuth,
     },
-    /// SPIRE/SPIFFE authentication (non-Windows only)
-    #[cfg(not(target_family = "windows"))]
+    /// SPIRE/SPIFFE authentication. Present on every platform to keep the uniffi
+    /// layout stable; rejected with an error on Windows (see `SPIRE_SUPPORTED`).
     Spire {
         config: SpireConfig,
     },
@@ -432,6 +481,12 @@ pub enum ClientAuthenticationConfig {
         config: OidcConfig,
     },
     None,
+}
+
+impl ClientAuthenticationConfig {
+    pub(crate) fn uses_spire(&self) -> bool {
+        matches!(self, ClientAuthenticationConfig::Spire { .. })
+    }
 }
 
 impl From<ClientAuthenticationConfig> for slim_config::grpc::client::AuthenticationConfig {
@@ -449,6 +504,11 @@ impl From<ClientAuthenticationConfig> for slim_config::grpc::client::Authenticat
             #[cfg(not(target_family = "windows"))]
             ClientAuthenticationConfig::Spire { config } => {
                 slim_config::grpc::client::AuthenticationConfig::Spire(config.into())
+            }
+            // Rejected by ClientConfig::ensure_platform_supported before conversion.
+            #[cfg(target_family = "windows")]
+            ClientAuthenticationConfig::Spire { .. } => {
+                panic!("SPIRE is not supported on Windows");
             }
             ClientAuthenticationConfig::Oidc { config } => {
                 slim_config::grpc::client::AuthenticationConfig::Oidc(config.into())
@@ -501,8 +561,8 @@ pub enum ServerAuthenticationConfig {
     Jwt {
         config: JwtAuth,
     },
-    /// SPIRE/SPIFFE authentication (non-Windows only)
-    #[cfg(not(target_family = "windows"))]
+    /// SPIRE/SPIFFE authentication. Present on every platform to keep the uniffi
+    /// layout stable; rejected with an error on Windows (see `SPIRE_SUPPORTED`).
     Spire {
         config: SpireConfig,
     },
@@ -511,6 +571,12 @@ pub enum ServerAuthenticationConfig {
         config: OidcConfig,
     },
     None,
+}
+
+impl ServerAuthenticationConfig {
+    pub(crate) fn uses_spire(&self) -> bool {
+        matches!(self, ServerAuthenticationConfig::Spire { .. })
+    }
 }
 
 impl From<ServerAuthenticationConfig> for slim_config::grpc::server::AuthenticationConfig {
@@ -525,6 +591,11 @@ impl From<ServerAuthenticationConfig> for slim_config::grpc::server::Authenticat
             #[cfg(not(target_family = "windows"))]
             ServerAuthenticationConfig::Spire { config } => {
                 slim_config::grpc::server::AuthenticationConfig::Spire(config.into())
+            }
+            // Rejected by ServerConfig::ensure_platform_supported before conversion.
+            #[cfg(target_family = "windows")]
+            ServerAuthenticationConfig::Spire { .. } => {
+                panic!("SPIRE is not supported on Windows");
             }
             ServerAuthenticationConfig::Oidc { config } => {
                 slim_config::grpc::server::AuthenticationConfig::Oidc(config.into())
@@ -1059,5 +1130,90 @@ mod tests {
         );
         assert_eq!(config.jwt_audiences.len(), 3);
         assert_eq!(config.trust_domains.len(), 2);
+    }
+}
+
+/// SPIRE variants on every platform (agntcy/slim#2318).
+///
+/// These tests build every `Spire` variant without a `cfg` gate, so the Windows CI
+/// build (which compiles all targets) fails if one is ever gated again: removing a
+/// variant on one platform shifts the uniffi layout of the enum.
+#[cfg(test)]
+mod spire_platform_tests {
+    use super::*;
+    use crate::client_config::new_insecure_client_config;
+    use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
+    use crate::server_config::new_insecure_server_config;
+
+    fn spire() -> SpireConfig {
+        SpireConfig::default()
+    }
+
+    #[test]
+    fn spire_variants_exist_on_every_platform() {
+        let client = ClientAuthenticationConfig::Spire { config: spire() };
+        let server = ServerAuthenticationConfig::Spire { config: spire() };
+        let provider = IdentityProviderConfig::Spire { config: spire() };
+        let verifier = IdentityVerifierConfig::Spire { config: spire() };
+
+        assert!(client.uses_spire());
+        assert!(server.uses_spire());
+        assert!(matches!(provider, IdentityProviderConfig::Spire { .. }));
+        assert!(matches!(verifier, IdentityVerifierConfig::Spire { .. }));
+    }
+
+    #[test]
+    fn uses_spire_detects_tls_and_auth() {
+        let mut client = new_insecure_client_config("http://localhost:46357".to_string());
+        assert!(!client.uses_spire());
+        client.auth = Some(ClientAuthenticationConfig::None);
+        assert!(!client.uses_spire());
+        client.auth = Some(ClientAuthenticationConfig::Spire { config: spire() });
+        assert!(client.uses_spire());
+        client.auth = None;
+        client.tls.ca_source = CaSource::Spire { config: spire() };
+        assert!(client.uses_spire());
+
+        let mut server = new_insecure_server_config("0.0.0.0:46357".to_string());
+        assert!(!server.uses_spire());
+        server.tls.source = TlsSource::Spire { config: spire() };
+        assert!(server.uses_spire());
+        server.tls.source = TlsSource::None;
+        server.auth = Some(ServerAuthenticationConfig::Spire { config: spire() });
+        assert!(server.uses_spire());
+    }
+
+    #[test]
+    fn spire_configs_are_rejected_only_where_unsupported() {
+        let mut client = new_insecure_client_config("http://localhost:46357".to_string());
+        assert!(client.ensure_platform_supported().is_ok());
+
+        client.auth = Some(ClientAuthenticationConfig::Spire { config: spire() });
+        let result = client.ensure_platform_supported();
+        assert_eq!(result.is_ok(), SPIRE_SUPPORTED);
+        if let Err(err) = result {
+            assert!(matches!(err, SlimError::InvalidArgument { .. }));
+        }
+
+        let mut server = new_insecure_server_config("0.0.0.0:46357".to_string());
+        server.auth = Some(ServerAuthenticationConfig::Spire { config: spire() });
+        assert_eq!(server.ensure_platform_supported().is_ok(), SPIRE_SUPPORTED);
+    }
+
+    #[cfg(target_family = "windows")]
+    #[test]
+    fn spire_identity_is_an_error_on_windows() {
+        use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+
+        let provider = IdentityProviderConfig::Spire { config: spire() };
+        assert!(matches!(
+            AuthProvider::try_from(provider),
+            Err(SlimError::InvalidArgument { .. })
+        ));
+        let verifier = IdentityVerifierConfig::Spire { config: spire() };
+        assert!(matches!(
+            AuthVerifier::try_from(verifier),
+            Err(SlimError::InvalidArgument { .. })
+        ));
     }
 }

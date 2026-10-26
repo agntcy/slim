@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/agntcy/slim/compare/slim-mls-v0.5.0...slim-mls-v0.5.1) - 2026-10-20
+
+### Other
+
+- update Cargo.toml dependencies
+
+## [0.5.0](https://github.com/agntcy/slim/compare/slim-mls-v0.4.12...slim-mls-v0.5.0) - 2026-10-18
+
+### Fixed
+
+- *(session)* fail a group invite with a clear error when a member can't be added ([#2326](https://github.com/agntcy/slim/pull/2326))
+
+## [0.4.12](https://github.com/agntcy/slim/compare/slim-mls-v0.4.11...slim-mls-v0.4.12) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth
+
+## [0.4.11](https://github.com/agntcy/slim/compare/slim-mls-v0.4.10...slim-mls-v0.4.11) - 2026-10-16
+
+### Other
+
+- update Cargo.toml dependencies
+
+## [0.4.10](https://github.com/agntcy/slim/compare/slim-mls-v0.4.9...slim-mls-v0.4.10) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth
+
 ## [0.4.9](https://github.com/agntcy/slim/compare/slim-mls-v0.4.8...slim-mls-v0.4.9) - 2026-10-14
 
 ### Other

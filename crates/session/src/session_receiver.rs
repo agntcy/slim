@@ -13,6 +13,7 @@ use crate::{
     SessionError,
     common::{SessionMessage, SessionOutput},
     receiver_buffer::ReceiverBuffer,
+    session_sender::FIRST_MESSAGE_ID,
     timer::Timer,
     timer_factory::{TimerFactory, TimerSettings},
 };
@@ -75,6 +76,12 @@ pub struct SessionReceiver {
     /// session type
     session_type: ProtoSessionType,
 
+    /// The id a peer's stream starts at, when known: in a new point-to-point
+    /// session, the peer's first message. Otherwise, as for a group member
+    /// joining late or a restored session, a stream starts at its first
+    /// arrival.
+    stream_start: Option<u32>,
+
     /// drain state - when true, no new messages from app are accepted
     draining_state: ReceiverDrainStatus,
 }
@@ -104,8 +111,16 @@ impl SessionReceiver {
             session_id,
             session_type,
             local_name,
+            stream_start: (session_type == ProtoSessionType::PointToPoint)
+                .then_some(FIRST_MESSAGE_ID),
             draining_state: ReceiverDrainStatus::NotDraining,
         }
+    }
+
+    /// For a restored session: the peer's stream continues from before the
+    /// restart, so it starts at its first arrival.
+    pub(crate) fn resume_streams(&mut self) {
+        self.stream_start = None;
     }
 
     pub fn on_message(&mut self, mut message: Message) -> Result<SessionOutput, SessionError> {
@@ -172,7 +187,14 @@ impl SessionReceiver {
         let source_proto = message.get_slim_header().source.clone().unwrap();
         let encoded_source = source_proto.name.unwrap();
         let in_conn = message.get_incoming_conn();
-        let buffer = self.buffer.entry(encoded_source).or_default();
+        let stream_start = self.stream_start;
+        let buffer = self
+            .buffer
+            .entry(encoded_source)
+            .or_insert_with(|| match stream_start {
+                Some(first) => ReceiverBuffer::starting_at(first as usize),
+                None => ReceiverBuffer::default(),
+            });
 
         let (recv_vec, rtx_vec) = buffer.on_received_message(message);
         self.handle_recv_and_rtx_vectors(&source_proto, in_conn, recv_vec, rtx_vec)
@@ -937,6 +959,8 @@ mod tests {
             ProtoSessionType::PointToPoint,
             Some(tx_signal),
         );
+        // The peer's stream is already near the wraparound.
+        receiver.resume_streams();
         let publish = |id, message_type| {
             Message::builder()
                 .source(remote.clone())
@@ -1595,6 +1619,62 @@ mod tests {
         assert!(slim_messages(&output).is_empty());
         assert!(app_messages(&output).is_empty());
         assert!(app_errors(&output).is_empty());
+    }
+
+    fn data_message(from: &ProtoName, to: &ProtoName, id: u32) -> Message {
+        let mut message = Message::builder()
+            .source(from.clone())
+            .destination(to.clone())
+            .application_payload("payload", vec![id as u8])
+            .build_publish()
+            .unwrap();
+        message.set_session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg);
+        message.get_session_header_mut().set_message_id(id);
+        message.get_session_header_mut().set_session_id(10);
+        message.get_slim_header_mut().set_incoming_conn(Some(1));
+        message
+    }
+
+    /// In a new point-to-point session the peer's stream starts at 1, so a
+    /// message 2 that arrives first waits for 1 instead of dropping it. In a
+    /// group, or a restored session, the first arrival starts the stream.
+    #[tokio::test]
+    async fn a_new_p2p_session_waits_for_the_first_message() {
+        let local = ProtoName::from_strings(["org", "ns", "local"]);
+        let remote = ProtoName::from_strings(["org", "ns", "remote"]);
+        let receiver = |session_type| {
+            let settings = TimerSettings::constant(Duration::from_secs(10)).with_max_retries(1);
+            let (tx_signal, _rx_signal) = tokio::sync::mpsc::channel(10);
+            SessionReceiver::new(
+                Some(settings),
+                10,
+                local.clone(),
+                session_type,
+                Some(tx_signal),
+            )
+        };
+        let delivered = |output: &SessionOutput| -> Vec<u32> {
+            app_messages(output).iter().map(|m| m.get_id()).collect()
+        };
+
+        let mut p2p = receiver(ProtoSessionType::PointToPoint);
+        let output = p2p.on_message(data_message(&remote, &local, 2)).unwrap();
+        assert!(delivered(&output).is_empty());
+        let output = p2p.on_message(data_message(&remote, &local, 1)).unwrap();
+        assert_eq!(delivered(&output), vec![1, 2]);
+        let output = p2p.on_message(data_message(&remote, &local, 3)).unwrap();
+        assert_eq!(delivered(&output), vec![3]);
+
+        let mut group = receiver(ProtoSessionType::Multicast);
+        let output = group.on_message(data_message(&remote, &local, 2)).unwrap();
+        assert_eq!(delivered(&output), vec![2]);
+
+        let mut restored = receiver(ProtoSessionType::PointToPoint);
+        restored.resume_streams();
+        let output = restored
+            .on_message(data_message(&remote, &local, 2))
+            .unwrap();
+        assert_eq!(delivered(&output), vec![2]);
     }
 }
 

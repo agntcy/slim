@@ -337,6 +337,60 @@ async fn test_multicast_unary() {
     env.shutdown().await;
 }
 
+/// A new group channel per call, closed afterwards, as an app that opens one
+/// channel per multicast does (agntcy/slim#2325). With MLS on, every call has
+/// to form the whole group: each member's JoinReply must be welcomed and the
+/// next member invited.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_new_group_per_call() {
+    const NUM_MEMBERS: usize = 3;
+    const CALLS: usize = 10;
+    let mut env = MulticastTestEnv::new("test-multicast-new-group-per-call", NUM_MEMBERS).await;
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_unary_unary(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context| async move {
+                Ok(TestResponse {
+                    member_id: i,
+                    result: format!("M{i}: {}", req.message),
+                    count: req.value,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    for call in 0..CALLS {
+        let channel =
+            Channel::new_with_members(env.client_app.clone(), env.member_names.clone(), true, None)
+                .expect("failed to create channel");
+        let stream = channel.multicast_unary::<TestRequest, TestResponse>(
+            "TestService",
+            "Echo",
+            TestRequest {
+                message: format!("call {call}"),
+                value: call as i32,
+            },
+            Some(Duration::from_secs(10)),
+            None,
+        );
+        let label = format!("call {call}");
+        let responses =
+            collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), &label).await;
+        assert_eq!(responses.len(), NUM_MEMBERS, "{label}");
+        assert!(
+            responses.iter().all(|r| r.message.count == call as i32),
+            "{label}"
+        );
+        channel.close(None).await.unwrap();
+    }
+
+    env.shutdown().await;
+}
+
 // ============================================================================
 // Test 2 — multicast_unary_stream
 // ============================================================================

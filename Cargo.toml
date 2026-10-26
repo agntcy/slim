@@ -41,32 +41,32 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "crates/slim", version = "3.4.1" }
-agntcy-slim-auth = { path = "crates/auth", version = "0.17.5" }
-agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.4.1" }
-agntcy-slim-channel-manager = { path = "crates/channel-manager", version = "3.4.1" }
-agntcy-slim-config = { path = "crates/config", version = "0.17.5" }
-agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.4.1" }
-agntcy-slim-controller = { path = "crates/controller", version = "0.13.11" }
-agntcy-slim-datapath = { path = "crates/datapath", version = "0.19.9" }
-agntcy-slim-mls = { path = "crates/mls", version = "0.4.9" }
-agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.0" }
-agntcy-slim-proto = { path = "crates/proto", version = "0.8.3" }
-agntcy-slim-rpc = { path = "crates/rpc", version = "3.4.1" }
-agntcy-slim-service = { path = "crates/service", version = "0.13.9", default-features = false }
-agntcy-slim-session = { path = "crates/session", version = "0.7.21" }
-agntcy-slim-signal = { path = "crates/signal", version = "0.1.35" }
+agntcy-slim = { path = "crates/slim", version = "3.4.6" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.17.10" }
+agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.4.6" }
+agntcy-slim-channel-manager = { path = "crates/channel-manager", version = "3.4.6" }
+agntcy-slim-config = { path = "crates/config", version = "0.17.10" }
+agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.4.6" }
+agntcy-slim-controller = { path = "crates/controller", version = "0.13.17" }
+agntcy-slim-datapath = { path = "crates/datapath", version = "0.19.15" }
+agntcy-slim-mls = { path = "crates/mls", version = "0.5.1" }
+agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.1" }
+agntcy-slim-proto = { path = "crates/proto", version = "0.8.8" }
+agntcy-slim-rpc = { path = "crates/rpc", version = "3.4.6" }
+agntcy-slim-service = { path = "crates/service", version = "0.13.15", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.7.27" }
+agntcy-slim-signal = { path = "crates/signal", version = "0.1.40" }
 agntcy-slim-testing = { path = "crates/testing" }
-agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.31" }
-agntcy-slim-version = { path = "crates/version", version = "3.4.1" }
-agntcy-slimctl = { path = "crates/slimctl", version = "3.4.1" }
+agntcy-slim-tracing = { path = "crates/tracing", version = "0.4.36" }
+agntcy-slim-version = { path = "crates/version", version = "3.4.6" }
+agntcy-slimctl = { path = "crates/slimctl", version = "3.4.6" }
 anyhow = "1.0.103"
 
 arc-swap = "1.9.1"
 
 async-stream = "0.3"
 async-trait = "0.1.88"
-aws-lc-rs = { version = "1.16", features = ["bindgen"] }
+aws-lc-rs = { version = "1.18", features = ["bindgen"] }
 base64 = "0.23"
 bincode = "2.0.1"
 bs58 = "0.5"
@@ -136,7 +136,7 @@ minijinja = { version = "2.24.0", features = ["json"] }
 ml-kem = { version = "0.3.2", default-features = false, features = ["alloc"] }
 mls-rs = { version = "0.56" }
 mls-rs-core = { version = "0.27" }
-mls-rs-crypto-awslc = { version = "0.25" }
+mls-rs-crypto-awslc = { version = "0.26.0" }
 # wasm32-only MLS crypto provider (browser SubtleCrypto, async-only).
 mls-rs-crypto-webcrypto = { version = "0.15" }
 # Plain (statically-bundled) SQLite backend for the persistence crate; values
@@ -187,7 +187,7 @@ reqwest = { version = "0.13", features = [
 ], default-features = false }
 rlimit = "0.11.0"
 rstest = "0.27"
-rustls = { version = "0.23.31" }
+rustls = { version = "0.23.46" }
 rustls-native-certs = "0.8"
 rustls-pki-types = "1.10.0"
 schemars = "1.0.3"
@@ -241,7 +241,7 @@ x509-parser = "0.18"
 zeroize = "1.9"
 
 [workspace.package]
-version = "3.4.1"
+version = "3.4.6"
 license = "Apache-2.0"
 edition = "2024"
 repository = "https://github.com/agntcy/slim"

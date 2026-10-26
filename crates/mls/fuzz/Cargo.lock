@@ -4,11 +4,12 @@ version = 4
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.16.3"
+version = "0.17.6"
 dependencies = [
  "agntcy-slim-version",
  "aws-lc-rs",
  "base64 0.23.1",
+ "bs58",
  "cel",
  "cfg-if",
  "display-error-chain",
@@ -51,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.4.2"
+version = "0.4.10"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -99,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "3.0.1"
+version = "3.4.2"
 
 [[package]]
 name = "ahash"
@@ -251,11 +252,11 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "aws-lc-fips-sys"
-version = "0.13.17"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00ccb9bd2963c4dbcded8052b5666f329a7ccc75d04dea723eece6077ad5e6dc"
+checksum = "d640b9b76a2ff1fcf2d615a6f912460dfb1613eaf6d4836b8539784f75e22d7f"
 dependencies = [
- "bindgen",
+ "bindgen 0.73.2",
  "cc",
  "cmake",
  "dunce",
@@ -266,9 +267,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.16.3"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ec6fb3fe69024a75fa7e1bfb48aa6cf59706a101658ea01bfd33b2b248a038f"
+checksum = "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e"
 dependencies = [
  "aws-lc-fips-sys",
  "aws-lc-sys",
@@ -278,15 +279,16 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.40.0"
+version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f50037ee5e1e41e7b8f9d161680a725bd1626cb6f8c7e901f91f942850852fe7"
+checksum = "9bff6c3b54fad79a2e60b8102caf565819711497c1f5f092f49508e2f5c31b27"
 dependencies = [
- "bindgen",
+ "bindgen 0.72.1",
  "cc",
  "cmake",
  "dunce",
  "fs_extra",
+ "pkg-config",
 ]
 
 [[package]]
@@ -340,6 +342,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.73.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "787ef8ef523575546b106a58213d6e6b06198a05c2f757258c68a74273670cfa"
+dependencies = [
+ "bitflags",
+ "cexpr",
+ "clang-sys",
+ "log",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex 2.0.1",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -383,6 +404,15 @@ name = "borrow-or-share"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
+
+[[package]]
+name = "bs58"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "bstr"
@@ -2059,9 +2089,9 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-crypto-awslc"
-version = "0.25.0"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "858ba8df345ebbda20868b503fda4fb46a921ca0e035025cbbaed0c8b5245da0"
+checksum = "d58bdc2d7ec8a2cac800d5f462e70db25928323a872e4be320c55d126ec7472d"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -2878,9 +2908,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "once_cell",
  "rustls-pki-types",
@@ -3494,6 +3524,12 @@ dependencies = [
  "displaydoc",
  "zerovec",
 ]
+
+[[package]]
+name = "tinyvec"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"

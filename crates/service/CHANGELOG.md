@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.15](https://github.com/agntcy/slim/compare/slim-service-v0.13.14...slim-service-v0.13.15) - 2026-10-20
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-mls, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-controller
+
+## [0.13.14](https://github.com/agntcy/slim/compare/slim-service-v0.13.13...slim-service-v0.13.14) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-mls, agntcy-slim-session, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-controller
+
+## [0.13.13](https://github.com/agntcy/slim/compare/slim-service-v0.13.12...slim-service-v0.13.13) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-mls, agntcy-slim-session, agntcy-slim-controller
+
+## [0.13.12](https://github.com/agntcy/slim/compare/slim-service-v0.13.11...slim-service-v0.13.12) - 2026-10-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-persistence, agntcy-slim-mls, agntcy-slim-session, agntcy-slim-controller
+
+## [0.13.11](https://github.com/agntcy/slim/compare/slim-service-v0.13.10...slim-service-v0.13.11) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-mls, agntcy-slim-session, agntcy-slim-controller
+
+## [0.13.10](https://github.com/agntcy/slim/compare/slim-service-v0.13.9...slim-service-v0.13.10) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-controller
+
 ## [0.13.9](https://github.com/agntcy/slim/compare/slim-service-v0.13.8...slim-service-v0.13.9) - 2026-10-14
 
 ### Other

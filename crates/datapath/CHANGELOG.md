@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.15](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.14...slim-datapath-v0.19.15) - 2026-10-20
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
+## [0.19.14](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.13...slim-datapath-v0.19.14) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
+## [0.19.13](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.12...slim-datapath-v0.19.13) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
+## [0.19.12](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.11...slim-datapath-v0.19.12) - 2026-10-16
+
+### Fixed
+
+- *(deps)* take rustls 0.23.46 and drop its advisory ignores ([#2315](https://github.com/agntcy/slim/pull/2315))
+
+## [0.19.11](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.10...slim-datapath-v0.19.11) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing
+
+## [0.19.10](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.9...slim-datapath-v0.19.10) - 2026-10-15
+
+### Fixed
+
+- *(datapath)* keep forwarding past a failed connection and drop stale routes ([#2308](https://github.com/agntcy/slim/pull/2308))
+- *(datapath)* key subscription records by connection, id and name ([#2306](https://github.com/agntcy/slim/pull/2306))
+
 ## [0.19.9](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.8...slim-datapath-v0.19.9) - 2026-10-14
 
 ### Other

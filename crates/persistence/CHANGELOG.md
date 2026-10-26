@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/agntcy/slim/compare/slim-persistence-v0.2.0...slim-persistence-v0.2.1) - 2026-10-16
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.2.0] - semver correction
 
 `0.1.1` moved to the `mls-rs` 0.56 / `mls-rs-core` 0.27 line as a **patch**

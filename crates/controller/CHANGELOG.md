@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.17](https://github.com/agntcy/slim/compare/slim-controller-v0.13.16...slim-controller-v0.13.17) - 2026-10-20
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-signal
+
+## [0.13.16](https://github.com/agntcy/slim/compare/slim-controller-v0.13.15...slim-controller-v0.13.16) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-session, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-signal
+
+## [0.13.15](https://github.com/agntcy/slim/compare/slim-controller-v0.13.14...slim-controller-v0.13.15) - 2026-10-18
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-signal
+
+## [0.13.14](https://github.com/agntcy/slim/compare/slim-controller-v0.13.13...slim-controller-v0.13.14) - 2026-10-16
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-datapath, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-session, agntcy-slim-signal
+
+## [0.13.13](https://github.com/agntcy/slim/compare/slim-controller-v0.13.12...slim-controller-v0.13.13) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-auth, agntcy-slim-config, agntcy-slim-proto, agntcy-slim-tracing, agntcy-slim-datapath, agntcy-slim-session, agntcy-slim-signal
+
+## [0.13.12](https://github.com/agntcy/slim/compare/slim-controller-v0.13.11...slim-controller-v0.13.12) - 2026-10-15
+
+### Other
+
+- updated the following local packages: agntcy-slim-datapath, agntcy-slim-session
+
 ## [0.13.11](https://github.com/agntcy/slim/compare/slim-controller-v0.13.10...slim-controller-v0.13.11) - 2026-10-14
 
 ### Other
