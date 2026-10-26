@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim"
-version = "3.4.5"
+version = "3.4.6"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.17.9"
+version = "0.17.10"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-testing",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "3.4.5"
+version = "3.4.6"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-version = "3.4.5"
+version = "3.4.6"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.17.9"
+version = "0.17.10"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-testing",
@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-control-plane"
-version = "3.4.5"
+version = "3.4.6"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-controller"
-version = "0.13.16"
+version = "0.13.17"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.19.14"
+version = "0.19.15"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-proto"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-rpc"
-version = "3.4.5"
+version = "3.4.6"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-bindings",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-service"
-version = "0.13.14"
+version = "0.13.15"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.7.26"
+version = "0.7.27"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-signal"
-version = "0.1.39"
+version = "0.1.40"
 dependencies = [
  "agntcy-slim-version",
  "tokio",
@@ -548,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.4.35"
+version = "0.4.36"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -571,11 +571,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "3.4.5"
+version = "3.4.6"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "3.4.5"
+version = "3.4.6"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -1123,7 +1123,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "shlex 2.0.1",
- "syn 3.0.6",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1704,9 +1704,9 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "crypto-bigint"
-version = "0.7.5"
+version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a52aa3fcda4e6302a9f48734f234d35d4721b96f8fe07d073f07ce9df4f0271"
+checksum = "9c035cb64cba03dad2fb921f3e218785e8cf9a41790da5eb3a1400f62fa2be11"
 dependencies = [
  "cpubits",
  "ctutils",
@@ -1741,9 +1741,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.2"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d5515a3834141de9eafb9717ad39eea8247b5674e6066c404e8c4b365d2a29e"
+checksum = "fe3e9d21d39e6f39ff46e03d5b621424f88ee23d8a1672c6bfc9ccc7f2da4f6a"
 dependencies = [
  "cmov",
  "subtle",
@@ -3898,9 +3898,9 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-crypto-awslc"
-version = "0.25.1"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d58bdc2d7ec8a2cac800d5f462e70db25928323a872e4be320c55d126ec7472d"
+checksum = "2ef778ced473553363cf0de75cb01856a6b713b85a23a13ada94229035eb46e5"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -5358,9 +5358,9 @@ checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -6048,7 +6048,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.52.0",
@@ -6208,9 +6208,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
-version = "1.53.1"
+version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
 dependencies = [
  "bytes",
  "libc",
@@ -7187,9 +7187,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
 dependencies = [
  "rustls-pki-types",
 ]
