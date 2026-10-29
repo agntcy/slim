@@ -5515,7 +5515,7 @@
 <div class="tabbed-block">
 <p>Add to your <code>.csproj</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="nt">&lt;ItemGroup&gt;</span>
-<span class="w">  </span><span class="nt">&lt;PackageReference</span><span class="w"> </span><span class="na">Include=</span><span class="s">&quot;Agntcy.Slim&quot;</span><span class="w"> </span><span class="na">Version=</span><span class="s">&quot;2.1.0&quot;</span><span class="w"> </span><span class="nt">/&gt;</span>
+<span class="w">  </span><span class="nt">&lt;PackageReference</span><span class="w"> </span><span class="na">Include=</span><span class="s">&quot;Agntcy.Slim&quot;</span><span class="w"> </span><span class="na">Version=</span><span class="s">&quot;3.3.9&quot;</span><span class="w"> </span><span class="nt">/&gt;</span>
 <span class="nt">&lt;/ItemGroup&gt;</span>
 </code></pre></div>
 </div>
@@ -5668,6 +5668,10 @@
 </tr>
 </tbody>
 </table>
+<p>The example projects reference the <code>Slim</code> project directly, so build the solution once from the <code>dotnet</code> directory before running them (this generates the C# bindings, copies the native runtimes, and generates the SLIMRPC example code):</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>dotnet
+task<span class="w"> </span>build
+</code></pre></div>
 <p><strong>Point-to-point:</strong></p>
 <div class="highlight"><pre><span></span><code><span class="c1"># Receiver</span>
 dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>Slim.Examples.PointToPoint<span class="w"> </span>--<span class="w"> </span>--local<span class="w"> </span>org/alice/v1
@@ -5677,9 +5681,8 @@ dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w
 <span class="w">  </span>--local<span class="w"> </span>org/bob/v1<span class="w"> </span>--remote<span class="w"> </span>org/alice/v1<span class="w"> </span>--message<span class="w"> </span><span class="s2">&quot;Hello&quot;</span>
 </code></pre></div>
 <p><strong>SLIMRPC</strong> (requires a running SLIM node and generated proto code):</p>
-<div class="highlight"><pre><span></span><code>task<span class="w"> </span>slimrpc:generate-proto<span class="w">   </span><span class="c1"># requires buf and protoc-gen-slimrpc-csharp</span>
-dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>Slim.Examples.SlimRpc<span class="w"> </span>--<span class="w"> </span>--mode<span class="w"> </span>server
-dotnet<span class="w"> </span>run<span class="w"> </span>--project<span class="w"> </span>Slim.Examples.SlimRpc<span class="w"> </span>--<span class="w"> </span>--mode<span class="w"> </span>client
+<div class="highlight"><pre><span></span><code>task<span class="w"> </span>examples:rpc:server
+task<span class="w"> </span>examples:rpc:client
 </code></pre></div>
 <h2 id="platform-support">Platform Support</h2>
 <table>

@@ -5480,7 +5480,7 @@
 
 
 <h1 id="go-sdk">Go SDK</h1>
-<p>The SLIM Go SDK (<code>github.com/agntcy/slim-bindings-go</code>) provides an idiomatic Go API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via <a href="https://github.com/NordSecurity/uniffi-bindgen-go">uniffi-bindgen-go</a>, with native libraries loaded through CGO.</p>
+<p>The SLIM Go SDK (<code>github.com/agntcy/slim-bindings-go/v3</code>) provides an idiomatic Go API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via <a href="https://github.com/NordSecurity/uniffi-bindgen-go">uniffi-bindgen-go</a>, with native libraries loaded through CGO.</p>
 <h2 id="requirements">Requirements</h2>
 <table>
 <thead>
@@ -5496,7 +5496,7 @@
 </tr>
 <tr>
 <td><strong>Package</strong></td>
-<td><a href="https://github.com/agntcy/slim-bindings-go"><code>github.com/agntcy/slim-bindings-go</code></a></td>
+<td><a href="https://github.com/agntcy/slim-bindings-go"><code>github.com/agntcy/slim-bindings-go/v3</code></a></td>
 </tr>
 <tr>
 <td><strong>Build tools</strong></td>
@@ -5514,12 +5514,15 @@
 <p>The Go bindings use native libraries via <a href="https://pkg.go.dev/cmd/cgo">CGO</a>. A C compiler must be installed.</p>
 </div>
 <h2 id="installation">Installation</h2>
-<div class="highlight"><pre><span></span><code>go<span class="w"> </span>get<span class="w"> </span>github.com/agntcy/slim-bindings-go
+<div class="highlight"><pre><span></span><code>go<span class="w"> </span>get<span class="w"> </span>github.com/agntcy/slim-bindings-go/v3
 </code></pre></div>
 <p>Then run the setup tool to install the native libraries:</p>
-<div class="highlight"><pre><span></span><code>go<span class="w"> </span>run<span class="w"> </span>github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+<div class="highlight"><pre><span></span><code>go<span class="w"> </span>run<span class="w"> </span>github.com/agntcy/slim-bindings-go/v3/cmd/slim-bindings-setup
 </code></pre></div>
-<p>Setup is one-time per machine. The tool downloads or copies the native library for your OS and architecture.</p>
+<p>The tool downloads the native library for your OS and architecture from the matching GitHub release and caches it under <code>$GOPATH/.cgo-cache/slim-bindings/&lt;version&gt;</code>. Run it again whenever you upgrade to a new binding version.</p>
+<p>Import the package under the <code>slim</code> alias used throughout these docs:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3&quot;</span>
+</code></pre></div>
 <h2 id="getting-started">Getting Started</h2>
 <p>The <a href="../tutorials/">SDK tutorials</a> build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with Go snippets shown alongside every other binding.</p>
 <p>Start with <a href="../tutorials/tutorial-connect/">Connecting to SLIM</a>.</p>

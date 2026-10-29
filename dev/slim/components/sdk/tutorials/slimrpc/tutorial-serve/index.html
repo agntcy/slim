@@ -5359,22 +5359,54 @@
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>In Rust, SLIMRPC handlers are registered as closures directly on the server — no SLIMRPC compiler or generated stub files are needed.</p>
-<p>You still generate the protobuf message types from your <code>.proto</code> file. Add <code>prost</code> to your <code>Cargo.toml</code> and a <code>build.rs</code>:</p>
+<p>You still generate the protobuf message types from your <code>.proto</code> file. Add <code>prost</code> and the SLIM crates to your <code>Cargo.toml</code>, and a <code>build.rs</code> (<code>prost-build</code> needs <code>protoc</code> on your <code>PATH</code>):</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># Cargo.toml</span>
 <span class="k">[dependencies]</span>
-<span class="n">prost</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
-<span class="n">agntcy-slim</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;2.2.0&quot;</span>
+<span class="n">agntcy-slim-rpc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;3.4.6&quot;</span>
+<span class="n">agntcy-slim-service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13.15&quot;</span>
+<span class="n">agntcy-slim-auth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.17.10&quot;</span>
+<span class="n">agntcy-slim-config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.17.10&quot;</span>
+<span class="n">agntcy-slim-datapath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.19.15&quot;</span>
+<span class="n">anyhow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;1&quot;</span>
+<span class="n">futures</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.3&quot;</span>
+<span class="n">prost</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.14&quot;</span>
 <span class="n">tokio</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;full&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
 
 <span class="k">[build-dependencies]</span>
-<span class="n">prost-build</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.13&quot;</span>
+<span class="n">prost-build</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.14&quot;</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="c1">// build.rs</span>
 <span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">prost_build</span><span class="p">::</span><span class="n">compile_protos</span><span class="p">(</span><span class="o">&amp;</span><span class="p">[</span><span class="s">&quot;proto/example.proto&quot;</span><span class="p">],</span><span class="w"> </span><span class="o">&amp;</span><span class="p">[</span><span class="s">&quot;proto/&quot;</span><span class="p">]).</span><span class="n">unwrap</span><span class="p">();</span>
 <span class="p">}</span>
 </code></pre></div>
-<p>This generates Rust structs for <code>ExampleRequest</code> and <code>ExampleResponse</code>. Handler registration is shown in Step 4.</p>
+<p>This generates Rust structs for <code>ExampleRequest</code> and <code>ExampleResponse</code>. SLIMRPC serializes messages through its own <code>Encoder</code> / <code>Decoder</code> traits, so implement them for every message you send or receive:</p>
+<div class="highlight"><pre><span></span><code><span class="k">mod</span><span class="w"> </span><span class="nn">example_service</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="fm">include!</span><span class="p">(</span><span class="fm">concat!</span><span class="p">(</span><span class="fm">env!</span><span class="p">(</span><span class="s">&quot;OUT_DIR&quot;</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;/example_service.rs&quot;</span><span class="p">));</span>
+<span class="p">}</span>
+
+<span class="k">use</span><span class="w"> </span><span class="n">example_service</span><span class="p">::{</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">prost</span><span class="p">::</span><span class="n">Message</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::{</span><span class="n">Decoder</span><span class="p">,</span><span class="w"> </span><span class="n">Encoder</span><span class="p">,</span><span class="w"> </span><span class="n">RpcError</span><span class="p">};</span>
+
+<span class="fm">macro_rules!</span><span class="w"> </span><span class="n">impl_slimrpc_codec</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="p">(</span><span class="cp">$($msg</span><span class="p">:</span><span class="nc">ty</span><span class="p">),</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="cp">$(</span>
+<span class="w">        </span><span class="k">impl</span><span class="w"> </span><span class="n">Encoder</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="cp">$msg</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">fn</span><span class="w"> </span><span class="nf">encode</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="kt">u8</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">RpcError</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nb">Ok</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">encode_to_vec</span><span class="p">())</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">impl</span><span class="w"> </span><span class="n">Decoder</span><span class="w"> </span><span class="k">for</span><span class="w"> </span><span class="cp">$msg</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">fn</span><span class="w"> </span><span class="nf">decode</span><span class="p">(</span><span class="n">buf</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Into</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="kt">u8</span><span class="o">&gt;&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">RpcError</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="o">&lt;</span><span class="cp">$msg</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="n">Message</span><span class="o">&gt;</span><span class="p">::</span><span class="n">decode</span><span class="p">(</span><span class="n">buf</span><span class="p">.</span><span class="n">into</span><span class="p">().</span><span class="n">as_slice</span><span class="p">())</span>
+<span class="w">                    </span><span class="p">.</span><span class="n">map_err</span><span class="p">(</span><span class="o">|</span><span class="n">e</span><span class="o">|</span><span class="w"> </span><span class="n">RpcError</span><span class="p">::</span><span class="n">invalid_argument</span><span class="p">(</span><span class="n">e</span><span class="p">.</span><span class="n">to_string</span><span class="p">()))</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">)</span><span class="o">*</span><span class="p">};</span>
+<span class="p">}</span>
+<span class="n">impl_slimrpc_codec</span><span class="o">!</span><span class="p">(</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">);</span>
+</code></pre></div>
+<p>Handler registration is shown in Step 4.</p>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1"># buf.gen.yaml</span>
@@ -5385,13 +5417,13 @@
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">proto_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.proto</span>
 <span class="nt">plugins</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">protoc-gen-slimrpc-python</span>
-<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">types</span>
+<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_service</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">remote</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">buf.build/protocolbuffers/python:v29.3</span>
-<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">types</span>
+<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_service</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">remote</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">buf.build/protocolbuffers/pyi:v31.1</span>
-<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">types</span>
+<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_service</span>
 </code></pre></div>
-<p>This generates <code>types/example_pb2.py</code> (protobuf types) and <code>types/example_pb2_slimrpc.py</code> (SLIMRPC stubs).</p>
+<p>This generates <code>example_service/example_pb2.py</code> (protobuf types) and <code>example_service/example_pb2_slimrpc.py</code> (SLIMRPC stubs). Don't name the output directory <code>types</code>: a top-level <code>types</code> package shadows Python's standard-library <code>types</code> module.</p>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1"># buf.gen.yaml</span>
@@ -5479,30 +5511,29 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="2:7"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><input id="__tabbed_2_4" name="__tabbed_2" type="radio" /><input id="__tabbed_2_5" name="__tabbed_2" type="radio" /><input id="__tabbed_2_6" name="__tabbed_2" type="radio" /><input id="__tabbed_2_7" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Rust</label><label for="__tabbed_2_2">Python</label><label for="__tabbed_2_3">Go</label><label for="__tabbed_2_4">Java</label><label for="__tabbed_2_5">Kotlin</label><label for="__tabbed_2_6">Node.js</label><label for="__tabbed_2_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>In Rust, service logic is written as async closures passed to the server at registration time (Step 4). Each handler receives a typed request and returns a typed response — no base class to extend.</p>
-<div class="highlight"><pre><span></span><code><span class="c1">// include! the prost-generated types at the top of your file:</span>
-<span class="c1">// mod example_service { include!(concat!(env!(&quot;OUT_DIR&quot;), &quot;/example_service.rs&quot;)); }</span>
-<span class="k">use</span><span class="w"> </span><span class="n">example_service</span><span class="p">::{</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">};</span>
+<p>In Rust, service logic is written as async closures passed to the server at registration time (Step 4). Each handler receives a typed request (or a stream of them) and returns a typed response (or a stream of them) — no base class to extend.</p>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">example_service</span><span class="p">::{</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::{</span><span class="n">Context</span><span class="p">,</span><span class="w"> </span><span class="n">DecodedStream</span><span class="p">};</span>
 
 <span class="c1">// Handlers are closures — shown registered in Step 4 below.</span>
 <span class="c1">// ExampleUnaryUnary:</span>
-<span class="c1">//   |req: ExampleRequest, _ctx| async move { Ok(ExampleResponse { ... }) }</span>
+<span class="c1">//   |req: ExampleRequest, _ctx: Context| async move { Ok(ExampleResponse { ... }) }</span>
 <span class="c1">//</span>
-<span class="c1">// ExampleUnaryStream:</span>
-<span class="c1">//   |req: ExampleRequest, _ctx| async move { Ok(vec![ExampleResponse { ... }]) }</span>
+<span class="c1">// ExampleUnaryStream: return a Stream of Result&lt;ExampleResponse, RpcError&gt;</span>
+<span class="c1">//   |req: ExampleRequest, _ctx: Context| async move { Ok(futures::stream::iter(...)) }</span>
 <span class="c1">//</span>
-<span class="c1">// ExampleStreamUnary:</span>
-<span class="c1">//   |reqs: Vec&lt;ExampleRequest&gt;, _ctx| async move { Ok(ExampleResponse { ... }) }</span>
+<span class="c1">// ExampleStreamUnary: consume a stream of Result&lt;ExampleRequest, RpcError&gt;</span>
+<span class="c1">//   |reqs: DecodedStream&lt;ExampleRequest&gt;, _ctx: Context| async move { Ok(ExampleResponse { ... }) }</span>
 <span class="c1">//</span>
 <span class="c1">// ExampleStreamStream:</span>
-<span class="c1">//   |reqs: Vec&lt;ExampleRequest&gt;, _ctx| async move { Ok(reqs.into_iter().map(|r| ...).collect()) }</span>
+<span class="c1">//   |reqs: DecodedStream&lt;ExampleRequest&gt;, _ctx: Context| async move { Ok(reqs.map(|r| ...)) }</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncIterable</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">types.example_pb2</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExampleRequest</span><span class="p">,</span> <span class="n">ExampleResponse</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">types.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestServicer</span><span class="p">,</span> <span class="n">add_TestServicer_to_server</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">example_service.example_pb2</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExampleRequest</span><span class="p">,</span> <span class="n">ExampleResponse</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">example_service.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestServicer</span><span class="p">,</span> <span class="n">add_TestServicer_to_server</span>
 
 <span class="k">class</span><span class="w"> </span><span class="nc">TestService</span><span class="p">(</span><span class="n">TestServicer</span><span class="p">):</span>
     <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">ExampleUnaryUnary</span><span class="p">(</span>
@@ -5547,10 +5578,9 @@
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
 <span class="w">    </span><span class="s">&quot;context&quot;</span>
 <span class="w">    </span><span class="s">&quot;fmt&quot;</span>
-<span class="w">    </span><span class="s">&quot;io&quot;</span>
 
 <span class="w">    </span><span class="nx">pb</span><span class="w"> </span><span class="s">&quot;example/types&quot;</span>
-<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/slim_rpc&quot;</span>
+<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3/slim_rpc&quot;</span>
 <span class="p">)</span>
 
 <span class="kd">type</span><span class="w"> </span><span class="nx">TestServiceImpl</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
@@ -5586,12 +5616,12 @@
 <span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">pb</span><span class="p">.</span><span class="nx">ExampleResponse</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">count</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">int64</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
 <span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">stream</span><span class="p">.</span><span class="nx">Recv</span><span class="p">()</span>
-<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">io</span><span class="p">.</span><span class="nx">EOF</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="k">break</span>
-<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="nx">req</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">stream</span><span class="p">.</span><span class="nx">Recv</span><span class="p">()</span>
 <span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// end of stream</span>
+<span class="w">            </span><span class="k">break</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">        </span><span class="nx">count</span><span class="o">++</span>
 <span class="w">    </span><span class="p">}</span>
@@ -5607,11 +5637,11 @@
 <span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">req</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">stream</span><span class="p">.</span><span class="nx">Recv</span><span class="p">()</span>
-<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">io</span><span class="p">.</span><span class="nx">EOF</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="k">break</span>
-<span class="w">        </span><span class="p">}</span>
 <span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// end of stream</span>
+<span class="w">            </span><span class="k">break</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">stream</span><span class="p">.</span><span class="nx">Send</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">pb</span><span class="p">.</span><span class="nx">ExampleResponse</span><span class="p">{</span>
 <span class="w">            </span><span class="nx">ExampleString</span><span class="p">:</span><span class="w">  </span><span class="s">&quot;echo: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">req</span><span class="p">.</span><span class="nx">ExampleString</span><span class="p">,</span>
@@ -5872,23 +5902,40 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="3:7"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><input id="__tabbed_3_4" name="__tabbed_3" type="radio" /><input id="__tabbed_3_5" name="__tabbed_3" type="radio" /><input id="__tabbed_3_6" name="__tabbed_3" type="radio" /><input id="__tabbed_3_7" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Rust</label><label for="__tabbed_3_2">Python</label><label for="__tabbed_3_3">Go</label><label for="__tabbed_3_4">Java</label><label for="__tabbed_3_5">Kotlin</label><label for="__tabbed_3_6">Node.js</label><label for="__tabbed_3_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::</span><span class="n">Server</span><span class="p">;</span>
-<span class="k">use</span><span class="w"> </span><span class="n">example_service</span><span class="p">::{</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">};</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="p">;</span>
 
-<span class="c1">// app, conn_id, and rx (notification receiver) come from the prerequisite tutorials</span>
+<span class="k">use</span><span class="w"> </span><span class="n">example_service</span><span class="p">::{</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">futures</span><span class="p">::{</span><span class="n">StreamExt</span><span class="p">,</span><span class="w"> </span><span class="n">stream</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_auth</span><span class="p">::</span><span class="n">auth_provider</span><span class="p">::{</span><span class="n">AuthProvider</span><span class="p">,</span><span class="w"> </span><span class="n">AuthVerifier</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_auth</span><span class="p">::</span><span class="n">shared_secret</span><span class="p">::</span><span class="n">SharedSecret</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_datapath</span><span class="p">::</span><span class="n">api</span><span class="p">::</span><span class="n">ProtoName</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::{</span><span class="n">Context</span><span class="p">,</span><span class="w"> </span><span class="n">DecodedStream</span><span class="p">,</span><span class="w"> </span><span class="n">RpcError</span><span class="p">,</span><span class="w"> </span><span class="n">Server</span><span class="p">};</span>
+
+<span class="c1">// service and conn_id come from the prerequisite tutorials. The server needs an</span>
+<span class="c1">// app built with the AuthProvider / AuthVerifier wrappers, and the notification</span>
+<span class="c1">// receiver that create_app returns.</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">local_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;my-service&quot;</span><span class="p">]);</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SharedSecret</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="s">&quot;myorg/default/my-service&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;change-me-before-going-to-production&quot;</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="p">(</span><span class="n">app</span><span class="p">,</span><span class="w"> </span><span class="n">rx</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">create_app</span><span class="p">(</span>
+<span class="w">    </span><span class="o">&amp;</span><span class="n">local_name</span><span class="p">,</span>
+<span class="w">    </span><span class="n">AuthProvider</span><span class="p">::</span><span class="n">shared_secret</span><span class="p">(</span><span class="n">secret</span><span class="p">.</span><span class="n">clone</span><span class="p">()),</span>
+<span class="w">    </span><span class="n">AuthVerifier</span><span class="p">::</span><span class="n">shared_secret</span><span class="p">(</span><span class="n">secret</span><span class="p">),</span>
+<span class="p">)</span><span class="o">?</span><span class="p">;</span>
+
+<span class="c1">// The server subscribes to local_name itself when it starts serving</span>
 <span class="kd">let</span><span class="w"> </span><span class="n">server</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Server</span><span class="p">::</span><span class="n">new_with_connection_and_runtime</span><span class="p">(</span>
-<span class="w">    </span><span class="n">app</span><span class="p">,</span>
-<span class="w">    </span><span class="n">local_name</span><span class="p">,</span>
+<span class="w">    </span><span class="n">Arc</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="n">app</span><span class="p">),</span>
+<span class="w">    </span><span class="n">local_name</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
 <span class="w">    </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">),</span>
 <span class="w">    </span><span class="n">rx</span><span class="p">,</span>
 <span class="w">    </span><span class="nb">None</span><span class="p">,</span>
 <span class="p">);</span>
 
 <span class="c1">// Register each RPC method as a typed async closure</span>
-<span class="n">server</span><span class="p">.</span><span class="n">register_unary_unary_internal</span><span class="p">(</span>
+<span class="n">server</span><span class="p">.</span><span class="n">register_unary_unary</span><span class="p">(</span>
 <span class="w">    </span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s">&quot;ExampleUnaryUnary&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="o">|</span><span class="n">req</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="o">|</span><span class="n">req</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="p">:</span><span class="w"> </span><span class="nc">Context</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nb">Ok</span><span class="p">(</span><span class="n">ExampleResponse</span><span class="w"> </span><span class="p">{</span>
 <span class="w">            </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="nc">format</span><span class="o">!</span><span class="p">(</span><span class="s">&quot;hello {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">example_string</span><span class="p">),</span>
 <span class="w">            </span><span class="n">example_integer</span><span class="p">:</span><span class="w"> </span><span class="nc">req</span><span class="p">.</span><span class="n">example_integer</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
@@ -5896,25 +5943,29 @@
 <span class="w">    </span><span class="p">},</span>
 <span class="p">);</span>
 
-<span class="n">server</span><span class="p">.</span><span class="n">register_unary_stream_internal</span><span class="p">(</span>
+<span class="n">server</span><span class="p">.</span><span class="n">register_unary_stream</span><span class="p">(</span>
 <span class="w">    </span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s">&quot;ExampleUnaryStream&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="o">|</span><span class="n">req</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">responses</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">0</span><span class="o">..</span><span class="mi">5</span><span class="p">)</span>
-<span class="w">            </span><span class="p">.</span><span class="n">map</span><span class="p">(</span><span class="o">|</span><span class="n">i</span><span class="o">|</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="o">|</span><span class="n">req</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="p">:</span><span class="w"> </span><span class="nc">Context</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">responses</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">0</span><span class="o">..</span><span class="mi">5</span><span class="p">).</span><span class="n">map</span><span class="p">(</span><span class="k">move</span><span class="w"> </span><span class="o">|</span><span class="n">i</span><span class="o">|</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nb">Ok</span><span class="p">::</span><span class="o">&lt;</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">RpcError</span><span class="o">&gt;</span><span class="p">(</span><span class="n">ExampleResponse</span><span class="w"> </span><span class="p">{</span>
 <span class="w">                </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="nc">format</span><span class="o">!</span><span class="p">(</span><span class="s">&quot;hello {} {i}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">example_string</span><span class="p">),</span>
 <span class="w">                </span><span class="n">example_integer</span><span class="p">:</span><span class="w"> </span><span class="nc">req</span><span class="p">.</span><span class="n">example_integer</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">,</span>
 <span class="w">            </span><span class="p">})</span>
-<span class="w">            </span><span class="p">.</span><span class="n">collect</span><span class="p">::</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">_</span><span class="o">&gt;&gt;</span><span class="p">();</span>
-<span class="w">        </span><span class="nb">Ok</span><span class="p">(</span><span class="n">responses</span><span class="p">)</span>
+<span class="w">        </span><span class="p">});</span>
+<span class="w">        </span><span class="nb">Ok</span><span class="p">(</span><span class="n">stream</span><span class="p">::</span><span class="n">iter</span><span class="p">(</span><span class="n">responses</span><span class="p">))</span>
 <span class="w">    </span><span class="p">},</span>
 <span class="p">);</span>
 
-<span class="n">server</span><span class="p">.</span><span class="n">register_stream_unary_internal</span><span class="p">(</span>
+<span class="n">server</span><span class="p">.</span><span class="n">register_stream_unary</span><span class="p">(</span>
 <span class="w">    </span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s">&quot;ExampleStreamUnary&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="o">|</span><span class="n">reqs</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">ExampleRequest</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reqs</span><span class="p">.</span><span class="n">len</span><span class="p">()</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="kt">i64</span><span class="p">;</span>
+<span class="w">    </span><span class="o">|</span><span class="k">mut</span><span class="w"> </span><span class="n">reqs</span><span class="p">:</span><span class="w"> </span><span class="nc">DecodedStream</span><span class="o">&lt;</span><span class="n">ExampleRequest</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="p">:</span><span class="w"> </span><span class="nc">Context</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="w">        </span><span class="k">while</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">req</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reqs</span><span class="p">.</span><span class="n">next</span><span class="p">().</span><span class="k">await</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">req</span><span class="o">?</span><span class="p">;</span>
+<span class="w">            </span><span class="n">count</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+<span class="w">        </span><span class="p">}</span>
 <span class="w">        </span><span class="nb">Ok</span><span class="p">(</span><span class="n">ExampleResponse</span><span class="w"> </span><span class="p">{</span>
 <span class="w">            </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="nc">format</span><span class="o">!</span><span class="p">(</span><span class="s">&quot;received {count} requests&quot;</span><span class="p">),</span>
 <span class="w">            </span><span class="n">example_integer</span><span class="p">:</span><span class="w"> </span><span class="nc">count</span><span class="p">,</span>
@@ -5922,18 +5973,16 @@
 <span class="w">    </span><span class="p">},</span>
 <span class="p">);</span>
 
-<span class="n">server</span><span class="p">.</span><span class="n">register_stream_stream_internal</span><span class="p">(</span>
+<span class="n">server</span><span class="p">.</span><span class="n">register_stream_stream</span><span class="p">(</span>
 <span class="w">    </span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="s">&quot;ExampleStreamStream&quot;</span><span class="p">,</span>
-<span class="w">    </span><span class="o">|</span><span class="n">reqs</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">ExampleRequest</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="kd">let</span><span class="w"> </span><span class="n">responses</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">reqs</span>
-<span class="w">            </span><span class="p">.</span><span class="n">into_iter</span><span class="p">()</span>
-<span class="w">            </span><span class="p">.</span><span class="n">map</span><span class="p">(</span><span class="o">|</span><span class="n">req</span><span class="o">|</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="o">|</span><span class="n">reqs</span><span class="p">:</span><span class="w"> </span><span class="nc">DecodedStream</span><span class="o">&lt;</span><span class="n">ExampleRequest</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">_ctx</span><span class="p">:</span><span class="w"> </span><span class="nc">Context</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nb">Ok</span><span class="p">(</span><span class="n">reqs</span><span class="p">.</span><span class="n">map</span><span class="p">(</span><span class="o">|</span><span class="n">req</span><span class="o">|</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">req</span><span class="p">.</span><span class="n">map</span><span class="p">(</span><span class="o">|</span><span class="n">req</span><span class="o">|</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="w"> </span><span class="p">{</span>
 <span class="w">                </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="nc">format</span><span class="o">!</span><span class="p">(</span><span class="s">&quot;echo: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">req</span><span class="p">.</span><span class="n">example_string</span><span class="p">),</span>
 <span class="w">                </span><span class="n">example_integer</span><span class="p">:</span><span class="w"> </span><span class="nc">req</span><span class="p">.</span><span class="n">example_integer</span><span class="p">,</span>
 <span class="w">            </span><span class="p">})</span>
-<span class="w">            </span><span class="p">.</span><span class="n">collect</span><span class="p">::</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">_</span><span class="o">&gt;&gt;</span><span class="p">();</span>
-<span class="w">        </span><span class="nb">Ok</span><span class="p">(</span><span class="n">responses</span><span class="p">)</span>
+<span class="w">        </span><span class="p">}))</span>
 <span class="w">    </span><span class="p">},</span>
 <span class="p">);</span>
 
@@ -5943,7 +5992,7 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">slim_bindings</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">types.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">add_TestServicer_to_server</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">example_service.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">add_TestServicer_to_server</span>
 
 <span class="c1"># app and conn_id come from the prerequisite tutorials</span>
 <span class="n">rpc_server</span> <span class="o">=</span> <span class="n">slim_bindings</span><span class="o">.</span><span class="n">Server</span><span class="o">.</span><span class="n">new_with_connection</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">local_name</span><span class="p">,</span> <span class="n">conn_id</span><span class="p">)</span>
@@ -5954,7 +6003,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/slim_rpc&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3/slim_rpc&quot;</span>
 
 <span class="c1">// app and connId come from the prerequisite tutorials</span>
 <span class="nx">server</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim_rpc</span><span class="p">.</span><span class="nx">ServerNewWithConnection</span><span class="p">(</span><span class="nx">app</span><span class="p">,</span><span class="w"> </span><span class="nx">localName</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">connId</span><span class="p">)</span>

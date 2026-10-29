@@ -5290,28 +5290,24 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><input id="__tabbed_1_7" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Python</label><label for="__tabbed_1_3">Go</label><label for="__tabbed_1_4">Java</label><label for="__tabbed_1_5">Kotlin</label><label for="__tabbed_1_6">Node.js</label><label for="__tabbed_1_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::</span><span class="n">Channel</span><span class="p">;</span>
-<span class="k">use</span><span class="w"> </span><span class="n">slim_datapath</span><span class="p">::</span><span class="n">api</span><span class="p">::</span><span class="n">ProtoName</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="p">;</span>
 
-<span class="c1">// server_names is a Vec&lt;ProtoName&gt; of all servers to fan out to</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_datapath</span><span class="p">::</span><span class="n">api</span><span class="p">::</span><span class="n">ProtoName</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::</span><span class="n">Channel</span><span class="p">;</span>
+
+<span class="c1">// All servers to fan out to</span>
 <span class="kd">let</span><span class="w"> </span><span class="n">server_names</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="fm">vec!</span><span class="p">[</span>
-<span class="w">    </span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;server-1&quot;</span><span class="p">]),</span>
-<span class="w">    </span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;server-2&quot;</span><span class="p">]),</span>
+<span class="w">    </span><span class="n">Arc</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;server-1&quot;</span><span class="p">])),</span>
+<span class="w">    </span><span class="n">Arc</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;server-2&quot;</span><span class="p">])),</span>
 <span class="p">];</span>
 
 <span class="c1">// A group channel fans out every call to all members</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">channel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Channel</span><span class="p">::</span><span class="n">new_with_members_internal</span><span class="p">(</span>
-<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
-<span class="w">    </span><span class="n">server_names</span><span class="p">,</span>
-<span class="w">    </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="c1">// group = true for multicast</span>
-<span class="w">    </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">),</span>
-<span class="w">    </span><span class="n">tokio</span><span class="p">::</span><span class="n">runtime</span><span class="p">::</span><span class="n">Handle</span><span class="p">::</span><span class="n">current</span><span class="p">(),</span>
-<span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">channel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Channel</span><span class="p">::</span><span class="n">new_group_with_connection</span><span class="p">(</span><span class="n">app</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span><span class="w"> </span><span class="n">server_names</span><span class="p">,</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">))</span><span class="o">?</span><span class="p">;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">slim_bindings</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">types.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestGroupStub</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">example_service.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestGroupStub</span>
 
 <span class="c1"># server_names is a list of slim_bindings.Name objects</span>
 <span class="n">server_names</span> <span class="o">=</span> <span class="p">[</span>
@@ -5325,8 +5321,8 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
-<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
-<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/slim_rpc&quot;</span>
+<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3&quot;</span>
+<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3/slim_rpc&quot;</span>
 <span class="p">)</span>
 
 <span class="nx">server1</span><span class="p">,</span><span class="w"> </span><span class="nx">_</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">NameFromString</span><span class="p">(</span><span class="s">&quot;myorg/default/server-1&quot;</span><span class="p">)</span>
@@ -5405,6 +5401,7 @@
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">example_service</span><span class="p">::{</span><span class="n">ExampleRequest</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">};</span>
+<span class="k">use</span><span class="w"> </span><span class="n">futures</span><span class="p">::</span><span class="n">StreamExt</span><span class="p">;</span>
 
 <span class="kd">let</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ExampleRequest</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;world&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">(),</span>
@@ -5412,19 +5409,24 @@
 <span class="p">};</span>
 
 <span class="c1">// Responses arrive as a stream — one per server, in arrival order</span>
-<span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span>
-<span class="w">    </span><span class="p">.</span><span class="n">multicast_unary</span><span class="p">(</span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ExampleUnaryUnary&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">)</span>
-<span class="w">    </span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span><span class="p">.</span><span class="n">multicast_unary</span><span class="p">::</span><span class="o">&lt;</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="o">&gt;</span><span class="p">(</span>
+<span class="w">    </span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s">&quot;ExampleUnaryUnary&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">request</span><span class="p">,</span>
+<span class="w">    </span><span class="nb">None</span><span class="p">,</span>
+<span class="w">    </span><span class="nb">None</span><span class="p">,</span>
+<span class="p">);</span>
+<span class="n">futures</span><span class="p">::</span><span class="n">pin_mut</span><span class="o">!</span><span class="p">(</span><span class="n">stream</span><span class="p">);</span>
 
 <span class="k">while</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">item</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stream</span><span class="p">.</span><span class="n">next</span><span class="p">().</span><span class="k">await</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="p">(</span><span class="n">source</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">):</span><span class="w"> </span><span class="p">(</span><span class="n">ProtoName</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">item</span><span class="o">?</span><span class="p">;</span>
-<span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Response from {source:?}: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">.</span><span class="n">example_string</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">item</span><span class="o">?</span><span class="p">;</span>
+<span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Response from {}: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">item</span><span class="p">.</span><span class="n">context</span><span class="p">.</span><span class="n">source</span><span class="p">,</span><span class="w"> </span><span class="n">item</span><span class="p">.</span><span class="n">message</span><span class="p">.</span><span class="n">example_string</span><span class="p">);</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">types.example_pb2</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExampleRequest</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">example_service.example_pb2</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExampleRequest</span>
 
 <span class="n">request</span> <span class="o">=</span> <span class="n">ExampleRequest</span><span class="p">(</span><span class="n">example_string</span><span class="o">=</span><span class="s2">&quot;world&quot;</span><span class="p">,</span> <span class="n">example_integer</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
 
@@ -5450,7 +5452,12 @@
 
 <span class="k">for</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">item</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">stream</span><span class="p">.</span><span class="nx">Recv</span><span class="p">()</span>
-<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">item</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// One member failed; the others&#39; responses keep coming</span>
+<span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Error from server: %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">        </span><span class="k">continue</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">item</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// end of stream</span>
 <span class="w">        </span><span class="k">break</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Response from %s: %s\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">Context</span><span class="p">.</span><span class="nx">Source</span><span class="p">,</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">Value</span><span class="p">.</span><span class="nx">ExampleString</span><span class="p">)</span>

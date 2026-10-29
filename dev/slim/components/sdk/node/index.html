@@ -5699,8 +5699,9 @@
 </table>
 <p><strong>Point-to-point:</strong></p>
 <div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>node
-task<span class="w"> </span>example:alice<span class="w">   </span><span class="c1"># Receiver</span>
-task<span class="w"> </span>example:bob<span class="w">     </span><span class="c1"># Sender (in another terminal)</span>
+task<span class="w"> </span>example:server<span class="w">  </span><span class="c1"># SLIM node (also installs the example dependencies)</span>
+task<span class="w"> </span>example:alice<span class="w">   </span><span class="c1"># Receiver (in another terminal)</span>
+task<span class="w"> </span>example:bob<span class="w">     </span><span class="c1"># Sender (in a third terminal)</span>
 </code></pre></div>
 <p><strong>SLIMRPC</strong> (requires a running SLIM node and generated proto code):</p>
 <div class="highlight"><pre><span></span><code>task<span class="w"> </span>example:slimrpc:server
@@ -5750,9 +5751,8 @@ task<span class="w"> </span>example:slimrpc:client
 <span class="nb">cd</span><span class="w"> </span>slim-bindings/node
 
 npm<span class="w"> </span>install
-task<span class="w"> </span>generate
-task<span class="w"> </span>build
-task<span class="w"> </span><span class="nb">test</span>
+task<span class="w"> </span>generate<span class="w">           </span><span class="c1"># regenerate the bindings and build the native addon</span>
+task<span class="w"> </span>test:integration<span class="w">   </span><span class="c1"># starts its own embedded SLIM server</span>
 </code></pre></div>
 <p>See <a href="https://github.com/agntcy/slim-bindings/blob/main/node/README_dev.md">README_dev.md</a> for generator setup, Task commands, and publishing.</p>
 <h2 id="next-steps">Next Steps</h2>

@@ -5337,12 +5337,21 @@
 </tbody>
 </table>
 <h2 id="installation">Installation</h2>
-<p>Build the plugins from source using Cargo:</p>
-<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/agntcy/slim-bindings.git
-<span class="nb">cd</span><span class="w"> </span>slim-bindings
-cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>slimrpc-compiler
+<p>Install the plugins from crates.io with Cargo:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># All plugins</span>
+cargo<span class="w"> </span>install<span class="w"> </span>agntcy-protoc-slimrpc-plugin
+
+<span class="c1"># Or only the one you need</span>
+cargo<span class="w"> </span>install<span class="w"> </span>agntcy-protoc-slimrpc-plugin<span class="w"> </span>--bin<span class="w"> </span>protoc-gen-slimrpc-python
 </code></pre></div>
-<p>The plugin binaries are placed in <code>target/release/</code>. Add that directory to your <code>PATH</code>, or copy the binaries to a directory already on your <code>PATH</code>.</p>
+<p>Cargo places the binaries in <code>~/.cargo/bin</code>, which is normally already on your <code>PATH</code>.</p>
+<p>Prebuilt Python, Go, and C# plugins are also attached to the <code>protoc-slimrpc-plugin-v*</code> <a href="https://github.com/agntcy/slim-bindings/releases">releases</a> of the slim-bindings repository.</p>
+<p>To build from source instead:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/agntcy/slim-bindings.git
+<span class="nb">cd</span><span class="w"> </span>slim-bindings/slimrpc-compiler
+cargo<span class="w"> </span>build<span class="w"> </span>--release
+</code></pre></div>
+<p>The plugin binaries are placed in <code>slimrpc-compiler/target/release/</code>. Add that directory to your <code>PATH</code>, or copy the binaries to a directory already on your <code>PATH</code>.</p>
 <h2 id="usage-with-buf-recommended">Usage with buf (Recommended)</h2>
 <p>Add the SLIMRPC plugin to your <code>buf.gen.yaml</code> alongside the standard protobuf plugin:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Python</label><label for="__tabbed_1_2">Go</label><label for="__tabbed_1_3">Java</label><label for="__tabbed_1_4">Kotlin</label><label for="__tabbed_1_5">Node.js</label><label for="__tabbed_1_6">.NET</label></div>
@@ -5353,12 +5362,13 @@ cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="
 <span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="nt">plugins</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">local</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">protoc-gen-slimrpc-python</span>
-<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">types</span>
+<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_service</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">remote</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">buf.build/protocolbuffers/python:v29.3</span>
-<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">types</span>
+<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_service</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">remote</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">buf.build/protocolbuffers/pyi:v31.1</span>
-<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">types</span>
+<span class="w">    </span><span class="nt">out</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example_service</span>
 </code></pre></div>
+<p>Don't name the Python output directory <code>types</code>: a top-level <code>types</code> package shadows Python's standard-library <code>types</code> module.</p>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v2</span>
@@ -5441,7 +5451,7 @@ cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="
 </code></pre></div>
 <h2 id="usage-with-protoc">Usage with protoc</h2>
 <div class="highlight"><pre><span></span><code><span class="c1"># Python</span>
-protoc<span class="w"> </span>--slimrpc-python_out<span class="o">=</span>types<span class="w"> </span>--python_out<span class="o">=</span>types<span class="w"> </span>example.proto
+protoc<span class="w"> </span>--slimrpc-python_out<span class="o">=</span>example_service<span class="w"> </span>--python_out<span class="o">=</span>example_service<span class="w"> </span>example.proto
 
 <span class="c1"># Go</span>
 protoc<span class="w"> </span>--slimrpc-go_out<span class="o">=</span>types<span class="w"> </span>--go_out<span class="o">=</span>types<span class="w"> </span>example.proto

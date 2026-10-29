@@ -5559,7 +5559,10 @@
 <span class="w">    </span><span class="n">session_type</span><span class="p">:</span><span class="w"> </span><span class="nc">ProtoSessionType</span><span class="p">::</span><span class="n">PointToPoint</span><span class="p">,</span>
 <span class="w">    </span><span class="n">max_retries</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span>
 <span class="w">    </span><span class="n">interval</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">Duration</span><span class="p">::</span><span class="n">from_secs</span><span class="p">(</span><span class="mi">5</span><span class="p">)),</span>
-<span class="w">    </span><span class="n">mls_settings</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">MlsSettings</span><span class="p">::</span><span class="n">default</span><span class="p">()),</span>
+<span class="w">    </span><span class="n">mls_settings</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">MlsSettings</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">header_integrity_validation_percent</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<span class="w">        </span><span class="o">..</span><span class="nb">Default</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+<span class="w">    </span><span class="p">}),</span>
 <span class="w">    </span><span class="n">initiator</span><span class="p">:</span><span class="w"> </span><span class="nc">true</span><span class="p">,</span>
 <span class="w">    </span><span class="n">metadata</span><span class="p">:</span><span class="w"> </span><span class="nc">HashMap</span><span class="p">::</span><span class="n">new</span><span class="p">(),</span>
 <span class="p">};</span>
@@ -5605,13 +5608,18 @@
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
 <span class="w">    </span><span class="s">&quot;fmt&quot;</span>
 <span class="w">    </span><span class="s">&quot;log&quot;</span>
+<span class="w">    </span><span class="s">&quot;time&quot;</span>
 
-<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
+<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3&quot;</span>
 <span class="p">)</span>
 
 <span class="kd">func</span><span class="w"> </span><span class="nx">runClient</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">remoteName</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">maxRetries</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">uint32</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">interval</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span>
 <span class="w">    </span><span class="nx">config</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionConfig</span><span class="p">{</span>
 <span class="w">        </span><span class="nx">SessionType</span><span class="p">:</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionTypePointToPoint</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">MaxRetries</span><span class="p">:</span><span class="w">  </span><span class="o">&amp;</span><span class="nx">maxRetries</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Interval</span><span class="p">:</span><span class="w">    </span><span class="o">&amp;</span><span class="nx">interval</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">MlsSettings</span><span class="p">:</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">slim</span><span class="p">.</span><span class="nx">MlsSettings</span><span class="p">{</span>
 <span class="w">            </span><span class="nx">HeaderIntegrityValidationPercent</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
 <span class="w">        </span><span class="p">},</span>
@@ -5634,7 +5642,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">java.time.Duration</span><span class="p">;</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">java.util.Map</span><span class="p">;</span>
 
-<span class="n">Session</span><span class="w"> </span><span class="nf">runClient</span><span class="p">(</span><span class="n">App</span><span class="w"> </span><span class="n">app</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">remoteName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="n">Session</span><span class="w"> </span><span class="nf">runClient</span><span class="p">(</span><span class="n">App</span><span class="w"> </span><span class="n">app</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">remoteName</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">SessionConfig</span><span class="w"> </span><span class="n">sessionConfig</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SessionConfig</span><span class="p">(</span>
 <span class="w">        </span><span class="n">SessionType</span><span class="p">.</span><span class="na">POINT_TO_POINT</span><span class="p">,</span>
 <span class="w">        </span><span class="mi">5</span><span class="p">,</span><span class="w">                       </span><span class="c1">// maxRetries</span>
@@ -5746,7 +5754,10 @@
 <span class="w">    </span><span class="n">session_type</span><span class="p">:</span><span class="w"> </span><span class="nc">ProtoSessionType</span><span class="p">::</span><span class="n">Multicast</span><span class="p">,</span>
 <span class="w">    </span><span class="n">max_retries</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="mi">5</span><span class="p">),</span>
 <span class="w">    </span><span class="n">interval</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">Duration</span><span class="p">::</span><span class="n">from_secs</span><span class="p">(</span><span class="mi">5</span><span class="p">)),</span>
-<span class="w">    </span><span class="n">mls_settings</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">MlsSettings</span><span class="p">::</span><span class="n">default</span><span class="p">()),</span>
+<span class="w">    </span><span class="n">mls_settings</span><span class="p">:</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">MlsSettings</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="n">header_integrity_validation_percent</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<span class="w">        </span><span class="o">..</span><span class="nb">Default</span><span class="p">::</span><span class="n">default</span><span class="p">()</span>
+<span class="w">    </span><span class="p">}),</span>
 <span class="w">    </span><span class="n">initiator</span><span class="p">:</span><span class="w"> </span><span class="nc">true</span><span class="p">,</span>
 <span class="w">    </span><span class="n">metadata</span><span class="p">:</span><span class="w"> </span><span class="nc">HashMap</span><span class="p">::</span><span class="n">new</span><span class="p">(),</span>
 <span class="p">};</span>
@@ -5785,8 +5796,12 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kd">func</span><span class="w"> </span><span class="nx">createGroupSession</span><span class="p">(</span><span class="nx">app</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">App</span><span class="p">,</span><span class="w"> </span><span class="nx">channelName</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Name</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">slim</span><span class="p">.</span><span class="nx">Session</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">maxRetries</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">uint32</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">interval</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span>
 <span class="w">    </span><span class="nx">config</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionConfig</span><span class="p">{</span>
 <span class="w">        </span><span class="nx">SessionType</span><span class="p">:</span><span class="w"> </span><span class="nx">slim</span><span class="p">.</span><span class="nx">SessionTypeGroup</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">MaxRetries</span><span class="p">:</span><span class="w">  </span><span class="o">&amp;</span><span class="nx">maxRetries</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">Interval</span><span class="p">:</span><span class="w">    </span><span class="o">&amp;</span><span class="nx">interval</span><span class="p">,</span>
 <span class="w">        </span><span class="nx">MlsSettings</span><span class="p">:</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">slim</span><span class="p">.</span><span class="nx">MlsSettings</span><span class="p">{</span>
 <span class="w">            </span><span class="nx">HeaderIntegrityValidationPercent</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
 <span class="w">        </span><span class="p">},</span>
@@ -5805,7 +5820,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="n">Session</span><span class="w"> </span><span class="nf">createGroupSession</span><span class="p">(</span><span class="n">App</span><span class="w"> </span><span class="n">app</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">channelName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight"><pre><span></span><code><span class="n">Session</span><span class="w"> </span><span class="nf">createGroupSession</span><span class="p">(</span><span class="n">App</span><span class="w"> </span><span class="n">app</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">channelName</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">SessionConfig</span><span class="w"> </span><span class="n">sessionConfig</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">SessionConfig</span><span class="p">(</span>
 <span class="w">        </span><span class="n">SessionType</span><span class="p">.</span><span class="na">GROUP</span><span class="p">,</span>
 <span class="w">        </span><span class="mi">5</span><span class="p">,</span><span class="w">                       </span><span class="c1">// maxRetries</span>
@@ -5909,7 +5924,7 @@ routing is required when <code>default_gateway</code> is set to <code>off</code>
 <div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="n">participant_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;participant&quot;</span><span class="p">]);</span>
 
 <span class="c1">// Invite — performs discovery + MLS key exchange</span>
-<span class="n">session</span><span class="p">.</span><span class="n">invite_participant</span><span class="p">(</span><span class="o">&amp;</span><span class="n">participant_name</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<span class="n">session</span><span class="p">.</span><span class="n">invite_participant</span><span class="p">(</span><span class="o">&amp;</span><span class="n">participant_name</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Invited participant to the group&quot;</span><span class="p">);</span>
 </code></pre></div>
 </div>
@@ -5933,7 +5948,7 @@ routing is required when <code>default_gateway</code> is set to <code>off</code>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kt">void</span><span class="w"> </span><span class="nf">inviteParticipant</span><span class="p">(</span><span class="n">Session</span><span class="w"> </span><span class="n">session</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">participantName</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<div class="highlight"><pre><span></span><code><span class="kt">void</span><span class="w"> </span><span class="nf">inviteParticipant</span><span class="p">(</span><span class="n">Session</span><span class="w"> </span><span class="n">session</span><span class="p">,</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="n">participantName</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// Invite the participant — this performs discovery + MLS key exchange</span>
 <span class="w">    </span><span class="n">session</span><span class="p">.</span><span class="na">inviteAndWait</span><span class="p">(</span><span class="n">participantName</span><span class="p">);</span>
 
@@ -6031,7 +6046,9 @@ routing is required when <code>default_gateway</code> is set to <code>off</code>
 <div class="highlight"><pre><span></span><code><span class="c1">// Messages arrive via spawn_receiver on the session context</span>
 <span class="n">ctx</span><span class="p">.</span><span class="n">spawn_receiver</span><span class="p">(</span><span class="o">|</span><span class="k">mut</span><span class="w"> </span><span class="n">msg_rx</span><span class="p">,</span><span class="w"> </span><span class="n">_</span><span class="o">|</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">move</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="nb">Ok</span><span class="p">(</span><span class="n">msg</span><span class="p">))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">msg_rx</span><span class="p">.</span><span class="n">recv</span><span class="p">().</span><span class="k">await</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Received: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">::</span><span class="n">from_utf8_lossy</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">payload</span><span class="p">()));</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">msg</span><span class="p">.</span><span class="n">get_payload</span><span class="p">().</span><span class="n">and_then</span><span class="p">(</span><span class="o">|</span><span class="n">c</span><span class="o">|</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">as_application_payload</span><span class="p">().</span><span class="n">ok</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Received: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">::</span><span class="n">from_utf8_lossy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">payload</span><span class="p">.</span><span class="n">blob</span><span class="p">));</span>
+<span class="w">        </span><span class="p">}</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="p">});</span>
 </code></pre></div>
@@ -6093,8 +6110,10 @@ routing is required when <code>default_gateway</code> is set to <code>off</code>
 <div class="tabbed-set tabbed-alternate" data-tabs="6:8"><input checked="checked" id="__tabbed_6_1" name="__tabbed_6" type="radio" /><input id="__tabbed_6_2" name="__tabbed_6" type="radio" /><input id="__tabbed_6_3" name="__tabbed_6" type="radio" /><input id="__tabbed_6_4" name="__tabbed_6" type="radio" /><input id="__tabbed_6_5" name="__tabbed_6" type="radio" /><input id="__tabbed_6_6" name="__tabbed_6" type="radio" /><input id="__tabbed_6_7" name="__tabbed_6" type="radio" /><input id="__tabbed_6_8" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="__tabbed_6_1">Rust</label><label for="__tabbed_6_2">Python</label><label for="__tabbed_6_3">Go</label><label for="__tabbed_6_4">Java</label><label for="__tabbed_6_5">Kotlin</label><label for="__tabbed_6_6">Node.js</label><label for="__tabbed_6_7">.NET</label><label for="__tabbed_6_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="c1">// Use the source context from a received message to send directly to that participant</span>
-<span class="n">session</span><span class="p">.</span><span class="n">publish_to</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">source</span><span class="p">(),</span><span class="w"> </span><span class="s">b&quot;private reply&quot;</span><span class="p">.</span><span class="n">to_vec</span><span class="p">(),</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Reply to the sender of a received message, on the connection it arrived on</span>
+<span class="n">session</span>
+<span class="w">    </span><span class="p">.</span><span class="n">publish_to</span><span class="p">(</span><span class="o">&amp;</span><span class="n">msg</span><span class="p">.</span><span class="n">get_source</span><span class="p">(),</span><span class="w"> </span><span class="n">msg</span><span class="p">.</span><span class="n">get_incoming_conn</span><span class="p">(),</span><span class="w"> </span><span class="s">b&quot;private reply&quot;</span><span class="p">.</span><span class="n">to_vec</span><span class="p">(),</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">)</span>
+<span class="w">    </span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -6154,7 +6173,7 @@ routing is required when <code>default_gateway</code> is set to <code>off</code>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="c1">// Close the session and wait for the operation to complete</span>
-<span class="n">session</span><span class="p">.</span><span class="n">close</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<span class="n">session</span><span class="p">.</span><span class="n">close</span><span class="p">()</span><span class="o">?</span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -6180,7 +6199,8 @@ routing is required when <code>default_gateway</code> is set to <code>off</code>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">await</span><span class="w"> </span><span class="n">session</span><span class="p">.</span><span class="n">CloseAndWaitAsync</span><span class="p">();</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// Closing goes through the app that owns the session</span>
+<span class="k">await</span><span class="w"> </span><span class="n">app</span><span class="p">.</span><span class="n">DeleteSessionAsync</span><span class="p">(</span><span class="n">session</span><span class="p">);</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -6197,7 +6217,7 @@ routing is required when <code>default_gateway</code> is set to <code>off</code>
 <h3 id="reliability">Reliability</h3>
 <p>By default, if <code>max_retries</code> and <code>interval</code> are omitted (or set to <code>null</code>/<code>nil</code>), the session layer sends messages fire-and-forget — no acknowledgement is requested and no retransmission occurs.</p>
 <p>When <code>max_retries</code> and <code>interval</code> are set, the session layer requests an acknowledgement for each message. If no ack arrives within <code>interval</code>, the message is resent. This repeats up to <code>max_retries</code> times before the session reports a delivery failure to your application.</p>
-<p>The code examples in this tutorial use <code>max_retries=5</code> and a 5-second interval. Set both to <code>null</code>/<code>nil</code>/<code>0</code> for unreliable (fire-and-forget) delivery.</p>
+<p>The code examples in this tutorial use <code>max_retries=5</code> and a 5-second interval. Leave both unset (<code>None</code>/<code>null</code>/<code>nil</code>) for unreliable (fire-and-forget) delivery; setting <code>max_retries</code> to <code>0</code> still requests acknowledgements, it just never retransmits. The .NET <code>SlimSessionConfig</code> always sets both (defaults: 5 retries, 1-second <code>RetryInterval</code>), so .NET sessions are always reliable.</p>
 <h3 id="end-to-end-encryption">End-to-End Encryption</h3>
 <p>Provide an <code>MlsSettings</code> object in the <code>SessionConfig</code> to enable MLS-based end-to-end encryption. The <code>header_integrity_validation_percent</code> field controls what percentage of message headers are validated (100 = all headers).</p>
 <p>The session layer handles all key establishment automatically — your application code stays the same.</p>
