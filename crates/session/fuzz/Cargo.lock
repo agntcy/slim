@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim-auth"
-version = "0.17.6"
+version = "0.17.10"
 dependencies = [
  "agntcy-slim-version",
  "aws-lc-rs",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-config"
-version = "0.17.6"
+version = "0.17.10"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-version",
@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-datapath"
-version = "0.19.11"
+version = "0.19.15"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-proto",
@@ -152,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-mls"
-version = "0.4.10"
+version = "0.5.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-persistence",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-persistence"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-proto"
-version = "0.8.4"
+version = "0.8.8"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -208,7 +208,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-session"
-version = "0.7.23"
+version = "0.7.27"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-datapath",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-tracing"
-version = "0.4.32"
+version = "0.4.36"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-version",
@@ -274,7 +274,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "3.4.2"
+version = "3.4.6"
 
 [[package]]
 name = "ahash"
@@ -339,9 +339,9 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "arbitrary"
-version = "1.4.2"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
 dependencies = [
  "derive_arbitrary",
 ]
@@ -1118,13 +1118,13 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
 name = "derive_arbitrary"
-version = "1.4.2"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
+checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -2524,9 +2524,9 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-crypto-awslc"
-version = "0.25.1"
+version = "0.26.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d58bdc2d7ec8a2cac800d5f462e70db25928323a872e4be320c55d126ec7472d"
+checksum = "2ef778ced473553363cf0de75cb01856a6b713b85a23a13ada94229035eb46e5"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
