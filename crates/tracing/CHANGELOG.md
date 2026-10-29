@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.37](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.36...slim-tracing-v0.4.37) - 2026-10-29
+
+### Other
+
+- updated the following local packages: agntcy-slim-version, agntcy-slim-config
+
 ## [0.4.36](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.35...slim-tracing-v0.4.36) - 2026-10-20
 
 ### Other

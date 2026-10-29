@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.7](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.6...slim-rpc-v3.4.7) - 2026-10-29
+
+### Other
+
+- update and fix bindings documentation ([#2346](https://github.com/agntcy/slim/pull/2346))
+
 ## [3.4.5](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.4...slim-rpc-v3.4.5) - 2026-10-18
 
 ### Fixed
