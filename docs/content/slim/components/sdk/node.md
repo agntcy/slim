@@ -156,8 +156,9 @@ The [slim-bindings/node](https://github.com/agntcy/slim-bindings/tree/main/node)
 
 ```bash
 cd node
-task example:alice   # Receiver
-task example:bob     # Sender (in another terminal)
+task example:server  # SLIM node (also installs the example dependencies)
+task example:alice   # Receiver (in another terminal)
+task example:bob     # Sender (in a third terminal)
 ```
 
 **SLIMRPC** (requires a running SLIM node and generated proto code):
@@ -188,9 +189,8 @@ git clone https://github.com/agntcy/slim-bindings
 cd slim-bindings/node
 
 npm install
-task generate
-task build
-task test
+task generate           # regenerate the bindings and build the native addon
+task test:integration   # starts its own embedded SLIM server
 ```
 
 See [README_dev.md](https://github.com/agntcy/slim-bindings/blob/main/node/README_dev.md) for generator setup, Task commands, and publishing.

@@ -15,23 +15,22 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 === "Rust"
 
     ```rust
+    use std::sync::Arc;
+
+    use slim_datapath::api::ProtoName;
     use slim_rpc::Channel;
 
-    // app, conn_id, and remote_name come from the prerequisite tutorials
-    let channel = Channel::new_with_members_internal(
-        app.clone(),
-        vec![remote_name.clone()],
-        false,
-        Some(conn_id),
-        tokio::runtime::Handle::current(),
-    )?;
+    // app and conn_id come from the prerequisite tutorials. Wrap the app in an Arc and
+    // build it with the AuthProvider / AuthVerifier wrappers, as in the serving tutorial.
+    let remote_name = ProtoName::from_strings(["myorg", "default", "my-service"]);
+    let channel = Channel::new_with_connection(app.clone(), Arc::new(remote_name), Some(conn_id));
     ```
 
 === "Python"
 
     ```python
     import slim_bindings
-    from types.example_pb2_slimrpc import TestStub
+    from example_service.example_pb2_slimrpc import TestStub
 
     # app, conn_id, and remote_name come from the prerequisite tutorials
     channel = slim_bindings.Channel.new_with_connection(app, remote_name, conn_id)
@@ -42,7 +41,7 @@ A SLIMRPC channel wraps the SLIM session layer. Pass it the remote server's SLIM
 
     ```go
     import (
-        slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v3/slim_rpc"
         pb "example/types"
     )
 
@@ -110,7 +109,7 @@ Send a single request and receive a single response.
     };
 
     let response: ExampleResponse = channel
-        .unary("example_service.Test", "ExampleUnaryUnary", request, None, None)
+        .unary("example_service.Test", "ExampleUnaryUnary", request.clone(), None, None)
         .await?;
     println!("Response: {} {}", response.example_string, response.example_integer);
     ```
@@ -119,7 +118,7 @@ Send a single request and receive a single response.
 
     ```python
     from datetime import timedelta
-    from types.example_pb2 import ExampleRequest
+    from example_service.example_pb2 import ExampleRequest
 
     request = ExampleRequest(example_string="world", example_integer=42)
     response = await client.ExampleUnaryUnary(request, timeout=timedelta(seconds=5))
@@ -205,12 +204,19 @@ Send a single request and iterate over a stream of responses from the server.
 === "Rust"
 
     ```rust
-    let mut stream = channel
-        .unary_stream("example_service.Test", "ExampleUnaryStream", request, None, None)
-        .await?;
+    use futures::StreamExt;
+
+    let stream = channel.unary_stream::<_, ExampleResponse>(
+        "example_service.Test",
+        "ExampleUnaryStream",
+        request,
+        None,
+        None,
+    );
+    futures::pin_mut!(stream);
 
     while let Some(response) = stream.next().await {
-        let resp: ExampleResponse = response?;
+        let resp = response?;
         println!("Stream response: {} {}", resp.example_string, resp.example_integer);
     }
     ```
@@ -231,11 +237,11 @@ Send a single request and iterate over a stream of responses from the server.
     }
     for {
         resp, err := stream.Recv()
-        if err == io.EOF {
-            break
-        }
         if err != nil {
             log.Fatal(err)
+        }
+        if resp == nil { // end of stream
+            break
         }
         fmt.Println("Stream response:", resp.ExampleString, resp.ExampleInteger)
     }
@@ -298,12 +304,10 @@ Stream a sequence of requests to the server and receive a single response.
 === "Rust"
 
     ```rust
-    let requests: Vec<ExampleRequest> = (0..5)
-        .map(|i| ExampleRequest {
-            example_string: format!("req_{i}"),
-            example_integer: i,
-        })
-        .collect();
+    let requests = futures::stream::iter((0..5).map(|i| ExampleRequest {
+        example_string: format!("req_{i}"),
+        example_integer: i,
+    }));
 
     let response: ExampleResponse = channel
         .stream_unary("example_service.Test", "ExampleStreamUnary", requests, None, None)
@@ -416,12 +420,23 @@ Stream requests to the server and receive a stream of responses simultaneously.
 === "Rust"
 
     ```rust
-    let mut stream = channel
-        .stream_stream("example_service.Test", "ExampleStreamStream", requests, None, None)
-        .await?;
+    // A request stream is consumed by the call, so build a new one
+    let requests = futures::stream::iter((0..5).map(|i| ExampleRequest {
+        example_string: format!("req_{i}"),
+        example_integer: i,
+    }));
+
+    let stream = channel.stream_stream::<_, ExampleResponse>(
+        "example_service.Test",
+        "ExampleStreamStream",
+        requests,
+        None,
+        None,
+    );
+    futures::pin_mut!(stream);
 
     while let Some(response) = stream.next().await {
-        let resp: ExampleResponse = response?;
+        let resp = response?;
         println!("Stream response: {} {}", resp.example_string, resp.example_integer);
     }
     ```
@@ -461,11 +476,11 @@ Stream requests to the server and receive a stream of responses simultaneously.
     // Receive responses
     for {
         resp, err := streamBidi.Recv()
-        if err == io.EOF {
-            break
-        }
         if err != nil {
             log.Fatal(err)
+        }
+        if resp == nil { // end of stream
+            break
         }
         fmt.Println("Stream response:", resp.ExampleString, resp.ExampleInteger)
     }
@@ -482,13 +497,17 @@ Stream requests to the server and receive a stream of responses simultaneously.
 
     // Send requests in a separate thread
     new Thread(() -> {
-        for (int i = 0; i < 5; i++) {
-            stream.send(ExampleRequest.newBuilder()
-                .setExampleString("req_" + i)
-                .setExampleInteger(i)
-                .build());
+        try {
+            for (int i = 0; i < 5; i++) {
+                stream.send(ExampleRequest.newBuilder()
+                    .setExampleString("req_" + i)
+                    .setExampleInteger(i)
+                    .build());
+            }
+            stream.closeSend();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        stream.closeSend();
     }).start();
 
     // Receive responses
@@ -564,7 +583,7 @@ When finished, close the channel to release the underlying SLIM session.
 === "Rust"
 
     ```rust
-    channel.close().await?;
+    channel.close(None).await?;
     ```
 
 === "Python"

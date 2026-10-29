@@ -68,15 +68,15 @@ This is useful for broadcasting configuration, querying multiple services, or sc
 
 ## Verified Peers
 
-A readable name doesn't say who answers: any app trusted by your verifier can subscribe under it. To know, or require, the identity of the peers you call (in Rust today):
+A readable name doesn't say who answers: any app trusted by your verifier can subscribe under it. To know, or require, the identity of the peers you call:
 
-- **See who answered.** `Channel::peer_identity()` returns the verified identity of a point-to-point channel's server. The `multicast_*_verified` methods yield each response with its sender's full name, id included, and the identity that member was verified as.
-- **See who called.** In a handler, `ctx.peer_subject()` is the verified identity of the peer that sent the request: with MLS, the member that sent it, also in a group.
-- **Require an identity.** `Channel::new_pinned` and `Channel::new_group_pinned` take the `sub` each peer must be verified as, its DID for a `did:key` identity. A peer verified as anyone else is never admitted, and the call fails.
+- **See who answered** (Rust only today). `Channel::peer_identity()` returns the verified identity of a point-to-point channel's server. The `multicast_*_verified` methods yield each response with its sender's full name, id included, and the identity that member was verified as.
+- **See who called.** In a handler, `ctx.peer_subject()` is the verified identity of the peer that sent the request: with MLS, the member that sent it, also in a group. `ctx.peer_issuer()` is its issuer (`iss`), when known. Both are available on the handler context in Rust, Python, Java, Kotlin, and Node.js (as `peerSubject()` / `peerIssuer()` in Java, Kotlin, and Node.js); the Go and .NET wrappers don't surface them yet.
+- **Require an identity** (Rust only today). `Channel::new_pinned` and `Channel::new_group_pinned` take the `sub` each peer must be verified as, its DID for a `did:key` identity. A peer verified as anyone else is never admitted, and the call fails.
 
 ## Supported Languages
 
-SLIMRPC code generation is supported for Python, Go, Java, Kotlin, and .NET (C#). See the [Compiler](./compiler.md) page for installation and usage. For .NET runtime details and the `Agntcy.Slim.SlimRpc` namespace, see the [.NET SDK guide](../dotnet.md).
+SLIMRPC code generation is supported for Python, Go, Java, Kotlin, .NET (C#), and Node.js / TypeScript. See the [Compiler](./compiler.md) page for installation and usage. For .NET runtime details and the `Agntcy.Slim.SlimRpc` namespace, see the [.NET SDK guide](../dotnet.md).
 
 ## Tutorials
 

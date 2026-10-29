@@ -101,9 +101,9 @@ Install the SLIM bindings for your language:
 === "Go"
 
     ```bash
-    go get github.com/agntcy/slim-bindings-go@v2.0.0
+    go get github.com/agntcy/slim-bindings-go/v3@v3.3.9
     # Run the setup tool to download the native library
-    go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+    go run github.com/agntcy/slim-bindings-go/v3/cmd/slim-bindings-setup
     ```
 
 === "Java"
@@ -111,7 +111,7 @@ Install the SLIM bindings for your language:
     ```kotlin
     // build.gradle.kts
     dependencies {
-        implementation("io.agntcy.slim:slim-bindings-java:2.0.0")
+        implementation("io.agntcy.slim:slim-bindings-java:3.3.9")
     }
     ```
 
@@ -120,7 +120,7 @@ Install the SLIM bindings for your language:
     ```kotlin
     // build.gradle.kts
     dependencies {
-        implementation("io.agntcy.slim:slim-bindings-kotlin:2.0.0")
+        implementation("io.agntcy.slim:slim-bindings-kotlin:3.3.9")
     }
     ```
 
@@ -139,7 +139,7 @@ Install the SLIM bindings for your language:
     Or add to your `.csproj`:
 
     ```xml
-    <PackageReference Include="Agntcy.Slim" Version="2.1.0" />
+    <PackageReference Include="Agntcy.Slim" Version="3.3.9" />
     ```
 
     The NuGet package includes native libraries for all supported platforms — no additional setup required. See the [.NET SDK guide](./components/sdk/dotnet.md) for API details and examples.

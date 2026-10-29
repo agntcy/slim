@@ -15,15 +15,29 @@ The SLIMRPC compiler is a set of `protoc` plugins that generate client and serve
 
 ## Installation
 
-Build the plugins from source using Cargo:
+Install the plugins from crates.io with Cargo:
+
+```bash
+# All plugins
+cargo install agntcy-protoc-slimrpc-plugin
+
+# Or only the one you need
+cargo install agntcy-protoc-slimrpc-plugin --bin protoc-gen-slimrpc-python
+```
+
+Cargo places the binaries in `~/.cargo/bin`, which is normally already on your `PATH`.
+
+Prebuilt Python, Go, and C# plugins are also attached to the `protoc-slimrpc-plugin-v*` [releases](https://github.com/agntcy/slim-bindings/releases) of the slim-bindings repository.
+
+To build from source instead:
 
 ```bash
 git clone https://github.com/agntcy/slim-bindings.git
-cd slim-bindings
-cargo build --release -p slimrpc-compiler
+cd slim-bindings/slimrpc-compiler
+cargo build --release
 ```
 
-The plugin binaries are placed in `target/release/`. Add that directory to your `PATH`, or copy the binaries to a directory already on your `PATH`.
+The plugin binaries are placed in `slimrpc-compiler/target/release/`. Add that directory to your `PATH`, or copy the binaries to a directory already on your `PATH`.
 
 ## Usage with buf (Recommended)
 
@@ -37,12 +51,14 @@ Add the SLIMRPC plugin to your `buf.gen.yaml` alongside the standard protobuf pl
       enabled: true
     plugins:
       - local: protoc-gen-slimrpc-python
-        out: types
+        out: example_service
       - remote: buf.build/protocolbuffers/python:v29.3
-        out: types
+        out: example_service
       - remote: buf.build/protocolbuffers/pyi:v31.1
-        out: types
+        out: example_service
     ```
+
+    Don't name the Python output directory `types`: a top-level `types` package shadows Python's standard-library `types` module.
 
 === "Go"
 
@@ -138,7 +154,7 @@ buf generate
 
 ```bash
 # Python
-protoc --slimrpc-python_out=types --python_out=types example.proto
+protoc --slimrpc-python_out=example_service --python_out=example_service example.proto
 
 # Go
 protoc --slimrpc-go_out=types --go_out=types example.proto

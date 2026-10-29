@@ -4,7 +4,7 @@
 //! # SLIM Bindings - UniFFI Language Bindings
 //!
 //! This crate provides language-agnostic FFI bindings for SLIM using UniFFI.
-//! It enables integration with Go, Python, Kotlin, Swift, and other languages.
+//! It enables integration with Python, Go, .NET, Java, Kotlin, Node.js, and React Native.
 //!
 //! ## Architecture
 //!
@@ -13,34 +13,38 @@
 //! - **`App`**: App-level operations (creation, configuration, session management)
 //! - **`Session`**: Session-specific operations (publish, invite, remove, message reception)
 //! - **`MessageContext`**: Message metadata and routing information
-//! - **`ServiceRef`**: Service reference management (global vs local)
+//! - **`Service`**: The SLIM service instance (connections, servers, app creation)
 //!
 //! ## Usage
 //!
 //! ### From Rust
 //!
 //! ```rust,ignore
-//! use slim_bindings::{App, Name, SessionConfig, SessionType, IdentityProviderConfig, IdentityVerifierConfig};
+//! use std::sync::Arc;
+//! use slim_bindings::{App, IdentityProviderConfig, IdentityVerifierConfig, Name, SessionConfig, SessionType};
 //!
 //! // Create an app
-//! let app_name = Arc::new(Name { components: vec!["org".into(), "app".into(), "v1".into()], id: None });
-//! let provider_config = IdentityProviderConfig::SharedSecret { data: "my-secret".to_string() };
-//! let verifier_config = IdentityVerifierConfig::SharedSecret { data: "my-secret".to_string() };
-//! let app = App::new(app_name, provider_config, verifier_config, false)?;
+//! let app_name = Arc::new(Name::new("org".into(), "app".into(), "v1".into()));
+//! let provider_config = IdentityProviderConfig::SharedSecret { id: "org/app/v1".into(), data: "a-shared-secret-at-least-32-bytes-long".into() };
+//! let verifier_config = IdentityVerifierConfig::SharedSecret { id: "org/app/v1".into(), data: "a-shared-secret-at-least-32-bytes-long".into() };
+//! let app = App::new(app_name, provider_config, verifier_config)?;
 //!
-//! // Create a session
+//! // Create a session and wait until it is established
 //! let config = SessionConfig { session_type: SessionType::PointToPoint, ... };
-//! let session = app.create_session(config, destination)?;
+//! let created = app.create_session(config, destination)?;
+//! created.completion.wait()?;
+//! created.session.publish(data, None, None)?;
 //! ```
 //!
 //! ### From Go (via generated bindings)
 //!
 //! ```go
-//! providerConfig := slim.IdentityProviderConfigSharedSecret{Data: sharedSecret}
-//! verifierConfig := slim.IdentityVerifierConfigSharedSecret{Data: sharedSecret}
-//! app, err := slim.NewApp(appName, providerConfig, verifierConfig, false)
-//! session, err := app.CreateSession(config, destination)
-//! session.Publish(data, payloadType, metadata)
+//! providerConfig := slim.IdentityProviderConfigSharedSecret{Id: id, Data: sharedSecret}
+//! verifierConfig := slim.IdentityVerifierConfigSharedSecret{Id: id, Data: sharedSecret}
+//! app, err := slim.NewApp(appName, providerConfig, verifierConfig)
+//! created, err := app.CreateSession(config, destination)
+//! err = created.Completion.Wait()
+//! _, err = created.Session.Publish(data, payloadType, metadata)
 //! ```
 
 // Single entry point for both native and browser (wasm32) builds. The divergent

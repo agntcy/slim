@@ -26,7 +26,7 @@ The NuGet package ships native libraries for Linux (glibc and musl), macOS, and 
 
     ```xml
     <ItemGroup>
-      <PackageReference Include="Agntcy.Slim" Version="2.1.0" />
+      <PackageReference Include="Agntcy.Slim" Version="3.3.9" />
     </ItemGroup>
     ```
 
@@ -153,6 +153,13 @@ The [slim-bindings/dotnet](https://github.com/agntcy/slim-bindings/tree/main/dot
 | `Slim.Examples.Group` | Group sessions with moderator/participant roles |
 | `Slim.Examples.SlimRpc` | Protobuf RPC over SLIM |
 
+The example projects reference the `Slim` project directly, so build the solution once from the `dotnet` directory before running them (this generates the C# bindings, copies the native runtimes, and generates the SLIMRPC example code):
+
+```bash
+cd dotnet
+task build
+```
+
 **Point-to-point:**
 
 ```bash
@@ -167,9 +174,8 @@ dotnet run --project Slim.Examples.PointToPoint -- \
 **SLIMRPC** (requires a running SLIM node and generated proto code):
 
 ```bash
-task slimrpc:generate-proto   # requires buf and protoc-gen-slimrpc-csharp
-dotnet run --project Slim.Examples.SlimRpc -- --mode server
-dotnet run --project Slim.Examples.SlimRpc -- --mode client
+task examples:rpc:server
+task examples:rpc:client
 ```
 
 ## Platform Support
