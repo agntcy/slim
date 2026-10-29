@@ -1362,10 +1362,12 @@ impl ControllerService {
                     Payload::RouteListRequest(_) => {
                         const CHUNK_SIZE: usize = 100;
 
-                        let conn_table = self.inner.message_processor.connection_table();
+                        let fwd = self.inner.message_processor.forwarder();
+                        let conn_table = &fwd.connection_table;
+                        let logical_connections = &fwd.logical_connections;
                         let mut entries = Vec::new();
 
-                        self.inner.message_processor.subscription_table().for_each(
+                        fwd.subscription_table.for_each(
                             |name, id, local, remote, peer, edge| {
                                 let mut entry = RouteEntry {
                                     name: Some(name.clone().with_id(id)),
@@ -1390,26 +1392,38 @@ impl ControllerService {
                                 ];
                                 for (conns, ct) in conn_slices {
                                     for &cid in conns {
-                                        if let Some(conn) = conn_table.get(cid) {
-                                            entry.connections.push(ConnectionEntry {
-                                                id: cid,
-                                                connection_type: ct as i32,
-                                                config_data: conn
-                                                    .config_data()
-                                                    .and_then(|d| serde_json::to_string(d).ok())
-                                                    .unwrap_or_else(|| "{}".to_string()),
-                                                link_id: conn.link_id(),
-                                                direction: if conn.is_outgoing() {
-                                                    ConnectionDirection::Outgoing as i32
-                                                } else {
-                                                    ConnectionDirection::Incoming as i32
-                                                },
-                                                peer_node_id: conn
-                                                    .peer_node_id()
-                                                    .map(str::to_string),
-                                            });
-                                        } else {
+                                        // Subscriptions are keyed on logical ids, which are not
+                                        // in the connection table. Expand to the live physical
+                                        // sockets so listing matches ConnectionTable.
+                                        let physical_ids = logical_connections.sub_conns(cid);
+                                        if physical_ids.is_empty() {
                                             error!(%cid, ?ct, "no connection entry for id");
+                                            continue;
+                                        }
+                                        for phys in physical_ids {
+                                            if let Some(conn) = conn_table.get(phys) {
+                                                entry.connections.push(ConnectionEntry {
+                                                    id: phys,
+                                                    connection_type: ct as i32,
+                                                    config_data: conn
+                                                        .config_data()
+                                                        .and_then(|d| {
+                                                            serde_json::to_string(d).ok()
+                                                        })
+                                                        .unwrap_or_else(|| "{}".to_string()),
+                                                    link_id: conn.link_id(),
+                                                    direction: if conn.is_outgoing() {
+                                                        ConnectionDirection::Outgoing as i32
+                                                    } else {
+                                                        ConnectionDirection::Incoming as i32
+                                                    },
+                                                    peer_node_id: conn
+                                                        .peer_node_id()
+                                                        .map(str::to_string),
+                                                });
+                                            } else {
+                                                error!(%phys, %cid, ?ct, "no connection entry for id");
+                                            }
                                         }
                                     }
                                 }
