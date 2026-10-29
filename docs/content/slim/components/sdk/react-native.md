@@ -1,6 +1,6 @@
 # React Native SDK
 
-The SLIM React Native SDK (`@agntcy/slim-bindings-react-native`) provides mobile and browser APIs for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-react-native](https://jhugman.github.io/uniffi-bindgen-react-native/), with native integration for iOS and Android and a WebAssembly build for browsers.
+The SLIM React Native SDK (`@agntcy/slim-bindings-react-native`) provides mobile and browser APIs for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-react-native](https://jhugman.github.io/uniffi-bindgen-react-native/), with native integration for iOS and a WebAssembly build for browsers. Android is not supported yet.
 
 For Node.js servers, CLI tools, and non-mobile JavaScript applications, use [`@agntcy/slim-bindings`](./node.md) instead.
 
@@ -8,10 +8,10 @@ For Node.js servers, CLI tools, and non-mobile JavaScript applications, use [`@a
 
 | | |
 |---|---|
-| **Native targets** | iOS, Android (React Native) |
+| **Native targets** | iOS (React Native); Android is not supported yet |
 | **Web target** | Modern browsers with WebAssembly support |
 | **Package** | [`@agntcy/slim-bindings-react-native`](https://www.npmjs.com/package/@agntcy/slim-bindings-react-native) on npm |
-| **Build tools** | Node.js 18+, Rust 1.70+ (for building from source) |
+| **Build tools** | Node.js 18+, recent stable Rust, 1.88+ (for building from source) |
 | **Examples** | [react-native/examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in slim-bindings |
 
 ## Installation
@@ -36,7 +36,7 @@ cd ios && pod install
 
 ## Getting Started
 
-The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with React Native snippets shown alongside every other binding. They target the native (iOS/Android) build; the browser quick start below covers the WebAssembly entry point.
+The [SDK tutorials](./tutorials/index.md) build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with React Native snippets shown alongside every other binding. They target the native (iOS) build; the browser quick start below covers the WebAssembly entry point.
 
 Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 
@@ -46,9 +46,9 @@ Browser builds connect over `ws://` or `wss://` and use a separate entry point. 
 
 ```typescript
 import {
-  App,
   Direction,
   Name,
+  Service,
   SessionType,
   uniffiInitAsync,
 } from '@agntcy/slim-bindings-react-native/web';
@@ -58,15 +58,23 @@ await uniffiInitAsync();
 const local = new Name('org', 'default', 'browser');
 const remote = new Name('org', 'default', 'agent');
 
-const app = await App.connectWithSecret(
-  'wss://slim.example/ws',
-  undefined,
+// The service id may contain only lowercase letters, digits and '-' (anything else panics).
+const service = new Service('browser');
+
+// Optional second argument: a token appended as the `token` query parameter.
+const connId = await service.connectAsync('wss://slim.example/ws', undefined);
+
+const app = await service.createAppWithDirectionAsync(
   local,
   'change-me-before-going-to-production',
   Direction.Bidirectional,
 );
 
-await app.setRouteViaUpstreamAsync(remote);
+// Subscribe the app's own name so the node can route messages back to it,
+// then route the remote name over the same connection.
+await app.subscribeAsync(local, connId);
+await app.setRouteAsync(remote, connId);
+
 const session = await app.createSessionAndWaitAsync(
   {
     sessionType: SessionType.PointToPoint,
@@ -79,13 +87,13 @@ const session = await app.createSessionAndWaitAsync(
 );
 
 await session.publishAndWaitAsync(
-  new TextEncoder().encode('Hello, SLIM!'),
+  new TextEncoder().encode('Hello, SLIM!').buffer,
   'text/plain',
   undefined,
 );
 ```
 
-All operations that wait for network or session state must use their async variants in browsers.
+All operations that wait for network or session state must use their async variants in browsers. `service.createAppAsync(name, secret)` is a shorthand for a bidirectional app.
 
 ## API Overview
 
@@ -93,15 +101,15 @@ All operations that wait for network or session state must use their async varia
 |---|---|
 | Default export / `/web` entry | Static entry point for initialisation and global service access |
 | `App` | Application handle for sessions, subscriptions, and routing |
-| `BindingsSessionContext` | Session for sending and receiving messages |
+| `Session` | Session for sending and receiving messages |
 | `Name` | Identity in `org/namespace/app` format |
 | `ReceivedMessage` | Received message with payload and context metadata |
 | `SessionConfig` | Session configuration (type, MLS, retries) |
 | `SessionType` | `PointToPoint` or `Group` |
 
-On the **native (iOS/Android)** target, the gRPC client and server configurations expose transport authentication via `config.auth`, matching the [Node.js SDK](./node.md#transport-authentication). On the **web/WebAssembly** target, gRPC configuration is absent by design — browser apps connect over WebSocket and authenticate through the identity path instead.
+On the **native (iOS)** target, the gRPC client and server configurations expose transport authentication via `config.auth`, matching the [Node.js SDK](./node.md#transport-authentication). On the **web/WebAssembly** target, gRPC configuration is absent by design — browser apps connect over WebSocket and authenticate through the identity path instead.
 
-Call `app.destroy()` when finished to release native resources.
+Call `app.uniffiDestroy()` when finished to release native resources.
 
 ### Session Configuration (Native)
 
@@ -119,9 +127,9 @@ Annotate the object as `SessionConfig` rather than typing it `any` — that is w
 
 ## Transport Authentication
 
-On the **native (iOS/Android)** target, transport authentication via OIDC and other gRPC auth modes matches the Node.js SDK. See the [Node.js transport authentication section](./node.md#transport-authentication) for code snippets and the JSON config form.
+On the **native (iOS)** target, transport authentication via OIDC and other gRPC auth modes matches the Node.js SDK. See the [Node.js transport authentication section](./node.md#transport-authentication) for code snippets and the JSON config form.
 
-On the **web/WebAssembly** target, the browser build compiles out the gRPC configuration module (`ClientConfig`, `TlsClientConfig`, `ClientAuthenticationConfig`, and therefore OIDC). Browser apps authenticate through the shared-secret, JWT, or SPIRE identity path instead.
+On the **web/WebAssembly** target, the browser build compiles out the gRPC configuration module (`ClientConfig`, `TlsClientConfig`, `ClientAuthenticationConfig`, and therefore OIDC). Browser apps authenticate with a shared-secret app identity (`createAppAsync` / `createAppWithDirectionAsync`), optionally passing a token to `connectAsync`; JWT and SPIRE identities are native-only.
 
 ## Examples
 
@@ -129,7 +137,7 @@ The [slim-bindings/react-native](https://github.com/agntcy/slim-bindings/tree/ma
 
 | Example | Description |
 |---|---|
-| `examples/react-native/test-app` | React Native test app for iOS and Android |
+| `examples/react-native/test-app` | React Native test app for iOS |
 | `examples/browser` | Browser playground for unicast, multicast, and MLS |
 
 **Browser playground:**
@@ -150,7 +158,7 @@ See [examples/browser/README.md](https://github.com/agntcy/slim-bindings/blob/ma
 | Target | Platform | Status |
 |---|---|---|
 | Native | iOS | Supported |
-| Native | Android | Supported |
+| Native | Android | Not supported yet |
 | Web | Browsers with WASM | Supported |
 
 ## Building from Source
@@ -162,9 +170,9 @@ git clone https://github.com/agntcy/slim-bindings
 cd slim-bindings/react-native
 
 npm install
-task generate
-task generate:web
-task test
+task generate       # React Native (JSI) bindings
+task generate:web   # browser TypeScript bindings and WebAssembly package
+task test:e2e:ios   # iOS E2E smoke tests (requires Xcode, an iOS simulator, and Maestro)
 ```
 
 For iOS build issues, refresh the XCFramework and pods:

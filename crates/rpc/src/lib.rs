@@ -27,8 +27,8 @@
 //! ## Client Example
 //!
 //! ```ignore
-//! # use slim_bindings::{Channel, Context, RpcError, Encoder, Decoder};
-//! # use slim_bindings::Name;
+//! # use slim_rpc::{Channel, RpcError, Encoder, Decoder};
+//! # use slim_datapath::api::ProtoName;
 //! # use slim_service::app::App;
 //! # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 //! # use std::sync::Arc;
@@ -45,8 +45,8 @@
 //! # }
 //! # let request = Request::default();
 //! // Create a channel
-//! let remote = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
-//! let channel = Channel::new_with_members_internal(app.clone(), vec![remote.as_slim_name().clone()], false, None).unwrap();
+//! let remote = ProtoName::from_strings(["org", "namespace", "service"]);
+//! let channel = Channel::new_with_members(app.clone(), vec![remote], false, None)?;
 //!
 //! // Make an RPC call (typically through generated code)
 //! let response: Response = channel.unary("MyService", "MyMethod", request, None, None).await?;
@@ -57,15 +57,13 @@
 //! ## Server Example
 //!
 //! ```ignore
-//! # use slim_bindings::{Server, Context, RpcError, Encoder, Decoder, App, Name, IdentityProviderConfig, IdentityVerifierConfig};
+//! # use slim_rpc::{Server, Context, RpcError, Encoder, Decoder};
+//! # use slim_datapath::api::ProtoName;
+//! # use slim_service::service::Service;
+//! # use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+//! # use slim_auth::shared_secret::SharedSecret;
 //! # use std::sync::Arc;
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # let app_name = Arc::new(Name::new("test".to_string(), "app".to_string(), "v1".to_string()));
-//! # let provider = IdentityProviderConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
-//! # let verifier = IdentityVerifierConfig::SharedSecret { id: "test".to_string(), data: "secret".to_string() };
-//! # let app = App::new(app_name, provider, verifier)?;
-//! # let core_app = app.inner();
-//! # let notification_rx = app.notification_receiver();
+//! # async fn example(service: &Service) -> Result<(), Box<dyn std::error::Error>> {
 //! # #[derive(Default)]
 //! # struct Request {}
 //! # impl Decoder for Request {
@@ -76,18 +74,25 @@
 //! # impl Encoder for Response {
 //! #     fn encode(self) -> Result<Vec<u8>, RpcError> { Ok(vec![]) }
 //! # }
-//! // Register and run server
-//! let base_name = Name::new("org".to_string(), "namespace".to_string(), "service".to_string());
-//! let server = Server::new_with_shared_rx_and_connection(core_app, base_name.as_slim_name(), None, notification_rx, None);
+//! // Create an app with the AuthProvider / AuthVerifier wrappers
+//! let base_name = ProtoName::from_strings(["org", "namespace", "service"]);
+//! let secret = SharedSecret::new("org/namespace/service", "a-shared-secret-at-least-32-bytes-long")?;
+//! let (app, notification_rx) = service.create_app(
+//!     &base_name,
+//!     AuthProvider::shared_secret(secret.clone()),
+//!     AuthVerifier::shared_secret(secret),
+//! )?;
 //!
-//! // Register a handler
-//! server.register_unary_unary_internal(
+//! // Register a handler and run the server
+//! let server = Server::new(Arc::new(app), base_name, notification_rx);
+//! server.register_unary_unary(
 //!     "MyService",
 //!     "MyMethod",
 //!     |request: Request, _ctx: Context| async move {
 //!         Ok(Response::default())
 //!     }
 //! );
+//! server.serve().await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -240,7 +245,7 @@ pub type Result<T> = std::result::Result<T, RpcError>;
 /// # Example
 ///
 /// ```ignore
-/// # use slim_bindings::{RpcError, Decoder, Encoder};
+/// # use slim_rpc::{RpcError, Decoder, Encoder};
 /// # use futures::StreamExt;
 /// # use futures::stream::BoxStream;
 /// # #[derive(Default)]
@@ -275,7 +280,7 @@ pub type RequestStream<T> = futures::stream::BoxStream<'static, Result<T>>;
 /// # Example
 ///
 /// ```ignore
-/// # use slim_bindings::{RpcError, Decoder, Encoder};
+/// # use slim_rpc::{RpcError, Decoder, Encoder};
 /// # type Result<T> = std::result::Result<T, RpcError>;
 /// # use futures::stream::{self, Stream};
 /// # #[derive(Default, Clone)]

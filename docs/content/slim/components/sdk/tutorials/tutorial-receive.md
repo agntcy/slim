@@ -35,7 +35,7 @@ The receiving side does not call `create_session`. Instead it calls `listen_for_
     # Wait indefinitely for an incoming session
     session = await local_app.listen_for_session_async(None)
 
-    print(f"Session received from: {session.source()}")
+    print(f"Session received from: {session.destination()}")
     ```
 
 === "Go"
@@ -45,7 +45,7 @@ The receiving side does not call `create_session`. Instead it calls `listen_for_
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v3"
     )
 
     // Wait indefinitely for an incoming session (nil = no timeout)
@@ -114,7 +114,9 @@ Once the session is established, call `get_message_async` in a loop to receive m
         loop {
             match msg_rx.recv().await {
                 Some(Ok(msg)) => {
-                    println!("Received: {}", String::from_utf8_lossy(msg.payload()));
+                    if let Some(payload) = msg.get_payload().and_then(|c| c.as_application_payload().ok()) {
+                        println!("Received: {}", String::from_utf8_lossy(&payload.blob));
+                    }
                 }
                 Some(Err(e)) => {
                     eprintln!("Session error: {e}");
@@ -252,10 +254,12 @@ There are two ways to reply:
     let session = ctx.session_arc().unwrap();
 
     // Broadcast to all participants
-    session.publish(&channel_name, b"hello everyone".to_vec(), None, None).await?;
+    session.publish(session.dst(), b"hello everyone".to_vec(), None, None).await?;
 
-    // Reply only to the sender (using the source from a received message)
-    session.publish_to(msg.source(), b"hello back".to_vec(), None, None).await?;
+    // Reply only to the sender, on the connection the received message arrived on
+    session
+        .publish_to(&msg.get_source(), msg.get_incoming_conn(), b"hello back".to_vec(), None, None)
+        .await?;
     ```
 
 === "Python"
@@ -356,7 +360,7 @@ For group sessions there are two close modes: `CloseMode::Soft` goes offline tem
 
     ```rust
     // Session closed is signalled by None on the receiver; close on your side too
-    session.close().await?.await?;
+    session.close()?.await?;
     ```
 
 === "Python"
@@ -394,7 +398,8 @@ For group sessions there are two close modes: `CloseMode::Soft` goes offline tem
 === ".NET"
 
     ```csharp
-    await session.CloseAndWaitAsync();
+    // Closing goes through the app that owns the session
+    await app.DeleteSessionAsync(session);
     ```
 
 === "React Native"
