@@ -19,6 +19,27 @@ pub fn ed25519_did_key(public_key: &[u8]) -> String {
     format!("did:key:z{}", bs58::encode(bytes).into_string())
 }
 
+/// The Ed25519 public key encoded by a `did:key:z...` identifier.
+pub fn ed25519_public_key_from_did_key(did: &str) -> Result<[u8; 32], AuthError> {
+    let unsupported = || AuthError::InvalidDidKey(did.to_string());
+
+    let multibase_value = did.strip_prefix("did:key:").ok_or_else(unsupported)?;
+    // 'z' is the multibase prefix for base58btc; did:key only ever uses it.
+    let base58_value = multibase_value.strip_prefix('z').ok_or_else(unsupported)?;
+    let decoded = bs58::decode(base58_value)
+        .into_vec()
+        .map_err(|_| unsupported())?;
+
+    match decoded.as_slice() {
+        [0xed, 0x01, key @ ..] if key.len() == 32 => {
+            let mut pubkey = [0u8; 32];
+            pubkey.copy_from_slice(key);
+            Ok(pubkey)
+        }
+        _ => Err(unsupported()),
+    }
+}
+
 /// The `did:key` of the Ed25519 key in a PKCS#8 PEM document
 /// (`-----BEGIN PRIVATE KEY-----`).
 pub fn ed25519_did_key_from_pkcs8_pem(pem: &str) -> Result<String, AuthError> {
@@ -85,6 +106,61 @@ mod tests {
             .unwrap();
         assert_eq!(&decoded[..2], &[0xed, 0x01]);
         assert_eq!(&decoded[2..], hex(PUBLIC).as_slice());
+    }
+
+    #[test]
+    fn decoding_a_did_key_recovers_the_public_key() {
+        let did = ed25519_did_key(&hex(PUBLIC));
+        assert_eq!(
+            ed25519_public_key_from_did_key(&did).unwrap(),
+            hex(PUBLIC).as_slice()
+        );
+    }
+
+    #[test]
+    fn rejects_a_did_key_without_the_did_key_prefix() {
+        assert!(matches!(
+            ed25519_public_key_from_did_key("z6MkhaXg"),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_without_the_multibase_prefix() {
+        assert!(matches!(
+            ed25519_public_key_from_did_key("did:key:6MkhaXg"),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_with_invalid_base58() {
+        assert!(matches!(
+            ed25519_public_key_from_did_key("did:key:z0OIl"),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_with_the_wrong_multicodec_prefix() {
+        let mut bytes = vec![0x00, 0x00];
+        bytes.extend_from_slice(&hex(PUBLIC));
+        let did = format!("did:key:z{}", bs58::encode(bytes).into_string());
+        assert!(matches!(
+            ed25519_public_key_from_did_key(&did),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_with_the_wrong_key_length() {
+        let mut bytes = vec![0xed, 0x01];
+        bytes.extend_from_slice(&hex(PUBLIC)[..16]);
+        let did = format!("did:key:z{}", bs58::encode(bytes).into_string());
+        assert!(matches!(
+            ed25519_public_key_from_did_key(&did),
+            Err(AuthError::InvalidDidKey(_))
+        ));
     }
 
     #[test]
