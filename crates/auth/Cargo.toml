@@ -16,6 +16,15 @@ default = []
 # ciphersuite MLS uses.
 curve25519 = []
 
+# Accept a JWT whose `iss`/`sub` is a `did:key:z...` Ed25519 identifier by
+# deriving the verification key straight from that identifier -- no JWKS, no
+# network call, no allow-list, so SLIM makes no admission decision at all
+# beyond "this signature is self-consistent". Off by default: a deployment
+# must opt in here before `KeyResolver::with_self_certified_did()` exists to
+# call, since accepting any self-asserted identity is a deliberate trust
+# model, not a safe default.
+insecure-self-certified-did = []
+
 # Dependencies shared by the always-available core modules (errors,
 # identity_claims, metadata, shared_secret, traits) on every target,
 # including wasm32.
