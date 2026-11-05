@@ -79,6 +79,10 @@ impl KeyOwner {
     pub(crate) fn kid(&self) -> Option<&str> {
         self.kid.as_deref()
     }
+
+    pub(crate) fn did(&self) -> Option<&str> {
+        self.did.as_deref()
+    }
 }
 
 /// A key that may have signed a token.
@@ -234,6 +238,13 @@ impl KeyResolver {
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
         self.default_jwks_ttl = ttl;
         self
+    }
+
+    /// Whether this resolver derives decoding keys from tokens' own `iss`
+    /// claim instead of looking them up, i.e. was built via
+    /// [`Self::with_self_certified_did`].
+    pub(crate) fn is_self_certified_did(&self) -> bool {
+        self.self_certified_did
     }
 
     /// Resolve a decoding key from various sources
