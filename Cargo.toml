@@ -71,7 +71,7 @@ base64 = "0.23"
 bincode = "2.0.1"
 bs58 = "0.5"
 bytes = "1.9.0"
-cel = "0.14.1"
+cel = "0.15.0"
 cfg-if = "1.0"
 chrono = "0.4"
 clap = { version = "4.5.23", features = ["derive", "env"] }
