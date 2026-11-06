@@ -514,19 +514,25 @@ impl<V> Jwt<V> {
         // algorithm claimed in the token header.
         let token_data: TokenData<Claims> = decode(token, &decoding_key, &validation)?;
 
+        // One unverified re-parse of the claims, reused by every check below
+        // instead of each re-decoding the token independently.
+        let claims_json: serde_json::Value =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(token)?.claims;
+
         // Before caching it: a token that fails the binding must be checked again.
-        self.check_subject_binding(token, owner)?;
+        self.check_subject_binding(&claims_json, owner)?;
         if self.is_self_certified_did() {
-            self.check_pubkey_claim_binding(token, owner)?;
+            self.check_pubkey_claim_binding(&claims_json, owner)?;
         }
 
-        // Get the exp to cache the token - do not verify token again
-        let token_exp_data: TokenData<ExpClaim> = jsonwebtoken::dangerous::insecure_decode(token)?;
+        // `decode` above already required a valid `exp`; this just reads the
+        // value back out to cache it, not verify it again.
+        let exp = claims_json
+            .get("exp")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(AuthError::TokenInvalidMissingExp)?;
+        self.cache(token.to_owned(), exp);
 
-        // Cache the token with its expiry
-        self.cache(token.to_owned(), token_exp_data.claims.exp);
-
-        // Parse the token to extract the expiry claim
         Ok(token_data.claims)
     }
 
@@ -548,7 +554,7 @@ impl<V> Jwt<V> {
     /// defeat the only guarantee this mode provides.
     fn check_subject_binding(
         &self,
-        token: &str,
+        claims: &serde_json::Value,
         owner: Option<&KeyOwner>,
     ) -> Result<(), AuthError> {
         let self_certified = self.is_self_certified_did();
@@ -564,10 +570,8 @@ impl<V> Jwt<V> {
             return Ok(());
         }
         // The signature has just been verified.
-        let sub = jsonwebtoken::dangerous::insecure_decode::<StandardClaims>(token)?
-            .claims
-            .sub;
-        if sub.as_deref().is_some_and(|sub| owner.owns(sub)) {
+        let sub = claims.get("sub").and_then(serde_json::Value::as_str);
+        if sub.is_some_and(|sub| owner.owns(sub)) {
             return Ok(());
         }
         let enforced = mode == IdentityBinding::Enforce;
@@ -594,7 +598,7 @@ impl<V> Jwt<V> {
     /// an unrelated key for everything else.
     fn check_pubkey_claim_binding(
         &self,
-        token: &str,
+        claims: &serde_json::Value,
         owner: Option<&KeyOwner>,
     ) -> Result<(), AuthError> {
         let Some(did) = owner.and_then(KeyOwner::did) else {
@@ -602,10 +606,8 @@ impl<V> Jwt<V> {
         };
         let expected = crate::did_key::ed25519_public_key_from_did_key(did)?;
 
-        let claims: serde_json::Value =
-            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(token)?.claims;
         let identity_claims =
-            crate::identity_claims::IdentityClaims::from_json(&claims).map_err(|e| {
+            crate::identity_claims::IdentityClaims::from_json(claims).map_err(|e| {
                 tracing::warn!(error = %e, "self-certified did:key token has no usable pubkey claim");
                 AuthError::TokenInvalid
             })?;
