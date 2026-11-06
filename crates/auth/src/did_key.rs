@@ -19,6 +19,27 @@ pub fn ed25519_did_key(public_key: &[u8]) -> String {
     format!("did:key:z{}", bs58::encode(bytes).into_string())
 }
 
+/// The Ed25519 public key encoded by a `did:key:z...` identifier.
+pub fn ed25519_public_key_from_did_key(did: &str) -> Result<[u8; 32], AuthError> {
+    let unsupported = || AuthError::InvalidDidKey(did.to_string());
+
+    let multibase_value = did.strip_prefix("did:key:").ok_or_else(unsupported)?;
+    // 'z' is the multibase prefix for base58btc; did:key only ever uses it.
+    let base58_value = multibase_value.strip_prefix('z').ok_or_else(unsupported)?;
+    let decoded = bs58::decode(base58_value)
+        .into_vec()
+        .map_err(|_| unsupported())?;
+
+    match decoded.as_slice() {
+        [0xed, 0x01, key @ ..] if key.len() == 32 => {
+            let mut pubkey = [0u8; 32];
+            pubkey.copy_from_slice(key);
+            Ok(pubkey)
+        }
+        _ => Err(unsupported()),
+    }
+}
+
 /// The `did:key` of the Ed25519 key in a PKCS#8 PEM document
 /// (`-----BEGIN PRIVATE KEY-----`).
 pub fn ed25519_did_key_from_pkcs8_pem(pem: &str) -> Result<String, AuthError> {
@@ -35,6 +56,27 @@ pub fn ed25519_public_key_from_pkcs8_pem(pem: &str) -> Result<Vec<u8>, AuthError
 pub fn ed25519_key_pair_from_pkcs8_pem(pem: &str) -> Result<Ed25519KeyPair, AuthError> {
     let der = pem_contents(pem, "PRIVATE KEY")?;
     Ed25519KeyPair::from_pkcs8(&der).map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))
+}
+
+/// MLS signature keys `(secret, public)` for the Ed25519 key in a PKCS#8 PEM
+/// document, in the encoding the Curve25519 MLS ciphersuite uses (AWS-LC:
+/// the secret key is the 32-byte seed followed by the 32-byte public key).
+pub fn ed25519_mls_signature_keys_from_pkcs8_pem(
+    pem: &str,
+) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+    use aws_lc_rs::encoding::AsBigEndian;
+
+    let key_pair = ed25519_key_pair_from_pkcs8_pem(pem)?;
+    let public = key_pair.public_key().as_ref().to_vec();
+    let seed = key_pair
+        .seed()
+        .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?;
+    let seed = seed
+        .as_be_bytes()
+        .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?;
+    let mut secret = seed.as_ref().to_vec();
+    secret.extend_from_slice(&public);
+    Ok((secret, public))
 }
 
 /// The DER bytes of the first `label` block in `pem`.
@@ -88,6 +130,61 @@ mod tests {
     }
 
     #[test]
+    fn decoding_a_did_key_recovers_the_public_key() {
+        let did = ed25519_did_key(&hex(PUBLIC));
+        assert_eq!(
+            ed25519_public_key_from_did_key(&did).unwrap(),
+            hex(PUBLIC).as_slice()
+        );
+    }
+
+    #[test]
+    fn rejects_a_did_key_without_the_did_key_prefix() {
+        assert!(matches!(
+            ed25519_public_key_from_did_key("z6MkhaXg"),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_without_the_multibase_prefix() {
+        assert!(matches!(
+            ed25519_public_key_from_did_key("did:key:6MkhaXg"),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_with_invalid_base58() {
+        assert!(matches!(
+            ed25519_public_key_from_did_key("did:key:z0OIl"),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_with_the_wrong_multicodec_prefix() {
+        let mut bytes = vec![0x00, 0x00];
+        bytes.extend_from_slice(&hex(PUBLIC));
+        let did = format!("did:key:z{}", bs58::encode(bytes).into_string());
+        assert!(matches!(
+            ed25519_public_key_from_did_key(&did),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_a_did_key_with_the_wrong_key_length() {
+        let mut bytes = vec![0xed, 0x01];
+        bytes.extend_from_slice(&hex(PUBLIC)[..16]);
+        let did = format!("did:key:z{}", bs58::encode(bytes).into_string());
+        assert!(matches!(
+            ed25519_public_key_from_did_key(&did),
+            Err(AuthError::InvalidDidKey(_))
+        ));
+    }
+
+    #[test]
     fn did_key_from_a_pkcs8_pem_matches_its_public_key() {
         assert_eq!(
             ed25519_did_key_from_pkcs8_pem(&pkcs8_pem(&hex(SEED))).unwrap(),
@@ -116,5 +213,15 @@ mod tests {
             ed25519_did_key_from_pkcs8_pem(&pem),
             Err(AuthError::InvalidEd25519Key(_))
         ));
+    }
+
+    #[test]
+    fn mls_signature_keys_are_seed_then_public_and_sign() {
+        let (secret, public) =
+            ed25519_mls_signature_keys_from_pkcs8_pem(&pkcs8_pem(&hex(SEED))).unwrap();
+        assert_eq!(public, hex(PUBLIC));
+        assert_eq!(secret, [hex(SEED), hex(PUBLIC)].concat());
+        let sig = crate::utils::sign_header_aad(b"aad", &secret, &public).unwrap();
+        crate::utils::verify_header_aad(b"aad", &sig, &public).unwrap();
     }
 }

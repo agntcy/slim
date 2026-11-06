@@ -290,28 +290,9 @@ fn check_signature(signer: &[u8; 32], message: &[u8], signature: &str) -> Result
 }
 
 /// Decodes a `did:key` identifier that encodes an Ed25519 public key.
-///
-/// Format: `did:key:z` followed by the base58btc (bitcoin alphabet)
-/// encoding of the multicodec-prefixed key -- the 2-byte prefix `0xed 0x01`
-/// (Ed25519 public key) followed by the 32 raw key bytes.
 fn decode_ed25519_did_key(owner: &str) -> Result<[u8; 32], GrantError> {
-    let unsupported = || GrantError::UnsupportedOwnerFormat(owner.to_string());
-
-    let multibase_value = owner.strip_prefix("did:key:").ok_or_else(unsupported)?;
-    // 'z' is the multibase prefix for base58btc; did:key only ever uses it.
-    let base58_value = multibase_value.strip_prefix('z').ok_or_else(unsupported)?;
-    let decoded = bs58::decode(base58_value)
-        .into_vec()
-        .map_err(|_| unsupported())?;
-
-    match decoded.as_slice() {
-        [0xed, 0x01, key @ ..] if key.len() == 32 => {
-            let mut pubkey = [0u8; 32];
-            pubkey.copy_from_slice(key);
-            Ok(pubkey)
-        }
-        _ => Err(unsupported()),
-    }
+    slim_auth::did_key::ed25519_public_key_from_did_key(owner)
+        .map_err(|_| GrantError::UnsupportedOwnerFormat(owner.to_string()))
 }
 
 /// An Ed25519 key that signs grants and create and delete requests in the

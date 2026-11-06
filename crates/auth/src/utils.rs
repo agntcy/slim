@@ -11,20 +11,21 @@ use mls_rs_core::crypto::CryptoProvider;
 #[cfg(not(target_arch = "wasm32"))]
 use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 
-// Must stay in lock-step with the MLS layer's ciphersuite
-// (`agntcy-slim-mls`): the `curve25519` feature is propagated from that crate so
-// the keys an identity ships are always valid for the ciphersuite MLS uses. The
-// default (P-256) matches MLS's default; enabling `curve25519` switches both.
+// The single source of truth for the MLS ciphersuite: `agntcy-slim-mls` reads
+// this constant, so the keys an identity ships are always valid for the
+// ciphersuite MLS uses. The default is P-256; `curve25519` (also enabled by
+// `insecure-self-certified-did`) switches both.
 #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
-const CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
+pub const MLS_CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
     mls_rs_core::crypto::CipherSuite::CURVE25519_AES128;
 #[cfg(all(not(target_arch = "wasm32"), not(feature = "curve25519")))]
-const CIPHERSUITE: mls_rs_core::crypto::CipherSuite = mls_rs_core::crypto::CipherSuite::P256_AES128;
+pub const MLS_CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
+    mls_rs_core::crypto::CipherSuite::P256_AES128;
 
 /// Generate an MLS signature key pair valid for the ciphersuite MLS uses.
 ///
 /// Returns provider-compatible `(secret_key_bytes, public_key_bytes)`: AWS-LC
-/// bytes for the active `CIPHERSUITE` on native targets (P-256 by default, or
+/// bytes for the active `MLS_CIPHERSUITE` on native targets (P-256 by default, or
 /// Curve25519 with the `curve25519` feature), and PKCS#8 DER plus an
 /// uncompressed SEC1 public key for browser WebCrypto.
 pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors::AuthError> {
@@ -32,7 +33,7 @@ pub fn generate_mls_signature_keys() -> Result<(Vec<u8>, Vec<u8>), crate::errors
     {
         let crypto_provider = AwsLcCryptoProvider::default();
         let cipher_suite_provider = crypto_provider
-            .cipher_suite_provider(CIPHERSUITE)
+            .cipher_suite_provider(MLS_CIPHERSUITE)
             .ok_or(crate::errors::AuthError::MlsKeyGenerationFailed)?;
 
         let (secret_key, public_key) = cipher_suite_provider

@@ -63,6 +63,14 @@ impl KeyOwner {
         }
     }
 
+    /// A key owner known only by its `did:key`, with no JWKS `kid`.
+    fn from_did(did: String) -> Self {
+        KeyOwner {
+            kid: None,
+            did: Some(did),
+        }
+    }
+
     /// Whether `sub` names this key's owner.
     pub(crate) fn owns(&self, sub: &str) -> bool {
         self.kid.as_deref() == Some(sub) || self.did.as_deref() == Some(sub)
@@ -70,6 +78,10 @@ impl KeyOwner {
 
     pub(crate) fn kid(&self) -> Option<&str> {
         self.kid.as_deref()
+    }
+
+    pub(crate) fn did(&self) -> Option<&str> {
+        self.did.as_deref()
     }
 }
 
@@ -153,6 +165,9 @@ pub struct KeyResolver {
     client: ReqwestClient,
     jwks_cache: RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
+    /// Set only by [`Self::with_self_certified_did`]: every token's decoding
+    /// key is derived from its own `iss` claim instead of looked up anywhere.
+    self_certified_did: bool,
 }
 
 impl Default for KeyResolver {
@@ -176,6 +191,21 @@ impl KeyResolver {
             client,
             jwks_cache: RwLock::new(HashMap::new()),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
+            self_certified_did: false,
+        }
+    }
+
+    /// A resolver that trusts no JWKS and contacts no server: it derives each
+    /// token's decoding key from the token's own `iss` claim, which must be a
+    /// `did:key:z...` Ed25519 identifier equal to `sub`. This makes no
+    /// admission decision -- it only confirms the token is self-consistent
+    /// with the identity it asserts -- so it requires the
+    /// `insecure-self-certified-did` feature to construct.
+    #[cfg(feature = "insecure-self-certified-did")]
+    pub fn with_self_certified_did() -> Self {
+        Self {
+            self_certified_did: true,
+            ..Self::new()
         }
     }
 
@@ -200,6 +230,7 @@ impl KeyResolver {
             client,
             jwks_cache: RwLock::new(cache),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
+            self_certified_did: false,
         }
     }
 
@@ -207,6 +238,13 @@ impl KeyResolver {
     pub fn with_jwks_ttl(mut self, ttl: Duration) -> Self {
         self.default_jwks_ttl = ttl;
         self
+    }
+
+    /// Whether this resolver derives decoding keys from tokens' own `iss`
+    /// claim instead of looking them up, i.e. was built via
+    /// [`Self::with_self_certified_did`].
+    pub(crate) fn is_self_certified_did(&self) -> bool {
+        self.self_certified_did
     }
 
     /// Resolve a decoding key from various sources
@@ -248,12 +286,31 @@ impl KeyResolver {
         Ok(candidates.into_iter().map(Candidate::into_key).collect())
     }
 
+    /// A candidate derived from `issuer` itself, when it's a `did:key:z...`
+    /// Ed25519 identifier: no lookup, since the identifier *is* the key.
+    fn self_certified_candidate(issuer: &str) -> Result<Candidate, AuthError> {
+        let public_key = crate::did_key::ed25519_public_key_from_did_key(issuer)?;
+        let jwk: Jwk = serde_json::from_value(serde_json::json!({
+            "kty": "OKP", "alg": "EdDSA", "use": "sig", "crv": "Ed25519",
+            "x": URL_SAFE_NO_PAD.encode(public_key),
+        }))?;
+        Ok(Candidate {
+            key: DecodingKey::from_jwk(&jwk)?,
+            algorithm: Algorithm::EdDSA,
+            owner: Some(KeyOwner::from_did(issuer.to_string())),
+        })
+    }
+
     /// [`Self::resolve_keys`], with the owner of each static trust-list key.
     pub(crate) async fn resolve_candidates(
         &self,
         issuer: &str,
         token_header: &Header,
     ) -> Result<Vec<Candidate>, AuthError> {
+        if self.self_certified_did {
+            return Ok(vec![Self::self_certified_candidate(issuer)?]);
+        }
+
         // Check if we have a static JWKS entry
         if let Some(cache_entry) = self.jwks_cache.read().get(Self::STATIC_JWKS_ENTRY) {
             // If we have a static JWKS, use it directly
@@ -384,6 +441,10 @@ impl KeyResolver {
         issuer: &str,
         token_header: &Header,
     ) -> Result<Vec<Candidate>, AuthError> {
+        if self.self_certified_did {
+            return Ok(vec![Self::self_certified_candidate(issuer)?]);
+        }
+
         // Check if we have a cached JWKS that's still valid
         let cache = self.jwks_cache.read();
 
@@ -588,5 +649,73 @@ mod tests {
             fetched_jwks.keys[0].common.key_id.as_deref(),
             Some("test-key")
         );
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    mod self_certified_did {
+        use aws_lc_rs::rand::SystemRandom;
+        use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
+        use jsonwebtoken::{EncodingKey, Validation, decode, encode};
+
+        use super::*;
+
+        /// A fresh Ed25519 keypair, its PKCS#8 PEM, and its `did:key`.
+        fn fresh_identity() -> (String, String) {
+            let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+            let public = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+                .unwrap()
+                .public_key()
+                .as_ref()
+                .to_vec();
+            let pem = crate::utils::bytes_to_pem(
+                pkcs8.as_ref(),
+                "-----BEGIN PRIVATE KEY-----\n",
+                "\n-----END PRIVATE KEY-----\n",
+            );
+            (pem, crate::did_key::ed25519_did_key(&public))
+        }
+
+        #[test]
+        fn cached_candidates_derives_a_key_that_verifies_the_signer() {
+            let (pem, did) = fresh_identity();
+            let header = Header::new(Algorithm::EdDSA);
+            let token = encode(
+                &header,
+                &json!({"iss": did, "sub": did, "exp": u64::MAX}),
+                &EncodingKey::from_ed_pem(pem.as_bytes()).unwrap(),
+            )
+            .unwrap();
+
+            let resolver = KeyResolver::with_self_certified_did();
+            let candidates = resolver.cached_candidates(&did, &header).unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].algorithm, Algorithm::EdDSA);
+            assert!(candidates[0].owner.as_ref().unwrap().owns(&did));
+
+            let mut validation = Validation::new(Algorithm::EdDSA);
+            validation.set_audience(&[] as &[&str]);
+            validation.required_spec_claims.clear();
+            decode::<serde_json::Value>(&token, &candidates[0].key, &validation).unwrap();
+        }
+
+        #[tokio::test]
+        async fn resolve_candidates_derives_the_same_key() {
+            let (_, did) = fresh_identity();
+            let header = Header::new(Algorithm::EdDSA);
+            let resolver = KeyResolver::with_self_certified_did();
+            let candidates = resolver.resolve_candidates(&did, &header).await.unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].algorithm, Algorithm::EdDSA);
+        }
+
+        #[test]
+        fn rejects_an_issuer_that_is_not_a_did_key() {
+            let resolver = KeyResolver::with_self_certified_did();
+            let header = Header::new(Algorithm::EdDSA);
+            assert!(matches!(
+                resolver.cached_candidates("not-a-did-key", &header),
+                Err(AuthError::InvalidDidKey(_))
+            ));
+        }
     }
 }

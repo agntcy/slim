@@ -247,6 +247,16 @@ impl<T> Jwt<T> {
         self
     }
 
+    /// Use the Ed25519 key in `pem` (PKCS#8) as the MLS signature keypair, so
+    /// the `pubkey` claim equals the signer's `did:key` and a self-certified-did
+    /// verifier accepts the token. The feature implies `curve25519`, so MLS
+    /// accepts the Ed25519 key.
+    #[cfg(feature = "insecure-self-certified-did")]
+    pub fn with_did_key_signature_keys(mut self, pem: &str) -> Result<Self, AuthError> {
+        self.signature_keys = crate::did_key::ed25519_mls_signature_keys_from_pkcs8_pem(pem)?;
+        Ok(self)
+    }
+
     pub fn with_watcher(mut self, w: FileWatcher) -> Self {
         // Clone the Arc, get a mutable reference to the Vec, and push to it
         let watchers =
@@ -514,38 +524,64 @@ impl<V> Jwt<V> {
         // algorithm claimed in the token header.
         let token_data: TokenData<Claims> = decode(token, &decoding_key, &validation)?;
 
+        // One unverified re-parse of the claims, reused by every check below
+        // instead of each re-decoding the token independently.
+        let claims_json: serde_json::Value =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(token)?.claims;
+
         // Before caching it: a token that fails the binding must be checked again.
-        self.check_subject_binding(token, owner)?;
+        self.check_subject_binding(&claims_json, owner)?;
+        if self.is_self_certified_did() {
+            self.check_pubkey_claim_binding(&claims_json, owner)?;
+        }
 
-        // Get the exp to cache the token - do not verify token again
-        let token_exp_data: TokenData<ExpClaim> = jsonwebtoken::dangerous::insecure_decode(token)?;
+        // `decode` above already required a valid `exp`; this just reads the
+        // value back out to cache it, not verify it again.
+        let exp = claims_json
+            .get("exp")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(AuthError::TokenInvalidMissingExp)?;
+        self.cache(token.to_owned(), exp);
 
-        // Cache the token with its expiry
-        self.cache(token.to_owned(), token_exp_data.claims.exp);
-
-        // Parse the token to extract the expiry claim
         Ok(token_data.claims)
+    }
+
+    /// Whether this verifier's key resolver derives decoding keys from
+    /// tokens' own `iss` claim (`KeyResolver::with_self_certified_did`).
+    fn is_self_certified_did(&self) -> bool {
+        self.key_resolver
+            .as_ref()
+            .is_some_and(|r| r.is_self_certified_did())
     }
 
     /// Hold the token's `sub` to the trust-list key that verified it, so a
     /// peer can only use its own identity. Not checked for keys that aren't
     /// peer keys, or when the verifier has no binding set.
+    ///
+    /// In self-certified-did mode the binding is always enforced, regardless
+    /// of `subject_binding`: there, the key that signed the token *is* its
+    /// claimed identity, so skipping or merely warning on a mismatch would
+    /// defeat the only guarantee this mode provides.
     fn check_subject_binding(
         &self,
-        token: &str,
+        claims: &serde_json::Value,
         owner: Option<&KeyOwner>,
     ) -> Result<(), AuthError> {
-        let (Some(mode), Some(owner)) = (self.subject_binding, owner) else {
+        let self_certified = self.is_self_certified_did();
+        let mode = if self_certified {
+            Some(IdentityBinding::Enforce)
+        } else {
+            self.subject_binding
+        };
+        let (Some(mode), Some(owner)) = (mode, owner) else {
             return Ok(());
         };
         if mode == IdentityBinding::Off {
             return Ok(());
         }
         // The signature has just been verified.
-        let sub = jsonwebtoken::dangerous::insecure_decode::<StandardClaims>(token)?
-            .claims
-            .sub;
-        if sub.as_deref().is_some_and(|sub| owner.owns(sub)) {
+        let sub = claims.get("sub").and_then(serde_json::Value::as_str);
+        if sub.is_some_and(|sub| owner.owns(sub)) {
             return Ok(());
         }
         let enforced = mode == IdentityBinding::Enforce;
@@ -559,6 +595,45 @@ impl<V> Jwt<V> {
             Err(AuthError::TokenInvalid)
         } else {
             Ok(())
+        }
+    }
+
+    /// In self-certified-did mode, require the claims' `pubkey` to be exactly
+    /// the key encoded in the `did:key` that signed the token.
+    ///
+    /// The signature alone only proves the token was signed by *some* key
+    /// derived from its `iss`; downstream consumers (message-signature
+    /// checks, MLS credential binding) trust the `pubkey` claim instead, so
+    /// without this a token could self-certify its signature while claiming
+    /// an unrelated key for everything else.
+    fn check_pubkey_claim_binding(
+        &self,
+        claims: &serde_json::Value,
+        owner: Option<&KeyOwner>,
+    ) -> Result<(), AuthError> {
+        let Some(did) = owner.and_then(KeyOwner::did) else {
+            tracing::warn!("self-certified did:key token verified without a DID key owner");
+            return Err(AuthError::TokenInvalid);
+        };
+        let expected = crate::did_key::ed25519_public_key_from_did_key(did)?;
+
+        let identity_claims =
+            crate::identity_claims::IdentityClaims::from_json(claims).map_err(|e| {
+                tracing::warn!(error = %e, "self-certified did:key token has no usable pubkey claim");
+                AuthError::TokenInvalid
+            })?;
+        let claimed = STANDARD_BASE64
+            .decode(&identity_claims.public_key)
+            .map_err(|_| AuthError::TokenInvalid)?;
+
+        if claimed == expected {
+            Ok(())
+        } else {
+            tracing::warn!(
+                did,
+                "token's pubkey claim does not match the did:key that signed it"
+            );
+            Err(AuthError::TokenInvalid)
         }
     }
 
@@ -625,13 +700,12 @@ impl<V> Jwt<V> {
                 .as_ref()
                 .ok_or(AuthError::JwtMissingIssuer)?;
 
-            match resolver.cached_candidates(issuer, &token_data.header) {
-                Ok(k) => return Ok(k),
-                Err(_e) => {
-                    // No cached key yet; async resolution would be required.
-                    return Err(AuthError::WouldBlockOn);
-                }
-            }
+            return match resolver.cached_candidates(issuer, &token_data.header) {
+                Err(e) if self.is_self_certified_did() => Err(e),
+                // No cached key yet; async resolution would be required.
+                Err(_) => Err(AuthError::WouldBlockOn),
+                ok => ok,
+            };
         }
 
         // If we don't have a decoder
@@ -1417,6 +1491,168 @@ mod tests {
         let token = token_signed_by(&pem_b, Some("member-b"), "member-a");
         let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
         assert_eq!(claims.sub.as_deref(), Some("member-a"));
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    mod self_certified_did {
+        use aws_lc_rs::rand::SystemRandom;
+        use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
+
+        use super::*;
+
+        /// A fresh Ed25519 identity: its PKCS#8 PEM, its `did:key`, and its
+        /// raw public key bytes.
+        fn fresh_identity() -> (String, String, Vec<u8>) {
+            let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+            let public = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+                .unwrap()
+                .public_key()
+                .as_ref()
+                .to_vec();
+            let pem = crate::utils::bytes_to_pem(
+                pkcs8.as_ref(),
+                "-----BEGIN PRIVATE KEY-----\n",
+                "\n-----END PRIVATE KEY-----\n",
+            );
+            (pem, crate::did_key::ed25519_did_key(&public), public)
+        }
+
+        /// A token signed by `pem`, with `iss`/`sub` set to `subject` and a
+        /// `pubkey` claim of `pubkey_bytes`.
+        fn self_certified_token(pem: &str, subject: &str, pubkey_bytes: &[u8]) -> String {
+            token_with_claims(
+                pem,
+                &serde_json::json!({
+                    "iss": subject, "sub": subject, "exp": far_future_exp(),
+                    "pubkey": STANDARD_BASE64.encode(pubkey_bytes),
+                }),
+            )
+        }
+
+        fn far_future_exp() -> u64 {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 600
+        }
+
+        fn token_with_claims(pem: &str, claims: &serde_json::Value) -> String {
+            encode(
+                &JwtHeader::new(Algorithm::EdDSA),
+                claims,
+                &EncodingKey::from_ed_pem(pem.as_bytes()).unwrap(),
+            )
+            .unwrap()
+        }
+
+        fn self_certified_verifier() -> VerifierJwt {
+            JwtBuilder::new()
+                .auto_resolve_keys(true)
+                .build()
+                .unwrap()
+                .with_key_resolver(KeyResolver::with_self_certified_did())
+        }
+
+        #[tokio::test]
+        async fn verifies_when_the_pubkey_claim_matches_the_signing_did() {
+            initialize_crypto_provider();
+            let (pem, did, public) = fresh_identity();
+            let verifier = self_certified_verifier();
+
+            let token = self_certified_token(&pem, &did, &public);
+            let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+            assert_eq!(claims.sub.as_deref(), Some(did.as_str()));
+        }
+
+        #[tokio::test]
+        async fn rejects_a_pubkey_claim_that_does_not_match_the_signing_did() {
+            initialize_crypto_provider();
+            let (pem, did, _) = fresh_identity();
+            let (_, _, other_public) = fresh_identity();
+            let verifier = self_certified_verifier();
+
+            let token = self_certified_token(&pem, &did, &other_public);
+            let result: Result<StandardClaims, _> = verifier.get_claims(token).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        #[tokio::test]
+        async fn rejects_a_sub_that_is_not_the_signing_did_even_without_a_configured_binding() {
+            initialize_crypto_provider();
+            let (pem, did, public) = fresh_identity();
+            let (_, other_did, _) = fresh_identity();
+            let verifier = self_certified_verifier();
+
+            // Nothing calls `.with_subject_binding(..)`: self-certified-did
+            // mode must enforce sub == iss on its own.
+            let token = token_with_claims(
+                &pem,
+                &serde_json::json!({
+                    "iss": did, "sub": other_did, "exp": far_future_exp(),
+                    "pubkey": STANDARD_BASE64.encode(&public),
+                }),
+            );
+            let result: Result<StandardClaims, _> = verifier.get_claims(token).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        #[tokio::test]
+        async fn rejects_a_token_without_a_pubkey_claim() {
+            initialize_crypto_provider();
+            let (pem, did, _) = fresh_identity();
+            let token = token_with_claims(
+                &pem,
+                &serde_json::json!({"iss": did, "sub": did, "exp": far_future_exp()}),
+            );
+            let result: Result<StandardClaims, _> =
+                self_certified_verifier().get_claims(token).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        #[tokio::test]
+        async fn rejects_a_malformed_pubkey_claim() {
+            initialize_crypto_provider();
+            let (pem, did, _) = fresh_identity();
+            let token = token_with_claims(
+                &pem,
+                &serde_json::json!({
+                    "iss": did, "sub": did, "exp": far_future_exp(),
+                    "pubkey": "!!not base64!!",
+                }),
+            );
+            let result: Result<StandardClaims, _> =
+                self_certified_verifier().get_claims(token).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        #[test]
+        fn sync_path_reports_invalid_did_key_not_would_block() {
+            initialize_crypto_provider();
+            let (pem, _, public) = fresh_identity();
+            let token = self_certified_token(&pem, "https://not-a-did.example", &public);
+            let result: Result<StandardClaims, _> = self_certified_verifier().try_get_claims(token);
+            assert!(
+                matches!(result, Err(AuthError::InvalidDidKey(_))),
+                "{result:?}"
+            );
+        }
+
+        #[test]
+        fn sync_path_verifies_a_valid_self_certified_token() {
+            initialize_crypto_provider();
+            let (pem, did, public) = fresh_identity();
+            let token = self_certified_token(&pem, &did, &public);
+            let claims: StandardClaims = self_certified_verifier().try_get_claims(token).unwrap();
+            assert_eq!(claims.sub.as_deref(), Some(did.as_str()));
+        }
+
+        #[test]
+        fn pubkey_binding_rejects_a_missing_owner() {
+            let verifier = self_certified_verifier();
+            let result = verifier.check_pubkey_claim_binding(&serde_json::json!({}), None);
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
     }
 
     #[tokio::test]

@@ -160,9 +160,9 @@ fn ciphersuite_for(enforce_pqc: bool) -> Result<CipherSuite, MlsError> {
     if enforce_pqc {
         return Ok(CipherSuite::ML_KEM_768_X25519);
     }
-    #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
-    return Ok(CipherSuite::CURVE25519_AES128);
-    #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
+    #[cfg(not(target_arch = "wasm32"))]
+    return Ok(slim_auth::utils::MLS_CIPHERSUITE);
+    #[cfg(target_arch = "wasm32")]
     return Ok(CipherSuite::P256_AES128);
 }
 
@@ -270,8 +270,8 @@ where
     /// default, or Curve25519 when the `curve25519` feature is enabled).
     pub async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         // Single source of truth with the identity layer: `agntcy-slim-auth`
-        // generates signature keys for the same ciphersuite on every target (its
-        // `curve25519` feature is propagated from this crate), so keys an
+        // generates signature keys for the same ciphersuite on every target (MLS
+        // takes its ciphersuite from `slim_auth::utils::MLS_CIPHERSUITE`), so keys an
         // identity ships and keys MLS generates always share the same ciphersuite
         // and byte format.
         let (secret, public) = slim_auth::utils::generate_mls_signature_keys()?;
