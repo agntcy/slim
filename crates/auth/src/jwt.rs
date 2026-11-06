@@ -602,7 +602,8 @@ impl<V> Jwt<V> {
         owner: Option<&KeyOwner>,
     ) -> Result<(), AuthError> {
         let Some(did) = owner.and_then(KeyOwner::did) else {
-            return Ok(());
+            tracing::warn!("self-certified did:key token verified without a DID key owner");
+            return Err(AuthError::TokenInvalid);
         };
         let expected = crate::did_key::ed25519_public_key_from_did_key(did)?;
 
@@ -689,13 +690,12 @@ impl<V> Jwt<V> {
                 .as_ref()
                 .ok_or(AuthError::JwtMissingIssuer)?;
 
-            match resolver.cached_candidates(issuer, &token_data.header) {
-                Ok(k) => return Ok(k),
-                Err(_e) => {
-                    // No cached key yet; async resolution would be required.
-                    return Err(AuthError::WouldBlockOn);
-                }
-            }
+            return match resolver.cached_candidates(issuer, &token_data.header) {
+                Err(e) if self.is_self_certified_did() => Err(e),
+                // No cached key yet; async resolution would be required.
+                Err(_) => Err(AuthError::WouldBlockOn),
+                ok => ok,
+            };
         }
 
         // If we don't have a decoder
@@ -1584,6 +1584,63 @@ mod tests {
                 }),
             );
             let result: Result<StandardClaims, _> = verifier.get_claims(token).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        #[tokio::test]
+        async fn rejects_a_token_without_a_pubkey_claim() {
+            initialize_crypto_provider();
+            let (pem, did, _) = fresh_identity();
+            let token = token_with_claims(
+                &pem,
+                &serde_json::json!({"iss": did, "sub": did, "exp": far_future_exp()}),
+            );
+            let result: Result<StandardClaims, _> =
+                self_certified_verifier().get_claims(token).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        #[tokio::test]
+        async fn rejects_a_malformed_pubkey_claim() {
+            initialize_crypto_provider();
+            let (pem, did, _) = fresh_identity();
+            let token = token_with_claims(
+                &pem,
+                &serde_json::json!({
+                    "iss": did, "sub": did, "exp": far_future_exp(),
+                    "pubkey": "!!not base64!!",
+                }),
+            );
+            let result: Result<StandardClaims, _> =
+                self_certified_verifier().get_claims(token).await;
+            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        #[test]
+        fn sync_path_reports_invalid_did_key_not_would_block() {
+            initialize_crypto_provider();
+            let (pem, _, public) = fresh_identity();
+            let token = self_certified_token(&pem, "https://not-a-did.example", &public);
+            let result: Result<StandardClaims, _> = self_certified_verifier().try_get_claims(token);
+            assert!(
+                matches!(result, Err(AuthError::InvalidDidKey(_))),
+                "{result:?}"
+            );
+        }
+
+        #[test]
+        fn sync_path_verifies_a_valid_self_certified_token() {
+            initialize_crypto_provider();
+            let (pem, did, public) = fresh_identity();
+            let token = self_certified_token(&pem, &did, &public);
+            let claims: StandardClaims = self_certified_verifier().try_get_claims(token).unwrap();
+            assert_eq!(claims.sub.as_deref(), Some(did.as_str()));
+        }
+
+        #[test]
+        fn pubkey_binding_rejects_a_missing_owner() {
+            let verifier = self_certified_verifier();
+            let result = verifier.check_pubkey_claim_binding(&serde_json::json!({}), None);
             assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
         }
     }
