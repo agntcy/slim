@@ -321,6 +321,10 @@ pub enum IdentityProviderConfig {
     /// SPIRE-based identity provider. Present on every platform to keep the uniffi
     /// layout stable; rejected with an error on Windows.
     Spire { config: SpireConfig },
+    /// Signs as the Ed25519 `did:key` of `config.key` and uses that key as the
+    /// MLS signature key, for peers verified with `InsecureSelfCertifiedDid`.
+    #[cfg(feature = "insecure-self-certified-did")]
+    InsecureSelfCertifiedDid { config: ClientJwtAuth },
     /// No identity provider configured
     None,
 }
@@ -345,6 +349,10 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
             IdentityProviderConfig::Spire { .. } => {
                 panic!("SPIRE is not supported on Windows");
             }
+            #[cfg(feature = "insecure-self-certified-did")]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { config } => {
+                CoreIdentityProviderConfig::InsecureSelfCertifiedDid(config.into())
+            }
             IdentityProviderConfig::None => CoreIdentityProviderConfig::None,
         }
     }
@@ -366,6 +374,12 @@ impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
             CoreIdentityProviderConfig::Spire(config) => IdentityProviderConfig::Spire {
                 config: config.into(),
             },
+            #[cfg(feature = "insecure-self-certified-did")]
+            CoreIdentityProviderConfig::InsecureSelfCertifiedDid(config) => {
+                IdentityProviderConfig::InsecureSelfCertifiedDid {
+                    config: config.into(),
+                }
+            }
             CoreIdentityProviderConfig::None => IdentityProviderConfig::None,
         }
     }
@@ -457,6 +471,12 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
             IdentityProviderConfig::Jwt { config } => {
                 let core_config: JwtAuthConfig = config.into();
                 let provider = core_config.get_provider()?;
+                Ok(AuthProvider::jwt_signer(provider))
+            }
+            #[cfg(feature = "insecure-self-certified-did")]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { config } => {
+                let core_config: JwtAuthConfig = config.into();
+                let provider = core_config.get_self_certified_did_provider()?;
                 Ok(AuthProvider::jwt_signer(provider))
             }
             #[cfg(not(target_family = "windows"))]

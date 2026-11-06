@@ -245,6 +245,24 @@ impl Config {
         }
     }
 
+    /// Like [`Self::get_provider`], but the signer's MLS keypair is the
+    /// Ed25519 signing key itself, so its `pubkey` claim matches the `did:key`
+    /// a self-certified-did verifier derives from `iss`. Reachable only via
+    /// [`crate::auth::identity::IdentityProviderConfig::InsecureSelfCertifiedDid`].
+    #[cfg(feature = "insecure-self-certified-did")]
+    pub fn get_self_certified_did_provider(&self) -> Result<SignerJwt, AuthError> {
+        let JwtKey::Encoding(key) = self.key() else {
+            return Err(AuthError::JwtMissingPrivateKey);
+        };
+        let signer = self.get_provider()?;
+        let pem = match &key.key {
+            slim_auth::jwt::KeyData::Data(pem) => pem.clone(),
+            slim_auth::jwt::KeyData::File(path) => std::fs::read_to_string(path)
+                .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?,
+        };
+        signer.with_did_key_signature_keys(&pem)
+    }
+
     /// Build and return a VerifierJwt from this configuration.
     /// Returns an error if neither a decoding key nor autoresolve=true are configured.
     pub fn get_verifier(&self) -> Result<VerifierJwt, AuthError> {
@@ -751,5 +769,78 @@ mod tests {
         let verifier = verifier_cfg.get_self_certified_did_verifier().unwrap();
         let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
         assert_eq!(claims["sub"], did);
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    fn self_certified_signer_config() -> (
+        crate::auth::identity::IdentityProviderConfig,
+        String,
+        Vec<u8>,
+    ) {
+        use crate::auth::identity::IdentityProviderConfig;
+
+        // RFC 8032 section 7.1, test 1.
+        const ED25519_SEED: &str =
+            "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+        const ED25519_PUBLIC: &str =
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+        let hex = |s: &str| -> Vec<u8> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+                .collect()
+        };
+        let mut der = hex("302e020100300506032b657004220420");
+        der.extend_from_slice(&hex(ED25519_SEED));
+        let pem = slim_auth::utils::bytes_to_pem(
+            &der,
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----\n",
+        );
+        let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
+        let cfg = Config::new(
+            Claims::new(None, Some(did.clone()), Some(did.clone()), None),
+            Duration::from_secs(60),
+            JwtKey::Encoding(Key {
+                algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(pem),
+            }),
+        );
+        (
+            IdentityProviderConfig::InsecureSelfCertifiedDid(cfg),
+            did,
+            hex(ED25519_PUBLIC),
+        )
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[tokio::test]
+    async fn self_certified_did_signer_token_passes_the_verifier() {
+        use crate::auth::identity::IdentityVerifierConfig;
+        use base64::Engine;
+        use slim_auth::traits::{TokenProvider, Verifier};
+
+        initialize_crypto_provider();
+        let (provider_cfg, did, public) = self_certified_signer_config();
+        let provider = provider_cfg.build_auth_provider().unwrap();
+        let token = provider.get_token().unwrap();
+
+        let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Autoresolve,
+        ))
+        .build_auth_verifier()
+        .unwrap();
+        let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
+
+        assert_eq!(claims["iss"], did);
+        assert_eq!(claims["sub"], did);
+        assert_eq!(
+            claims["pubkey"],
+            base64::engine::general_purpose::STANDARD.encode(&public)
+        );
+        assert_eq!(provider.get_signature_keys().unwrap().1, public);
     }
 }

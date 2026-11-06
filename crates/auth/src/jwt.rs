@@ -247,6 +247,16 @@ impl<T> Jwt<T> {
         self
     }
 
+    /// Use the Ed25519 key in `pem` (PKCS#8) as the MLS signature keypair, so
+    /// the `pubkey` claim equals the signer's `did:key` and a self-certified-did
+    /// verifier accepts the token. The feature implies `curve25519`, so MLS
+    /// accepts the Ed25519 key.
+    #[cfg(feature = "insecure-self-certified-did")]
+    pub fn with_did_key_signature_keys(mut self, pem: &str) -> Result<Self, AuthError> {
+        self.signature_keys = crate::did_key::ed25519_mls_signature_keys_from_pkcs8_pem(pem)?;
+        Ok(self)
+    }
+
     pub fn with_watcher(mut self, w: FileWatcher) -> Self {
         // Clone the Arc, get a mutable reference to the Vec, and push to it
         let watchers =

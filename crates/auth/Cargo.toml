@@ -22,8 +22,11 @@ curve25519 = []
 # beyond "this signature is self-consistent". Off by default: a deployment
 # must opt in here before `KeyResolver::with_self_certified_did()` exists to
 # call, since accepting any self-asserted identity is a deliberate trust
-# model, not a safe default.
-insecure-self-certified-did = []
+# model, not a safe default. Implies `curve25519`: the signer must use the
+# did:key's Ed25519 key as its MLS key (see `SignerJwt::with_did_key_signature_keys`),
+# which only works when MLS runs the Ed25519 ciphersuite too; MLS reads its
+# ciphersuite from `slim_auth::utils::MLS_CIPHERSUITE`, so they cannot diverge.
+insecure-self-certified-did = ["curve25519"]
 
 # Dependencies shared by the always-available core modules (errors,
 # identity_claims, metadata, shared_secret, traits) on every target,

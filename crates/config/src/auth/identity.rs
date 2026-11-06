@@ -21,6 +21,12 @@ pub enum IdentityProviderConfig {
     Jwt(JwtConfig),
     #[cfg(not(target_family = "windows"))]
     Spire(SpireConfig),
+    /// Signs with an Ed25519 key whose `did:key` is the token's `iss`/`sub`,
+    /// and uses that key as the MLS signature key, so the `pubkey` claim
+    /// matches what an `InsecureSelfCertifiedDid` verifier requires. Requires the
+    /// `insecure-self-certified-did` Cargo feature.
+    #[cfg(feature = "insecure-self-certified-did")]
+    InsecureSelfCertifiedDid(JwtConfig),
     #[default]
     None,
 }
@@ -65,6 +71,11 @@ impl IdentityProviderConfig {
             Self::Spire(spire_config) => {
                 let manager = spire_config.create_provider()?;
                 Ok(AuthProvider::spire(manager))
+            }
+            #[cfg(feature = "insecure-self-certified-did")]
+            Self::InsecureSelfCertifiedDid(jwt_config) => {
+                let provider = jwt_config.get_self_certified_did_provider()?;
+                Ok(AuthProvider::jwt_signer(provider))
             }
             Self::None => Err(ConfigAuthError::IdentityProviderNotConfigured),
         }
