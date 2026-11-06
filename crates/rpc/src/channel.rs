@@ -27,7 +27,7 @@ use futures::future::join_all;
 use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
-use slim_session::session_config::MlsSettings;
+use slim_session::session_config::{MlsSettings, SessionConfig};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -247,6 +247,24 @@ impl ChannelSession {
 
 fn generate_rpc_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+/// The configuration of the sessions a channel opens. They use MLS and check
+/// every received message's headers against the ones the sender bound to it,
+/// as the SLIM bindings do. The other side takes the MLS settings from the
+/// join request.
+fn session_config(session_type: ProtoSessionType) -> SessionConfig {
+    SessionConfig {
+        session_type,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        initiator: true,
+        metadata: HashMap::new(),
+        mls_settings: Some(MlsSettings {
+            header_integrity_validation_percent: 100,
+            max_seen_control_message_ids_size: None,
+        }),
+    }
 }
 
 async fn send_invite(
@@ -493,14 +511,7 @@ impl Channel {
         let handle = runtime.spawn(async move {
             tracing::debug!(remote = %remote, ?session_type, "Creating persistent session");
 
-            let slim_config = slim_session::session_config::SessionConfig {
-                session_type,
-                max_retries: Some(10),
-                interval: Some(Duration::from_secs(1)),
-                initiator: true,
-                metadata: HashMap::new(),
-                mls_settings: Some(MlsSettings::default()),
-            };
+            let slim_config = session_config(session_type);
 
             let created = match pin {
                 Some(subject) => {
@@ -1248,6 +1259,16 @@ mod tests {
         assert_eq!(RpcCode::try_from(0), Ok(RpcCode::Ok));
         assert_eq!(RpcCode::try_from(13), Ok(RpcCode::Internal));
         assert!(RpcCode::try_from(999).is_err());
+    }
+
+    #[test]
+    fn test_sessions_check_every_message_header() {
+        for session_type in [ProtoSessionType::PointToPoint, ProtoSessionType::Multicast] {
+            let mls = session_config(session_type)
+                .mls_settings
+                .expect("session without MLS");
+            assert_eq!(mls.header_integrity_validation_percent, 100);
+        }
     }
 
     #[test]
