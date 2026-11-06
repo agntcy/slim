@@ -283,7 +283,10 @@ impl Config {
         // `.public_key(key)`, needs a `Key` we don't have here); the
         // `KeyResolver::new()` it attaches is immediately replaced below, so
         // it never does any network resolution.
-        let verifier = self.jwt_builder_impl(false).auto_resolve_keys(true).build()?;
+        let verifier = self
+            .jwt_builder_impl(false)
+            .auto_resolve_keys(true)
+            .build()?;
         Ok(verifier.with_key_resolver(slim_auth::resolver::KeyResolver::with_self_certified_did()))
     }
 }
@@ -677,7 +680,11 @@ mod tests {
         initialize_crypto_provider();
         // `key` is mandatory on `Config::new` but irrelevant here -- any
         // placeholder works, including one that would fail `get_verifier()`.
-        let cfg = Config::new(Claims::default(), Duration::from_secs(60), hs256_encoding_key());
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            hs256_encoding_key(),
+        );
         let verifier = cfg.get_self_certified_did_verifier();
         assert!(
             verifier.is_ok(),
@@ -711,7 +718,8 @@ mod tests {
         );
         let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
         let public_key = slim_auth::did_key::ed25519_public_key_from_pkcs8_pem(&pem).unwrap();
-        let pubkey_claim = slim_auth::identity_claims::IdentityClaims::from_public_key_bytes(&public_key);
+        let pubkey_claim =
+            slim_auth::identity_claims::IdentityClaims::from_public_key_bytes(&public_key);
 
         let signer_cfg = Config::new(
             Claims::new(
