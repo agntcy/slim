@@ -256,6 +256,21 @@ impl Config {
             _ => Err(AuthError::JwtMissingDecodingKeyOrKeyResolver),
         }
     }
+
+    /// Build a verifier that derives its decoding key from each token's own
+    /// `iss` claim (a `did:key:z...` Ed25519 identifier) instead of from
+    /// `key()` -- `key()` is not consulted for this mode. Reachable only via
+    /// [`crate::auth::identity::IdentityVerifierConfig::InsecureSelfCertifiedDid`].
+    #[cfg(feature = "insecure-self-certified-did")]
+    pub fn get_self_certified_did_verifier(&self) -> Result<VerifierJwt, AuthError> {
+        // `auto_resolve_keys(true)` is just how a `VerifierJwt` is reached
+        // with no decoding key of its own yet (the only other route,
+        // `.public_key(key)`, needs a `Key` we don't have here); the
+        // `KeyResolver::new()` it attaches is immediately replaced below, so
+        // it never does any network resolution.
+        let verifier = self.jwt_builder().auto_resolve_keys(true).build()?;
+        Ok(verifier.with_key_resolver(slim_auth::resolver::KeyResolver::with_self_certified_did()))
+    }
 }
 
 // Using the JWT middleware from jwt_middleware.rs
@@ -638,6 +653,21 @@ mod tests {
         assert!(
             verifier.is_err(),
             "expected error when using encoding key for verifier"
+        );
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[test]
+    fn test_get_self_certified_did_verifier_ignores_key() {
+        initialize_crypto_provider();
+        // `key` is mandatory on `Config::new` but irrelevant here -- any
+        // placeholder works, including one that would fail `get_verifier()`.
+        let cfg = Config::new(Claims::default(), Duration::from_secs(60), hs256_encoding_key());
+        let verifier = cfg.get_self_certified_did_verifier();
+        assert!(
+            verifier.is_ok(),
+            "expected a self-certified-did verifier regardless of key: {:?}",
+            verifier.err()
         );
     }
 }

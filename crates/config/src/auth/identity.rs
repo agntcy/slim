@@ -35,6 +35,15 @@ pub enum IdentityVerifierConfig {
     Jwt(JwtConfig),
     #[cfg(not(target_family = "windows"))]
     Spire(SpireConfig),
+    /// Accepts any JWT whose `iss`/`sub` is a `did:key:z...` Ed25519
+    /// identifier, with no JWKS, allow-list, or live authority -- the
+    /// verifier makes no admission decision beyond "this signature is
+    /// self-consistent with the identity it asserts". The wrapped
+    /// `JwtConfig`'s `key` field is ignored; the decoding key always comes
+    /// from the token itself. Requires the `insecure-self-certified-did`
+    /// Cargo feature to construct or deserialize.
+    #[cfg(feature = "insecure-self-certified-did")]
+    InsecureSelfCertifiedDid(JwtConfig),
     #[default]
     None,
 }
@@ -76,7 +85,55 @@ impl IdentityVerifierConfig {
                 let manager = spire_config.create_verifier()?;
                 Ok(AuthVerifier::spire(manager))
             }
+            #[cfg(feature = "insecure-self-certified-did")]
+            Self::InsecureSelfCertifiedDid(jwt_config) => {
+                let verifier = jwt_config.get_self_certified_did_verifier()?;
+                Ok(AuthVerifier::jwt_verifier(verifier))
+            }
             Self::None => Err(ConfigAuthError::IdentityVerifierNotConfigured),
         }
+    }
+}
+
+#[cfg(all(test, feature = "insecure-self-certified-did"))]
+mod tests {
+    use super::*;
+    use crate::auth::jwt::{Claims, JwtKey};
+    use crate::tls::provider::initialize_crypto_provider;
+    use std::time::Duration;
+
+    fn insecure_self_certified_did_config() -> IdentityVerifierConfig {
+        // `key` is mandatory on `JwtConfig::new` but ignored by this variant;
+        // `Autoresolve` is just a harmless placeholder.
+        IdentityVerifierConfig::InsecureSelfCertifiedDid(JwtConfig::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Autoresolve,
+        ))
+    }
+
+    #[test]
+    fn serializes_with_the_insecure_type_tag() {
+        let config = insecure_self_certified_did_config();
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(
+            json.get("type").and_then(|v| v.as_str()),
+            Some("insecure_self_certified_did")
+        );
+    }
+
+    #[test]
+    fn round_trips_through_json() {
+        let config = insecure_self_certified_did_config();
+        let json = serde_json::to_string(&config).unwrap();
+        let decoded: IdentityVerifierConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, config);
+    }
+
+    #[test]
+    fn builds_a_working_verifier() {
+        initialize_crypto_provider();
+        let config = insecure_self_certified_did_config();
+        assert!(config.build_auth_verifier().is_ok());
     }
 }

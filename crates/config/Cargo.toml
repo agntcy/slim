@@ -8,6 +8,12 @@ description = "Configuration utilities"
 [lib]
 name = "slim_config"
 
+[features]
+default = []
+# Forwarded to agntcy-slim-auth's feature of the same name; see there for
+# why this is off by default.
+insecure-self-certified-did = ["agntcy-slim-auth/insecure-self-certified-did"]
+
 [[bin]]
 name = "generate-schema"
 path = "src/schema/generate_schema.rs"
