@@ -1758,6 +1758,7 @@ impl ProtoMessageBuilder {
         connection_type: LinkConnectionType,
         node_id: impl Into<String>,
         deployment_name: impl Into<String>,
+        instance_id: impl Into<String>,
     ) -> ProtoMessage {
         let link = ProtoLink {
             link_type: Some(ProtoLinkType::LinkNegotiation(LinkNegotiationPayload {
@@ -1769,6 +1770,7 @@ impl ProtoMessageBuilder {
                 node_id: node_id.into(),
                 deployment_name: deployment_name.into(),
                 link_kem_payload,
+                instance_id: instance_id.into(),
             })),
         };
         ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
@@ -2463,6 +2465,7 @@ mod message_tests {
                 connection_type: 0,
                 node_id: String::new(),
                 deployment_name: String::new(),
+                instance_id: String::new(),
             })),
         };
         let msg = ProtoMessage::new(HashMap::new(), ProtoLinkMessageType(link));
@@ -2480,11 +2483,16 @@ mod message_tests {
             LinkConnectionType::Remote,
             "",
             "",
+            "instance-1",
         );
         assert!(msg.is_link());
         assert!(!msg.is_publish());
         assert!(!msg.is_subscribe());
         assert!(msg.validate().is_ok());
+        assert_eq!(
+            msg.get_link_negotiation_payload().unwrap().instance_id,
+            "instance-1"
+        );
     }
 
     #[test]
@@ -2496,6 +2504,7 @@ mod message_tests {
             None,
             None,
             LinkConnectionType::Remote,
+            "",
             "",
             "",
         );

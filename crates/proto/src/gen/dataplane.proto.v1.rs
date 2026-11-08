@@ -474,6 +474,11 @@ pub struct LinkNegotiationPayload {
     /// responder sends 1088 byte ciphertext. Empty = classical encryption only.
     #[prost(bytes = "vec", optional, tag = "8")]
     pub link_kem_payload: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    /// Random identifier of the sending SLIM process, regenerated on every start.
+    /// Connections from one process share it; separate processes never do, even
+    /// when configured with the same node_id. Empty for peers that don't send it.
+    #[prost(string, tag = "9")]
+    pub instance_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

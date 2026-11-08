@@ -103,6 +103,11 @@ struct MessageProcessorInternal {
     /// Empty when no peer config is set.
     deployment_name: String,
 
+    /// Random identifier of this process, advertised in link negotiation so the
+    /// remote can group this process's connections without merging other
+    /// processes that share the same `service_id`.
+    instance_id: String,
+
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
     // Only read by the native gRPC/WebSocket-accept server paths.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -196,6 +201,7 @@ impl MessageProcessor {
             remote_sync: RemoteSync::default(),
             service_id,
             deployment_name,
+            instance_id: uuid::Uuid::new_v4().to_string(),
             server_require_header_mac,
             server_enforce_pqc,
             negotiation_timeout,
@@ -1574,19 +1580,22 @@ impl MessageProcessor {
 
     /// Group a freshly negotiated connection under a logical connection.
     ///
-    /// The grouping key is the remote's advertised `node_id`, which is exactly
-    /// "which node is on the other end of this socket".
+    /// The grouping key is the remote's advertised `node_id` plus its
+    /// `instance_id`, which together mean "this SLIM process on the other end".
+    /// `node_id` alone is not enough: it comes from configuration, and separate
+    /// processes started from the same config (e.g. several apps using the
+    /// example client config) all advertise the same value. Merging them would
+    /// make loop prevention treat traffic between them as bouncing back to its
+    /// sender and drop it.
     ///
-    /// When the remote advertised no identity the connection is left ungrouped
-    /// and keeps using its physical id as its routing id — the pre-existing
-    /// behaviour. Grouping on an empty key would merge every anonymous peer into
-    /// one logical connection and silently blackhole traffic between them, which
-    /// is far worse than the forwarding loop this feature exists to fix.
+    /// When the remote advertised no `node_id` or no `instance_id` the
+    /// connection is left ungrouped and keeps using its physical id as its
+    /// routing id — the pre-existing behaviour.
     fn attach_logical_connection(&self, conn_index: u64, result: &NegotiationResult) {
-        if result.remote_node_id.is_empty() {
+        if result.remote_node_id.is_empty() || result.remote_instance_id.is_empty() {
             debug!(
                 %conn_index,
-                "remote advertised no node_id; leaving connection ungrouped",
+                "remote advertised no node_id or instance_id; leaving connection ungrouped",
             );
             return;
         }
@@ -1595,9 +1604,10 @@ impl MessageProcessor {
         // a Remote plays different roles in the forwarding rules (see
         // `MatchFilter`), so those must stay separate entries.
         let key = format!(
-            "{}/{}",
+            "{}/{}/{}",
             result.connection_type.index(),
-            result.remote_node_id
+            result.remote_node_id,
+            result.remote_instance_id,
         );
 
         let logical_id = self.forwarder().attach_sub_connection(conn_index, &key);
@@ -1633,6 +1643,7 @@ impl MessageProcessor {
         let params = crate::negotiation::NegotiationParams {
             node_id: &self.internal.service_id,
             deployment_name: &self.internal.deployment_name,
+            instance_id: &self.internal.instance_id,
             connection_type: category,
             enforce_pqc,
         };
@@ -2268,6 +2279,7 @@ mod tests {
             connection_type: 0,
             node_id: String::new(),
             deployment_name: String::new(),
+            instance_id: String::new(),
         };
         // Unknown connection: handler returns Ok without panic.
         assert!(
@@ -2555,6 +2567,106 @@ mod tests {
             .await
             .unwrap();
         assert!(rx1.recv().await.unwrap().is_ok());
+    }
+
+    fn edge_negotiation(node_id: &str, instance_id: &str) -> NegotiationResult {
+        NegotiationResult {
+            connection_type: ConnType::Edge,
+            remote_node_id: node_id.to_string(),
+            remote_instance_id: instance_id.to_string(),
+            remote_deployment_name: String::new(),
+        }
+    }
+
+    /// Apps started from the same config advertise the same node_id but are
+    /// separate processes: they must not be merged, or every message between
+    /// them is dropped as a loop.
+    #[tokio::test]
+    async fn edge_apps_sharing_node_id_from_different_processes_can_talk() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "server"]);
+
+        let (server, mut server_rx) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (client, _client_rx) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(server, &edge_negotiation("slim-client", "process-a"));
+        processor.attach_logical_connection(client, &edge_negotiation("slim-client", "process-b"));
+
+        assert_ne!(
+            processor.forwarder().routing_id(server),
+            processor.forwarder().routing_id(client),
+        );
+
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), server, ConnType::Edge, true, 1)
+            .unwrap();
+        processor
+            .process_message(make_publish(dest), client, ConnType::Edge)
+            .await
+            .unwrap();
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), server_rx.recv())
+                .await
+                .expect("server should receive the client's publish")
+                .expect("channel open")
+                .is_ok()
+        );
+    }
+
+    /// Connections from one process are still grouped, so a message never
+    /// bounces back to that process on a sibling connection.
+    #[tokio::test]
+    async fn edge_connections_from_one_process_are_grouped_and_do_not_loop() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "mcast"]);
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(sock0, &edge_negotiation("node-a", "process-a"));
+        processor.attach_logical_connection(sock1, &edge_negotiation("node-a", "process-a"));
+
+        assert_eq!(
+            processor.forwarder().routing_id(sock0),
+            processor.forwarder().routing_id(sock1),
+        );
+
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock1, ConnType::Edge, true, 2)
+            .unwrap();
+
+        assert_no_match(
+            processor
+                .process_message(make_publish(dest), sock0, ConnType::Edge)
+                .await,
+        );
+        for rx in [&mut rx0, &mut rx1] {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), rx.recv())
+                    .await
+                    .is_err(),
+                "must not bounce back to the sending process",
+            );
+        }
+    }
+
+    /// Peers that don't send an instance_id keep the pre-logical-connection
+    /// behaviour: each connection routes under its own physical id.
+    #[tokio::test]
+    async fn connection_without_instance_id_stays_ungrouped() {
+        let processor = MessageProcessor::new();
+        let (sock0, _rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, _rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(sock0, &edge_negotiation("slim-client", ""));
+        processor.attach_logical_connection(sock1, &edge_negotiation("slim-client", ""));
+
+        assert_eq!(processor.forwarder().routing_id(sock0), sock0);
+        assert_eq!(processor.forwarder().routing_id(sock1), sock1);
     }
 
     #[tokio::test]
