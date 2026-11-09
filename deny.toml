@@ -11,6 +11,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 ignore = [
     "RUSTSEC-2025-0141", # bincode unmaintained
     "RUSTSEC-2026-0374", # basic-toml unmaintained (transitive via uniffi -> askama)
+    "RUSTSEC-2026-0459", # libsqlite3-sys <0.39: blocked by mls-rs-provider-sqlite (rusqlite ^0.37) and diesel (<0.39)
 ]
 
 [licenses]
