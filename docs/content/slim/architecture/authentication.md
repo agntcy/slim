@@ -82,6 +82,56 @@ SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. T
 
 **Use when:** Production deployments, especially Kubernetes, where strong workload identity and automatic rotation are required.
 
+### Self-certified did:key (insecure, opt-in)
+
+The application signs its identity token with an Ed25519 key, and the token's `iss` and `sub` are that key's `did:key`. A verifier needs no JWKS, allow-list, or network call: it takes the verification key from the token's own `iss`. It checks that the signature verifies under that key, that `sub` equals `iss`, and that the `pubkey` claim equals the key encoded in the DID.
+
+This mode makes no admission decision. A valid token shows that the holder controls the key behind the identity it asserts, not that the peer should be admitted. Admission is the application's job, and the application must:
+
+- Require the holder DID in its credential presentation (for example, OID4VP) to equal the peer's verified subject, the `slim-peer-subject` message metadata key (`PEER_SUBJECT_KEY`), so a presentation can't be replayed over another caller's session.
+- Bind each presentation to a nonce supplied by the callee and to an `aud` that names the callee.
+- Run no RPC or message handler before admission succeeds.
+- Apply rate and resource limits to callers it has not admitted, since any key holder can open a session.
+
+**Properties:**
+
+- No infrastructure to run: no identity provider, JWKS, or allow-list
+- Each identity is a key pair, so applications don't share a secret
+- No admission control built in: any holder of a key can open a session
+- The identity is the key. A new key is a new identity, and the provider reads its key once at startup, so rotating it requires a restart
+- The provider uses the same Ed25519 key as its MLS signing key, so the `did:key` also binds the MLS identity. That key can't be replaced, and restoring a saved identity keeps it
+
+**Off by default.** Enable the `insecure-self-certified-did` Cargo feature on `agntcy-slim-config`, or on `agntcy-slim-bindings`, which forwards it. The feature implies `curve25519`, so MLS uses the Ed25519 ciphersuite. Without the feature, the `insecure_self_certified_did` identity types don't exist.
+
+Provider and verifier configuration (both use `type: insecure_self_certified_did`):
+
+```yaml
+# Provider: signs tokens
+type: insecure_self_certified_did
+claims:
+  issuer: did:key:z6Mk...   # the did:key of the key below
+  subject: did:key:z6Mk...  # same value
+key:
+  type: encoding
+  algorithm: EdDSA
+  format: pem
+  key:
+    file: /etc/slim/identity/ed25519.pem   # PKCS#8 PEM; or `data: <PEM text>`
+---
+# Verifier: checks tokens
+type: insecure_self_certified_did
+key:
+  type: autoresolve  # required by the schema, ignored
+claims:
+  audience: [my-callee]
+```
+
+- **Provider:** the key must be EdDSA. `claims.issuer` and `claims.subject` must both equal the key's `did:key`, or the provider fails to build.
+- **Verifier:** the `key` field is ignored. A configured `claims.issuer` is dropped with a warning. `claims.audience` still applies.
+- Pair this with mTLS on the transport (see Transport Security (TLS / mTLS) above) to limit which nodes can connect. The `did:key` check does not limit who connects.
+
+**Use when:** Open admission, where the application runs its own admission check and rate-limits callers it has not admitted. Not for closed networks: prefer JWT or SPIRE there, where each application's credential is issued by an operator-controlled authority.
+
 ## Choosing a Credential Method
 
 | Method | Application identity | Rotation | Workload attestation | Recommended for |
@@ -90,6 +140,7 @@ SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. T
 | JWT (external IdP) | `sub` claim from token | Token expiry | IdP-dependent | Existing IdP integration |
 | JWT (SLIM-issued) | `sub` claim from token | Token expiry | No | Simple production, no IdP |
 | SPIRE | SPIFFE ID | Automatic | Yes | Production, Kubernetes |
+| Self-certified did:key (insecure, opt-in) | `sub` = the token's `did:key` | Restart to rotate (new key, new identity) | No | Open admission, with an application-level admission check |
 
 ## Related
 
