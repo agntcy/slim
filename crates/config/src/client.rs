@@ -227,6 +227,12 @@ pub struct ClientConfig {
     /// Keepalive parameters.
     pub keepalive: Option<KeepaliveConfig>,
 
+    /// Set TCP_NODELAY on the connection, disabling Nagle's algorithm.
+    /// By default it is `true`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[serde(default = "default_tcp_nodelay")]
+    pub tcp_nodelay: bool,
+
     /// HTTP Proxy configuration.
     #[cfg(not(target_arch = "wasm32"))]
     #[serde(default)]
@@ -293,6 +299,8 @@ impl Default for ClientConfig {
             tls_setting: TLSSetting::default(),
             keepalive: None,
             #[cfg(not(target_arch = "wasm32"))]
+            tcp_nodelay: default_tcp_nodelay(),
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: ProxyConfig::default(),
             connect_timeout: default_connect_timeout(),
             request_timeout: default_request_timeout(),
@@ -316,6 +324,11 @@ fn default_link_id() -> String {
 }
 
 fn default_require_header_mac() -> bool {
+    true
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn default_tcp_nodelay() -> bool {
     true
 }
 
@@ -399,6 +412,14 @@ impl ClientConfig {
     pub fn with_keepalive(self, keepalive: KeepaliveConfig) -> Self {
         Self {
             keepalive: Some(keepalive),
+            ..self
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_tcp_nodelay(self, tcp_nodelay: bool) -> Self {
+        Self {
+            tcp_nodelay,
             ..self
         }
     }
@@ -715,6 +736,21 @@ mod tests {
         assert_eq!(keepalive.http2_keepalive, Duration::from_secs(60));
         assert_eq!(keepalive.timeout, Duration::from_secs(10));
         assert!(!keepalive.keep_alive_while_idle);
+    }
+
+    #[test]
+    fn test_client_config_tcp_nodelay() {
+        assert!(ClientConfig::default().tcp_nodelay);
+
+        let cfg: ClientConfig =
+            serde_json::from_str(r#"{"endpoint": "http://localhost:46357"}"#).expect("deserialize");
+        assert!(cfg.tcp_nodelay);
+        assert!(cfg.create_http_connector().is_ok());
+
+        let cfg: ClientConfig =
+            serde_json::from_str(r#"{"endpoint": "http://localhost:46357", "tcp_nodelay": false}"#)
+                .expect("deserialize");
+        assert!(!cfg.tcp_nodelay);
     }
 
     #[test]

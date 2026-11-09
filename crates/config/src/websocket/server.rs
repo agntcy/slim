@@ -200,6 +200,7 @@ impl ServerConfig {
 
         let auth_kind = build_auth_kind(self).await?;
         let expected_path = endpoint.path.clone();
+        let tcp_nodelay = self.tcp_nodelay;
 
         // Cap the number of concurrent accept tasks
         let max_connections = self
@@ -233,6 +234,10 @@ impl ServerConfig {
                                 continue;
                             }
                         };
+
+                        if let Err(err) = stream.set_nodelay(tcp_nodelay) {
+                            warn!(error = %err, %remote_addr, "failed to set TCP_NODELAY");
+                        }
 
                         // Acquire a slot before spawning. If the cap is
                         // exhausted, drop the connection rather than

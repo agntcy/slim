@@ -122,7 +122,7 @@ impl ServerConfig {
 
         // Async TLS configuration load (may involve SPIFFE operations)
         let tls_config = self.tls_setting.load_rustls_config().await?;
-        let incoming = TcpIncoming::bind(addr)?;
+        let incoming = TcpIncoming::bind(addr)?.with_nodelay(Some(self.tcp_nodelay));
 
         match tls_config {
             Some(tls_config) => {
