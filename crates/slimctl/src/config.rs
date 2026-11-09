@@ -482,8 +482,16 @@ fn dirs_home() -> Option<PathBuf> {
 }
 
 /// Parse a duration string like "15s", "1m", "500ms" into a std::time::Duration.
+///
+/// Durations above `u64::MAX` nanoseconds (about 584 years) are rejected:
+/// `DurationString` writes those as a nanosecond count that it cannot parse
+/// back, so `config set timeout` would leave an unreadable config file.
 pub fn parse_duration(s: &str) -> Result<Duration> {
-    Ok(DurationString::try_from(s.to_string())?.into())
+    let d: Duration = DurationString::try_from(s.to_string())?.into();
+    if d.as_nanos() > u128::from(u64::MAX) {
+        bail!("duration '{}' is too large", s);
+    }
+    Ok(d)
 }
 
 /// Serializes all tests that mutate the `HOME` environment variable.
@@ -545,6 +553,21 @@ mod tests {
     #[test]
     fn parse_duration_empty() {
         assert!(parse_duration("").is_err());
+    }
+
+    #[test]
+    fn parse_duration_rejects_values_that_do_not_round_trip() {
+        assert!(parse_duration("600y1ns").is_err());
+        assert!(parse_duration("2307198988357597489us").is_err());
+    }
+
+    #[test]
+    fn parse_duration_accepts_the_largest_round_trippable_value() {
+        let max = format!("{}ns", u64::MAX);
+        let d = parse_duration(&max).unwrap();
+        assert_eq!(d.as_nanos(), u128::from(u64::MAX));
+        let written = DurationString::from(d).to_string();
+        assert_eq!(parse_duration(&written).unwrap(), d);
     }
 
     // ── resolve_config ───────────────────────────────────────────────

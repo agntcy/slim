@@ -1,0 +1,47 @@
+# Copyright AGNTCY Contributors (https://github.com/agntcy)
+# SPDX-License-Identifier: Apache-2.0
+
+# Its own workspace on purpose: `[workspace]` at the bottom detaches this
+# crate from the repo root, so `cargo build --workspace` never sees it and the
+# nightly toolchain libFuzzer needs stays off everyone else's build path.
+
+[package]
+name = "agntcy-slimctl-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+duration-string = "0.5"
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+[dependencies.agntcy-slimctl]
+path = ".."
+
+[[bin]]
+name = "parse-config-file"
+path = "fuzz_targets/parse-config-file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse-duration"
+path = "fuzz_targets/parse-duration.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse-route"
+path = "fuzz_targets/parse-route.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
