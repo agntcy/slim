@@ -2026,10 +2026,10 @@ where
             let control = self.common.settings.control.clone();
 
             // Restore the control sender's group name so heartbeats resume after
-            // a restart, matching what `on_join_request` does for a fresh join.
-            // Without it a restored session that then sits idle emits no
-            // heartbeats. For multicast the heartbeat/control traffic uses the
-            // control name.
+            // a restart, matching what `on_discovery_reply` does for a fresh
+            // session. Without it a restored session that then sits idle emits
+            // no heartbeats. For multicast the heartbeat/control traffic uses
+            // the control name.
             self.common.sender.set_group_name(control.clone());
 
             self.common
@@ -2038,26 +2038,32 @@ where
             self.common.add_subscription(control.clone(), conn).await?;
             self.common.add_route(destination, conn).await?;
             self.common.add_route(control, conn).await?;
+        } else {
+            // In point-to-point sessions the group name is the destination,
+            // which the persisted record holds with the peer's id.
+            self.common
+                .sender
+                .set_group_name(self.common.settings.destination.clone());
+        }
 
-            // For each participant (skipping ourselves): re-add its route AND
-            // re-register it with the session sender. The restored roster alone
-            // does not repopulate the sender's endpoint list, so without this the
-            // moderator has no endpoints to fan out to and every publish is
-            // buffered ("no remote endpoint connected to the session").
-            let mut local_no_id = self.common.settings.source.clone();
-            local_no_id.reset_id();
-            let participants: Vec<Participant> = self
-                .group_list
-                .iter()
-                .filter(|(name, _)| **name != local_no_id)
-                .map(|(_, p)| p.clone())
-                .collect();
-            for p in &participants {
-                if let Ok(pname) = p.get_name() {
-                    self.common.add_route(pname, conn).await?;
-                }
-                self.add_endpoint(p).await?;
+        // For each participant (skipping ourselves): re-add its route AND
+        // re-register it with the session sender. The restored roster alone
+        // does not repopulate the sender's endpoint list, so without this the
+        // moderator has no endpoints to send to and every publish is buffered
+        // ("no remote endpoint connected to the session").
+        let mut local_no_id = self.common.settings.source.clone();
+        local_no_id.reset_id();
+        let participants: Vec<Participant> = self
+            .group_list
+            .iter()
+            .filter(|(name, _)| **name != local_no_id)
+            .map(|(_, p)| p.clone())
+            .collect();
+        for p in &participants {
+            if let Ok(pname) = p.get_name() {
+                self.common.add_route(pname, conn).await?;
             }
+            self.add_endpoint(p).await?;
         }
 
         Ok(())
