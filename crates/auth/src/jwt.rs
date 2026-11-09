@@ -191,6 +191,10 @@ pub struct Jwt<T> {
     /// Each instance (and clone) holds its own independent copy of the keys.
     signature_keys: (Vec<u8>, Vec<u8>),
 
+    /// Set when `signature_keys` are the signer's `did:key` Ed25519 key, which
+    /// must not be replaced or restored over.
+    did_bound: bool,
+
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -235,6 +239,7 @@ impl<T> Jwt<T> {
             // identity mid-handshake (which races with concurrent
             // control-message signing). Mirrors `SharedSecret`.
             signature_keys: crate::utils::generate_mls_signature_keys()?,
+            did_bound: false,
             _phantom: std::marker::PhantomData,
         })
     }
@@ -254,6 +259,7 @@ impl<T> Jwt<T> {
     #[cfg(feature = "insecure-self-certified-did")]
     pub fn with_did_key_signature_keys(mut self, pem: &str) -> Result<Self, AuthError> {
         self.signature_keys = crate::did_key::ed25519_mls_signature_keys_from_pkcs8_pem(pem)?;
+        self.did_bound = true;
         Ok(self)
     }
 
@@ -279,6 +285,7 @@ impl<T> Jwt<T> {
             static_token: None,
             token_cache: self.token_cache,
             signature_keys: self.signature_keys,
+            did_bound: self.did_bound,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -296,6 +303,7 @@ impl<T> Jwt<T> {
             static_token: None,
             token_cache: self.token_cache,
             signature_keys: self.signature_keys,
+            did_bound: self.did_bound,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -313,6 +321,7 @@ impl<T> Jwt<T> {
             static_token: None,
             token_cache: self.token_cache,
             signature_keys: self.signature_keys,
+            did_bound: self.did_bound,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -330,6 +339,7 @@ impl<T> Jwt<T> {
             static_token: Some(token),
             token_cache: self.token_cache,
             signature_keys: self.signature_keys,
+            did_bound: self.did_bound,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -792,6 +802,11 @@ impl TokenProvider for SignerJwt {
         private_key: Vec<u8>,
         public_key: Vec<u8>,
     ) -> Result<(), AuthError> {
+        if self.did_bound {
+            return Err(AuthError::SelfCertifiedDid(
+                "MLS signature keys are bound to the did:key and cannot be replaced".to_string(),
+            ));
+        }
         self.signature_keys = (private_key, public_key);
         Ok(())
     }
@@ -815,7 +830,14 @@ impl TokenProvider for SignerJwt {
         // matches. The JWT signing key comes from the app config at
         // construction; `get_token` reads the MLS pubkey live, so no refresh is
         // needed.
-        self.signature_keys = (identity.signature_secret_key, identity.signature_public_key);
+        let restored = (identity.signature_secret_key, identity.signature_public_key);
+        if self.did_bound {
+            if restored != self.signature_keys {
+                tracing::warn!("ignoring restored MLS signature keys: bound to the did:key");
+            }
+            return Ok(self);
+        }
+        self.signature_keys = restored;
         Ok(self)
     }
 }
@@ -1652,6 +1674,47 @@ mod tests {
             let verifier = self_certified_verifier();
             let result = verifier.check_pubkey_claim_binding(&serde_json::json!({}), None);
             assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
+        }
+
+        fn did_bound_signer(pem: &str) -> SignerJwt {
+            let key = Key {
+                algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(pem.to_string()),
+            };
+            JwtBuilder::new()
+                .private_key(&key)
+                .build()
+                .unwrap()
+                .with_did_key_signature_keys(pem)
+                .unwrap()
+        }
+
+        #[tokio::test]
+        async fn did_bound_signer_refuses_to_replace_its_keys() {
+            initialize_crypto_provider();
+            let (pem, _, public) = fresh_identity();
+            let mut signer = did_bound_signer(&pem);
+
+            let result = signer.set_signature_keys(vec![1], vec![2]).await;
+            assert!(
+                matches!(result, Err(AuthError::SelfCertifiedDid(_))),
+                "{result:?}"
+            );
+            assert_eq!(signer.get_signature_keys().unwrap().1, public);
+        }
+
+        #[test]
+        fn did_bound_signer_keeps_its_keys_on_restore() {
+            initialize_crypto_provider();
+            let (pem, _, public) = fresh_identity();
+            let signer = did_bound_signer(&pem);
+            let mut snapshot = signer.export_identity().unwrap();
+            snapshot.signature_secret_key = vec![1];
+            snapshot.signature_public_key = vec![2];
+
+            let restored = signer.with_restored_identity(snapshot).unwrap();
+            assert_eq!(restored.get_signature_keys().unwrap().1, public);
         }
     }
 

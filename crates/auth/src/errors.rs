@@ -26,6 +26,8 @@ pub enum AuthError {
     InvalidEd25519Key(String),
     #[error("invalid did:key: {0}")]
     InvalidDidKey(String),
+    #[error("self-certified did: {0}")]
+    SelfCertifiedDid(String),
     #[error("missing decoding key or autoresolve is disabled")]
     JwtMissingDecodingKeyOrKeyResolver,
     #[error("missing 'iss' in JWT claims")]

@@ -1043,25 +1043,21 @@ mod tests {
         assert!(err.is_err(), "loading an unknown group must fail");
     }
 
-    /// The default ciphersuite must be P256_AES128 so that native and WASM
-    /// peers can join the same MLS group. Operators that explicitly opt in
-    /// to the `curve25519` feature get the legacy CURVE25519_AES128 suite,
-    /// which is incompatible with browser WebCrypto.
+    /// The default ciphersuite must match the one auth generates keys for:
+    /// P256_AES128 by default (so native and WASM peers can join the same MLS
+    /// group), or CURVE25519_AES128 when `curve25519` is enabled, which is
+    /// incompatible with browser WebCrypto.
     #[test]
-    fn test_default_ciphersuite_is_p256() {
-        #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
-        assert_eq!(
-            ciphersuite_for(false).unwrap(),
-            CipherSuite::P256_AES128,
-            "Default ciphersuite must be P256_AES128 for browser interop",
-        );
+    fn test_default_ciphersuite_matches_auth_ciphersuite() {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let expected = slim_auth::utils::MLS_CIPHERSUITE;
+            assert!([CipherSuite::P256_AES128, CipherSuite::CURVE25519_AES128].contains(&expected));
+            assert_eq!(ciphersuite_for(false).unwrap(), expected);
+        }
 
-        #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
-        assert_eq!(
-            ciphersuite_for(false).unwrap(),
-            CipherSuite::CURVE25519_AES128,
-            "`curve25519` feature must select CURVE25519_AES128",
-        );
+        #[cfg(target_arch = "wasm32")]
+        assert_eq!(ciphersuite_for(false).unwrap(), CipherSuite::P256_AES128);
     }
 
     /// `generate_key_pair` must yield bytes that decode back into the
