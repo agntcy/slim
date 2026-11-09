@@ -396,9 +396,19 @@ pub enum IdentityVerifierConfig {
     /// layout stable; rejected with an error on Windows.
     Spire { config: SpireConfig },
     /// Accepts any JWT whose iss/sub is a did:key:z... Ed25519 identifier,
-    /// with no JWKS, allow-list, or live authority. Makes no admission
-    /// decision beyond "this signature is self-consistent"; `config.key` is
-    /// ignored (see the core crate's InsecureSelfCertifiedDid variant for why).
+    /// with no JWKS, allow-list, or live authority. Contract: key consistency
+    /// only; admission is the application's job. `config.key` is ignored; the
+    /// decoding key always comes from the token itself.
+    ///
+    /// The application must:
+    /// - Require the holder DID in the caller's credential presentation (e.g.
+    ///   OID4VP) to equal the peer's `PEER_SUBJECT_KEY` metadata value, so a
+    ///   presentation cannot be replayed over another caller's session.
+    /// - Bind the presentation to a callee-supplied nonce and an `aud` naming
+    ///   the callee.
+    /// - Run no RPC or message handler before admission succeeds.
+    /// - Apply rate and resource limits to callers not yet admitted, since
+    ///   any key holder can open a session.
     #[cfg(feature = "insecure-self-certified-did")]
     InsecureSelfCertifiedDid { config: JwtAuth },
     /// No identity verifier configured
