@@ -541,7 +541,7 @@ impl<V> Jwt<V> {
 
         // Before caching it: a token that fails the binding must be checked again.
         self.check_subject_binding(&claims_json, owner)?;
-        if self.is_self_certified_did() {
+        if let Some(owner) = owner.filter(|o| o.is_self_certified()) {
             self.check_pubkey_claim_binding(&claims_json, owner)?;
         }
 
@@ -557,7 +557,8 @@ impl<V> Jwt<V> {
     }
 
     /// Whether this verifier's key resolver derives decoding keys from
-    /// tokens' own `iss` claim (`KeyResolver::with_self_certified_did`).
+    /// tokens' own `iss` claim (`KeyResolver::with_self_certified_did`). Only
+    /// for error mapping; the guarantees follow the verifying key's owner.
     fn is_self_certified_did(&self) -> bool {
         self.key_resolver
             .as_ref()
@@ -568,7 +569,7 @@ impl<V> Jwt<V> {
     /// peer can only use its own identity. Not checked for keys that aren't
     /// peer keys, or when the verifier has no binding set.
     ///
-    /// In self-certified-did mode the binding is always enforced, regardless
+    /// For a self-certified key the binding is always enforced, regardless
     /// of `subject_binding`: there, the key that signed the token *is* its
     /// claimed identity, so skipping or merely warning on a mismatch would
     /// defeat the only guarantee this mode provides.
@@ -577,8 +578,7 @@ impl<V> Jwt<V> {
         claims: &serde_json::Value,
         owner: Option<&KeyOwner>,
     ) -> Result<(), AuthError> {
-        let self_certified = self.is_self_certified_did();
-        let mode = if self_certified {
+        let mode = if owner.is_some_and(KeyOwner::is_self_certified) {
             Some(IdentityBinding::Enforce)
         } else {
             self.subject_binding
@@ -615,7 +615,7 @@ impl<V> Jwt<V> {
         }
     }
 
-    /// In self-certified-did mode, require the claims' `pubkey` to be exactly
+    /// For a self-certified key, require the claims' `pubkey` to be exactly
     /// the key encoded in the `did:key` that signed the token.
     ///
     /// The signature alone only proves the token was signed by *some* key
@@ -626,10 +626,9 @@ impl<V> Jwt<V> {
     fn check_pubkey_claim_binding(
         &self,
         claims: &serde_json::Value,
-        owner: Option<&KeyOwner>,
+        owner: &KeyOwner,
     ) -> Result<(), AuthError> {
-        let Some(did) = owner.and_then(KeyOwner::did) else {
-            tracing::warn!("self-certified did:key token verified without a DID key owner");
+        let Some(did) = owner.did() else {
             return Err(AuthError::TokenInvalid);
         };
         let expected = crate::did_key::ed25519_public_key_from_did_key(did)?;
@@ -1595,6 +1594,74 @@ mod tests {
                 .unwrap()
         }
 
+        #[test]
+        fn a_self_certified_owner_enforces_bindings_whatever_the_verifier_sets() {
+            initialize_crypto_provider();
+            let (pem, did, public) = fresh_identity();
+            let (_, _, other_public) = fresh_identity();
+            let header = JwtHeader::new(Algorithm::EdDSA);
+            let candidates = || {
+                KeyResolver::with_self_certified_did()
+                    .cached_candidates(&did, &header)
+                    .unwrap()
+            };
+            // Not self-certified itself: its bindings must come from the owner.
+            let verifier = JwtBuilder::new()
+                .key_resolver(KeyResolver::new())
+                .build()
+                .unwrap();
+            assert!(!verifier.is_self_certified_did());
+
+            let good = self_certified_token(&pem, &did, &public);
+            verifier
+                .verify_with_keys::<StandardClaims>(&good, candidates())
+                .unwrap();
+
+            let wrong_pubkey = self_certified_token(&pem, &did, &other_public);
+            assert!(matches!(
+                verifier.verify_with_keys::<StandardClaims>(&wrong_pubkey, candidates()),
+                Err(AuthError::TokenInvalid)
+            ));
+
+            let wrong_sub = token_with_claims(
+                &pem,
+                &serde_json::json!({
+                    "iss": did, "sub": "someone-else", "exp": far_future_exp(),
+                    "pubkey": STANDARD_BASE64.encode(&public),
+                }),
+            );
+            assert!(matches!(
+                verifier.verify_with_keys::<StandardClaims>(&wrong_sub, candidates()),
+                Err(AuthError::TokenInvalid)
+            ));
+        }
+
+        #[test]
+        fn a_trust_list_owner_with_a_did_is_not_self_certified() {
+            initialize_crypto_provider();
+            let (pem, did, jwk) = ed25519_member(Some("member-a"));
+            let jwks = serde_json::from_value(serde_json::json!({ "keys": [jwk] })).unwrap();
+            let header = JwtHeader::new(Algorithm::EdDSA);
+            let candidates = KeyResolver::with_jwks(jwks)
+                .cached_candidates("test-issuer", &header)
+                .unwrap();
+            let owner = candidates[0].owner.as_ref().unwrap();
+            assert_eq!(owner.did(), Some(did.as_str()));
+            assert!(!owner.is_self_certified());
+
+            // No `pubkey` claim, which a self-certified owner would reject.
+            let token = token_with_claims(
+                &pem,
+                &serde_json::json!({"sub": did, "exp": far_future_exp()}),
+            );
+            JwtBuilder::new()
+                .key_resolver(KeyResolver::new())
+                .build()
+                .unwrap()
+                .verify_with_keys::<StandardClaims>(&token, candidates)
+                .unwrap();
+        }
+
         #[tokio::test]
         async fn verifies_when_the_pubkey_claim_matches_the_signing_did() {
             initialize_crypto_provider();
@@ -1689,9 +1756,10 @@ mod tests {
         }
 
         #[test]
-        fn pubkey_binding_rejects_a_missing_owner() {
+        fn pubkey_binding_rejects_an_owner_without_a_did() {
             let verifier = self_certified_verifier();
-            let result = verifier.check_pubkey_claim_binding(&serde_json::json!({}), None);
+            let result =
+                verifier.check_pubkey_claim_binding(&serde_json::json!({}), &KeyOwner::default());
             assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
         }
 

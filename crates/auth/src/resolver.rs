@@ -43,6 +43,10 @@ pub(crate) fn require_https(url: &str) -> Result<Url, AuthError> {
 pub(crate) struct KeyOwner {
     kid: Option<String>,
     did: Option<String>,
+    /// Set only by [`Self::self_certified`]: the key was derived from the
+    /// token's own `iss`, so `sub` and the `pubkey` claim must be bound to it.
+    /// A `did` alone does not imply this: trust-list Ed25519 keys carry one too.
+    self_certified: bool,
 }
 
 impl KeyOwner {
@@ -60,15 +64,21 @@ impl KeyOwner {
         KeyOwner {
             kid: jwk.common.key_id.clone(),
             did,
+            self_certified: false,
         }
     }
 
-    /// A key owner known only by its `did:key`, with no JWKS `kid`.
-    fn from_did(did: String) -> Self {
+    /// The owner of a key derived from its own `did:key`, with no JWKS `kid`.
+    pub(crate) fn self_certified(did: String) -> Self {
         KeyOwner {
             kid: None,
             did: Some(did),
+            self_certified: true,
         }
+    }
+
+    pub(crate) fn is_self_certified(&self) -> bool {
+        self.self_certified
     }
 
     /// Whether `sub` names this key's owner.
@@ -306,7 +316,7 @@ impl KeyResolver {
         Ok(Candidate {
             key: DecodingKey::from_jwk(&jwk)?,
             algorithm: Algorithm::EdDSA,
-            owner: Some(KeyOwner::from_did(issuer.to_string())),
+            owner: Some(KeyOwner::self_certified(issuer.to_string())),
         })
     }
 
