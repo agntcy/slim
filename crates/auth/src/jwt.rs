@@ -590,8 +590,15 @@ impl<V> Jwt<V> {
             return Ok(());
         }
         // The signature has just been verified.
-        let sub = claims.get("sub").and_then(serde_json::Value::as_str);
-        if sub.is_some_and(|sub| owner.owns(sub)) {
+        let sub = claims
+            .get("sub")
+            .map(|v| serde_json::from_value::<Option<String>>(v.clone()))
+            .transpose()
+            .map_err(|e| {
+                jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::Json(e.into()))
+            })?
+            .flatten();
+        if sub.as_deref().is_some_and(|sub| owner.owns(sub)) {
             return Ok(());
         }
         let enforced = mode == IdentityBinding::Enforce;
@@ -1431,6 +1438,10 @@ mod tests {
 
     /// A token signed with `pem`, claiming `sub`, with `kid` in its header.
     fn token_signed_by(pem: &str, kid: Option<&str>, sub: &str) -> String {
+        token_with_sub(pem, kid, serde_json::json!(sub))
+    }
+
+    fn token_with_sub(pem: &str, kid: Option<&str>, sub: serde_json::Value) -> String {
         let exp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1492,6 +1503,22 @@ mod tests {
         assert!(logs_contain(
             "token subject does not belong to the trusted key that signed it"
         ));
+    }
+
+    #[tokio::test]
+    async fn warn_rejects_a_non_string_sub_but_accepts_a_string_mismatch() {
+        initialize_crypto_provider();
+        let (_, _, jwk_a) = ed25519_member(Some("member-a"));
+        let (pem_b, _, jwk_b) = ed25519_member(Some("member-b"));
+        let verifier = trust_list_verifier(vec![jwk_a, jwk_b], Some(IdentityBinding::Warn));
+
+        let token = token_with_sub(&pem_b, Some("member-b"), serde_json::json!(42));
+        let result: Result<serde_json::Value, _> = verifier.get_claims(token).await;
+        assert!(result.is_err(), "{result:?}");
+
+        let token = token_signed_by(&pem_b, Some("member-b"), "member-a");
+        let result: Result<serde_json::Value, _> = verifier.get_claims(token).await;
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[tokio::test]
