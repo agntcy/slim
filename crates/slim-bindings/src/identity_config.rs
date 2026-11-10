@@ -11,6 +11,9 @@ use slim_config::auth::jwt::{Claims as JwtClaims, JwtKey};
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use std::time::Duration;
 
+#[cfg(feature = "insecure-self-certified-did")]
+use slim_config::auth::jwt::{SelfCertifiedDidVerifierClaims, SelfCertifiedDidVerifierConfig};
+
 use crate::common_config::SpireConfig;
 #[cfg(target_family = "windows")]
 use crate::common_config::spire_unsupported;
@@ -309,6 +312,46 @@ impl From<JwtAuthConfig> for JwtAuth {
     }
 }
 
+/// Verifier settings for `IdentityVerifierConfig::InsecureSelfCertifiedDid`: only
+/// the claims to check. There is no key or issuer; each token's own `did:key` is both.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct SelfCertifiedDidVerifierAuth {
+    /// JWT audience claims to verify
+    pub audience: Option<Vec<String>>,
+    /// JWT subject to verify
+    pub subject: Option<String>,
+}
+
+#[cfg(feature = "insecure-self-certified-did")]
+impl From<SelfCertifiedDidVerifierAuth> for SelfCertifiedDidVerifierConfig {
+    fn from(config: SelfCertifiedDidVerifierAuth) -> Self {
+        SelfCertifiedDidVerifierConfig {
+            claims: SelfCertifiedDidVerifierClaims {
+                audience: config.audience,
+                subject: config.subject,
+            },
+        }
+    }
+}
+
+#[cfg(feature = "insecure-self-certified-did")]
+impl From<SelfCertifiedDidVerifierConfig> for SelfCertifiedDidVerifierAuth {
+    fn from(config: SelfCertifiedDidVerifierConfig) -> Self {
+        SelfCertifiedDidVerifierAuth {
+            audience: config.claims.audience,
+            subject: config.claims.subject,
+        }
+    }
+}
+
+/// The error returned for `InsecureSelfCertifiedDid` when the Cargo feature is off.
+#[cfg(not(feature = "insecure-self-certified-did"))]
+fn self_certified_did_unsupported() -> SlimError {
+    SlimError::InvalidArgument {
+        message: "InsecureSelfCertifiedDid requires the `insecure-self-certified-did` Cargo feature, which is not enabled in this build".to_string(),
+    }
+}
+
 /// Identity provider configuration - used to prove identity to others
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum IdentityProviderConfig {
@@ -323,7 +366,8 @@ pub enum IdentityProviderConfig {
     Spire { config: SpireConfig },
     /// Signs as the Ed25519 `did:key` of `config.key` and uses that key as the
     /// MLS signature key, for peers verified with `InsecureSelfCertifiedDid`.
-    #[cfg(feature = "insecure-self-certified-did")]
+    /// Present in every build to keep the uniffi layout stable; rejected with an
+    /// error unless the `insecure-self-certified-did` feature is enabled.
     InsecureSelfCertifiedDid { config: ClientJwtAuth },
     /// No identity provider configured
     None,
@@ -352,6 +396,10 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
             #[cfg(feature = "insecure-self-certified-did")]
             IdentityProviderConfig::InsecureSelfCertifiedDid { config } => {
                 CoreIdentityProviderConfig::InsecureSelfCertifiedDid(config.into())
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { .. } => {
+                panic!("InsecureSelfCertifiedDid requires the insecure-self-certified-did feature");
             }
             IdentityProviderConfig::None => CoreIdentityProviderConfig::None,
         }
@@ -397,8 +445,10 @@ pub enum IdentityVerifierConfig {
     Spire { config: SpireConfig },
     /// Accepts any JWT whose iss/sub is a did:key:z... Ed25519 identifier,
     /// with no JWKS, allow-list, or live authority. Contract: key consistency
-    /// only; admission is the application's job. `config.key` is ignored; the
-    /// decoding key always comes from the token itself.
+    /// only; admission is the application's job. The decoding key always comes
+    /// from the token itself. Present in every build to keep the uniffi layout
+    /// stable; rejected with an error unless the `insecure-self-certified-did`
+    /// feature is enabled.
     ///
     /// The application must:
     /// - Require the holder DID in the caller's credential presentation (e.g.
@@ -409,8 +459,9 @@ pub enum IdentityVerifierConfig {
     /// - Run no RPC or message handler before admission succeeds.
     /// - Apply rate and resource limits to callers not yet admitted, since
     ///   any key holder can open a session.
-    #[cfg(feature = "insecure-self-certified-did")]
-    InsecureSelfCertifiedDid { config: JwtAuth },
+    InsecureSelfCertifiedDid {
+        config: SelfCertifiedDidVerifierAuth,
+    },
     /// No identity verifier configured
     None,
 }
@@ -435,6 +486,10 @@ impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
             #[cfg(feature = "insecure-self-certified-did")]
             IdentityVerifierConfig::InsecureSelfCertifiedDid { config } => {
                 CoreIdentityVerifierConfig::InsecureSelfCertifiedDid(config.into())
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityVerifierConfig::InsecureSelfCertifiedDid { .. } => {
+                panic!("InsecureSelfCertifiedDid requires the insecure-self-certified-did feature");
             }
             IdentityVerifierConfig::None => CoreIdentityVerifierConfig::None,
         }
@@ -488,6 +543,10 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
                 let core_config: JwtAuthConfig = config.into();
                 let provider = core_config.get_self_certified_did_provider()?;
                 Ok(AuthProvider::jwt_signer(provider))
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { .. } => {
+                Err(self_certified_did_unsupported())
             }
             #[cfg(not(target_family = "windows"))]
             IdentityProviderConfig::Spire { config } => {
@@ -553,9 +612,13 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
             IdentityVerifierConfig::Spire { .. } => Err(spire_unsupported()),
             #[cfg(feature = "insecure-self-certified-did")]
             IdentityVerifierConfig::InsecureSelfCertifiedDid { config } => {
-                let core_config: JwtAuthConfig = config.into();
-                let verifier = core_config.get_self_certified_did_verifier()?;
+                let core_config: SelfCertifiedDidVerifierConfig = config.into();
+                let verifier = core_config.get_verifier()?;
                 Ok(AuthVerifier::jwt_verifier(verifier))
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityVerifierConfig::InsecureSelfCertifiedDid { .. } => {
+                Err(self_certified_did_unsupported())
             }
             IdentityVerifierConfig::None => Err(SlimError::InvalidArgument {
                 message: "Cannot create AuthVerifier from None variant".to_string(),
@@ -839,12 +902,9 @@ mod tests {
     #[test]
     fn test_identity_verifier_config_insecure_self_certified_did() {
         let config = IdentityVerifierConfig::InsecureSelfCertifiedDid {
-            config: JwtAuth {
-                key: JwtKeyType::Autoresolve,
+            config: SelfCertifiedDidVerifierAuth {
                 audience: Some(vec!["verifier".to_string()]),
-                issuer: None,
                 subject: None,
-                duration: Duration::from_secs(600),
             },
         };
 
@@ -910,17 +970,44 @@ mod tests {
     fn test_identity_verifier_to_auth_verifier_insecure_self_certified_did() {
         slim_config::tls::provider::initialize_crypto_provider();
         let config = IdentityVerifierConfig::InsecureSelfCertifiedDid {
-            config: JwtAuth {
-                key: JwtKeyType::Autoresolve,
+            config: SelfCertifiedDidVerifierAuth {
                 audience: None,
-                issuer: None,
                 subject: None,
-                duration: Duration::from_secs(600),
             },
         };
 
         let result: Result<AuthVerifier, SlimError> = config.try_into();
         assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[cfg(not(feature = "insecure-self-certified-did"))]
+    #[test]
+    fn test_insecure_self_certified_did_rejected_without_feature() {
+        let provider: Result<AuthProvider, SlimError> =
+            IdentityProviderConfig::InsecureSelfCertifiedDid {
+                config: ClientJwtAuth {
+                    key: JwtKeyType::Autoresolve,
+                    audience: None,
+                    issuer: None,
+                    subject: None,
+                    duration: Duration::from_secs(600),
+                },
+            }
+            .try_into();
+        let verifier: Result<AuthVerifier, SlimError> =
+            IdentityVerifierConfig::InsecureSelfCertifiedDid {
+                config: SelfCertifiedDidVerifierAuth {
+                    audience: None,
+                    subject: None,
+                },
+            }
+            .try_into();
+        for err in [provider.err().unwrap(), verifier.err().unwrap()] {
+            assert!(
+                matches!(&err, SlimError::InvalidArgument { message } if message.contains("insecure-self-certified-did")),
+                "{err:?}"
+            );
+        }
     }
 
     // Test invalid shared secret (too short)

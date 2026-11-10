@@ -213,12 +213,8 @@ impl Config {
 
     /// Internal helper to build a base JwtBuilder with configured standard claims.
     fn jwt_builder(&self) -> JwtBuilder {
-        self.jwt_builder_impl(true)
-    }
-
-    fn jwt_builder_impl(&self, include_issuer: bool) -> JwtBuilder {
         let mut builder = JwtBuilder::new();
-        if include_issuer && let Some(issuer) = &self.claims().issuer {
+        if let Some(issuer) = &self.claims().issuer {
             builder = builder.issuer(issuer);
         }
         if let Some(audience) = &self.claims().audience {
@@ -303,33 +299,46 @@ impl Config {
             _ => Err(AuthError::JwtMissingDecodingKeyOrKeyResolver),
         }
     }
+}
 
-    /// Build a verifier that derives its decoding key from each token's own
-    /// `iss` claim (a `did:key:z...` Ed25519 identifier) instead of from
-    /// `key()` -- `key()` is not consulted for this mode. `claims.issuer` is
-    /// also ignored: each peer's `iss` is its own did:key, so there is no
-    /// single expected issuer to validate against (a configured value is
-    /// logged and dropped rather than silently rejecting every token).
-    /// Reachable only via
-    /// [`crate::auth::identity::IdentityVerifierConfig::InsecureSelfCertifiedDid`].
-    #[cfg(feature = "insecure-self-certified-did")]
-    pub fn get_self_certified_did_verifier(&self) -> Result<VerifierJwt, AuthError> {
-        if let Some(issuer) = &self.claims().issuer {
-            tracing::warn!(
-                issuer,
-                "ignoring configured issuer: self-certified-did mode verifies each token's own did:key as its issuer"
-            );
+/// Verifier settings for
+/// [`crate::auth::identity::IdentityVerifierConfig::InsecureSelfCertifiedDid`].
+/// There is no key and no issuer: each token's own `did:key` `iss` is the
+/// decoding key and the issuer. Unknown fields are rejected.
+#[cfg(feature = "insecure-self-certified-did")]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SelfCertifiedDidVerifierConfig {
+    #[serde(default)]
+    pub claims: SelfCertifiedDidVerifierClaims,
+}
+
+#[cfg(feature = "insecure-self-certified-did")]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SelfCertifiedDidVerifierClaims {
+    /// JWT audience
+    #[serde(alias = "aud", alias = "audiences")]
+    pub audience: Option<Vec<String>>,
+
+    /// JWT subject
+    #[serde(alias = "sub")]
+    pub subject: Option<String>,
+}
+
+#[cfg(feature = "insecure-self-certified-did")]
+impl SelfCertifiedDidVerifierConfig {
+    pub fn get_verifier(&self) -> Result<VerifierJwt, AuthError> {
+        let mut builder = JwtBuilder::new();
+        if let Some(audience) = &self.claims.audience {
+            builder = builder.audience(audience);
         }
-
-        // `auto_resolve_keys(true)` is just how a `VerifierJwt` is reached
-        // with no decoding key of its own yet (the only other route,
-        // `.public_key(key)`, needs a `Key` we don't have here); the
-        // `KeyResolver::new()` it attaches is immediately replaced below, so
-        // it never does any network resolution.
-        let verifier = self
-            .jwt_builder_impl(false)
-            .auto_resolve_keys(true)
-            .build()?;
+        if let Some(subject) = &self.claims.subject {
+            builder = builder.subject(subject);
+        }
+        // `auto_resolve_keys(true)` is only how a `VerifierJwt` is reached with
+        // no key; its default resolver is replaced here and never resolves.
+        let verifier = builder.auto_resolve_keys(true).build()?;
         Ok(verifier.with_key_resolver(slim_auth::resolver::KeyResolver::with_self_certified_did()))
     }
 }
@@ -743,70 +752,6 @@ mod tests {
     }
 
     #[cfg(feature = "insecure-self-certified-did")]
-    #[test]
-    fn test_get_self_certified_did_verifier_ignores_key() {
-        initialize_crypto_provider();
-        // `key` is mandatory on `Config::new` but irrelevant here -- any
-        // placeholder works, including one that would fail `get_verifier()`.
-        let cfg = Config::new(
-            Claims::default(),
-            Duration::from_secs(60),
-            hs256_encoding_key(),
-        );
-        let verifier = cfg.get_self_certified_did_verifier();
-        assert!(
-            verifier.is_ok(),
-            "expected a self-certified-did verifier regardless of key: {:?}",
-            verifier.err()
-        );
-    }
-
-    #[cfg(feature = "insecure-self-certified-did")]
-    #[tokio::test]
-    async fn test_get_self_certified_did_verifier_ignores_configured_issuer() {
-        use slim_auth::traits::{Signer, Verifier};
-
-        initialize_crypto_provider();
-
-        let pem = test_key::pem();
-        let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
-        let public_key = slim_auth::did_key::ed25519_public_key_from_pkcs8_pem(&pem).unwrap();
-        let pubkey_claim =
-            slim_auth::identity_claims::IdentityClaims::from_public_key_bytes(&public_key);
-
-        let signer_cfg = Config::new(
-            Claims::new(
-                None,
-                Some(did.clone()),
-                Some(did.clone()),
-                Some(pubkey_claim),
-            ),
-            Duration::from_secs(60),
-            JwtKey::Encoding(Key {
-                algorithm: Algorithm::EdDSA,
-                format: KeyFormat::Pem,
-                key: KeyData::Data(pem),
-            }),
-        );
-        let token = signer_cfg
-            .get_provider()
-            .unwrap()
-            .sign_standard_claims()
-            .unwrap();
-
-        // `issuer` is set to a value that is NOT the signer's did:key --
-        // self-certified-did mode must not reject the token on that basis.
-        let verifier_cfg = Config::new(
-            Claims::default().with_issuer("some-other-issuer"),
-            Duration::from_secs(60),
-            JwtKey::Autoresolve,
-        );
-        let verifier = verifier_cfg.get_self_certified_did_verifier().unwrap();
-        let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
-        assert_eq!(claims["sub"], did);
-    }
-
-    #[cfg(feature = "insecure-self-certified-did")]
     fn self_certified_signer_config() -> (
         crate::auth::identity::IdentityProviderConfig,
         String,
@@ -936,13 +881,9 @@ mod tests {
         );
         let provider = cfg.get_self_certified_did_provider().unwrap();
 
-        let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Config::new(
-            Claims::default(),
-            Duration::from_secs(60),
-            JwtKey::Autoresolve,
-        ))
-        .build_auth_verifier()
-        .unwrap();
+        let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Default::default())
+            .build_auth_verifier()
+            .unwrap();
         let claims: serde_json::Value = verifier
             .get_claims(provider.get_token().unwrap())
             .await
@@ -963,13 +904,9 @@ mod tests {
         let provider = provider_cfg.build_auth_provider().unwrap();
         let token = provider.get_token().unwrap();
 
-        let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Config::new(
-            Claims::default(),
-            Duration::from_secs(60),
-            JwtKey::Autoresolve,
-        ))
-        .build_auth_verifier()
-        .unwrap();
+        let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Default::default())
+            .build_auth_verifier()
+            .unwrap();
         let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
 
         assert_eq!(claims["iss"], did);

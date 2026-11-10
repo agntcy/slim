@@ -6,6 +6,8 @@ use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 
 use crate::auth::ConfigAuthError;
 use crate::auth::jwt::Config as JwtConfig;
+#[cfg(feature = "insecure-self-certified-did")]
+use crate::auth::jwt::SelfCertifiedDidVerifierConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig;
 use crate::auth::static_jwt::Config as StaticJwtConfig;
@@ -43,9 +45,9 @@ pub enum IdentityVerifierConfig {
     Spire(SpireConfig),
     /// Accepts any JWT whose `iss`/`sub` is a `did:key:z...` Ed25519
     /// identifier, with no JWKS, allow-list, or live authority. Contract: key
-    /// consistency only; admission is the application's job. The wrapped
-    /// `JwtConfig`'s `key` field is ignored; the decoding key always comes
-    /// from the token itself. Requires the `insecure-self-certified-did`
+    /// consistency only; admission is the application's job. The
+    /// config has no `key` or `issuer`; the decoding key always comes from the
+    /// token itself. Requires the `insecure-self-certified-did`
     /// Cargo feature to construct or deserialize.
     ///
     /// The application must:
@@ -58,7 +60,7 @@ pub enum IdentityVerifierConfig {
     /// - Apply rate and resource limits to callers not yet admitted, since
     ///   any key holder can open a session.
     #[cfg(feature = "insecure-self-certified-did")]
-    InsecureSelfCertifiedDid(JwtConfig),
+    InsecureSelfCertifiedDid(SelfCertifiedDidVerifierConfig),
     #[default]
     None,
 }
@@ -106,8 +108,8 @@ impl IdentityVerifierConfig {
                 Ok(AuthVerifier::spire(manager))
             }
             #[cfg(feature = "insecure-self-certified-did")]
-            Self::InsecureSelfCertifiedDid(jwt_config) => {
-                let verifier = jwt_config.get_self_certified_did_verifier()?;
+            Self::InsecureSelfCertifiedDid(config) => {
+                let verifier = config.get_verifier()?;
                 Ok(AuthVerifier::jwt_verifier(verifier))
             }
             Self::None => Err(ConfigAuthError::IdentityVerifierNotConfigured),
@@ -118,18 +120,10 @@ impl IdentityVerifierConfig {
 #[cfg(all(test, feature = "insecure-self-certified-did"))]
 mod tests {
     use super::*;
-    use crate::auth::jwt::{Claims, JwtKey};
     use crate::tls::provider::initialize_crypto_provider;
-    use std::time::Duration;
 
     fn insecure_self_certified_did_config() -> IdentityVerifierConfig {
-        // `key` is mandatory on `JwtConfig::new` but ignored by this variant;
-        // `Autoresolve` is just a harmless placeholder.
-        IdentityVerifierConfig::InsecureSelfCertifiedDid(JwtConfig::new(
-            Claims::default(),
-            Duration::from_secs(60),
-            JwtKey::Autoresolve,
-        ))
+        IdentityVerifierConfig::InsecureSelfCertifiedDid(SelfCertifiedDidVerifierConfig::default())
     }
 
     #[test]
@@ -148,6 +142,36 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let decoded: IdentityVerifierConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, config);
+    }
+
+    #[test]
+    fn parses_type_tag_audience_and_subject() {
+        let config: IdentityVerifierConfig = serde_json::from_str(
+            r#"{"type": "insecure_self_certified_did", "claims": {"aud": ["callee"], "sub": "s"}}"#,
+        )
+        .unwrap();
+        let IdentityVerifierConfig::InsecureSelfCertifiedDid(config) = config else {
+            panic!("wrong variant");
+        };
+        assert_eq!(config.claims.audience, Some(vec!["callee".to_string()]));
+        assert_eq!(config.claims.subject.as_deref(), Some("s"));
+    }
+
+    #[test]
+    fn rejects_fields_the_verifier_would_ignore() {
+        for body in [
+            r#""claims": {"issuer": "did:key:z6Mk"}"#,
+            r#""claims": {"duration": "60s"}"#,
+            r#""key": {"type": "autoresolve"}"#,
+            r#""duration": "60s""#,
+            r#""subject_binding": "strict""#,
+        ] {
+            let json = format!(r#"{{"type": "insecure_self_certified_did", {body}}}"#);
+            let err = serde_json::from_str::<IdentityVerifierConfig>(&json)
+                .expect_err(&json)
+                .to_string();
+            assert!(err.contains("unknown field"), "{json}: {err}");
+        }
     }
 
     #[test]
