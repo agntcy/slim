@@ -1092,3 +1092,176 @@ async fn test_participant_rejoin_after_epoch_advance_with_persistence() {
 
     publisher.abort();
 }
+
+/// Which side of a point-to-point session is restarted and restored.
+#[derive(Clone, Copy, Debug)]
+enum P2pRestart {
+    Initiator,
+    Responder,
+}
+
+/// Like [`collect_messages`], but also hands back the session so the test can
+/// publish on it.
+fn collect_and_keep(
+    ctx: slim_session::context::SessionContext,
+    sink: Arc<Mutex<Vec<String>>>,
+) -> Arc<slim_session::session_controller::SessionController> {
+    let session = ctx.session_arc().expect("no session arc");
+    collect_messages(ctx, sink);
+    session
+}
+
+/// Publish `text` on a point-to-point session, addressed to its peer.
+async fn p2p_publish(session: &slim_session::session_controller::SessionController, text: &str) {
+    session
+        .publish(session.dst(), text.as_bytes().to_vec(), None, None)
+        .await
+        .unwrap_or_else(|e| panic!("publish {text:?} failed: {e}"));
+}
+
+/// Restore a point-to-point session from persistence, with and without MLS,
+/// restarting either side, and check that both sides can still send to each
+/// other afterwards. The restored side gets no new discovery/join/welcome: it
+/// must re-establish routing to its peer from the persisted record alone.
+#[rstest::rstest]
+#[tokio::test(flavor = "multi_thread")]
+async fn test_p2p_session_restore(
+    #[values(true, false)] mls: bool,
+    #[values(P2pRestart::Initiator, P2pRestart::Responder)] restart: P2pRestart,
+) {
+    let port = reserve_local_port();
+    tokio::spawn(async move {
+        let _ = run_slim_node(port).await;
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let initiator_name = Name::from_strings(["org", "ns", "p2p-initiator"]);
+    let responder_name = Name::from_strings(["org", "ns", "p2p-responder"]);
+
+    let initiator_dir = tempfile::tempdir().unwrap();
+    let responder_dir = tempfile::tempdir().unwrap();
+
+    let initiator_secret = SharedSecret::new("initiator-identity", TEST_VALID_SECRET).unwrap();
+    let responder_secret = SharedSecret::new("responder-identity", TEST_VALID_SECRET).unwrap();
+
+    // 1. Responder: keep the session it is handed so it can reply.
+    let (responder_app, mut responder_rx, _responder_conn, responder_svc) = create_persistent_app(
+        port,
+        &responder_name,
+        responder_secret,
+        responder_dir.path(),
+    )
+    .await;
+    let at_responder = Arc::new(Mutex::new(Vec::<String>::new()));
+    let (responder_session_tx, mut responder_session_rx) = tokio::sync::mpsc::unbounded_channel();
+    let responder_sink = at_responder.clone();
+    let responder_listener = tokio::spawn(async move {
+        while let Some(Ok(Notification::NewSession(ctx))) = responder_rx.recv().await {
+            let _ = responder_session_tx.send(collect_and_keep(ctx, responder_sink.clone()));
+        }
+    });
+
+    // 2. Initiator opens the point-to-point session.
+    let (initiator_app, _initiator_rx, initiator_conn, initiator_svc) = create_persistent_app(
+        port,
+        &initiator_name,
+        initiator_secret,
+        initiator_dir.path(),
+    )
+    .await;
+    initiator_app
+        .set_route(&responder_name, initiator_conn)
+        .await
+        .expect("failed to set route to responder");
+
+    let config = SessionConfig {
+        session_type: slim_datapath::api::ProtoSessionType::PointToPoint,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        mls_settings: mls.then(MlsSettings::default),
+        initiator: true,
+        metadata: Default::default(),
+    };
+    let (initiator_ctx, completion) = initiator_app
+        .create_session(config, responder_name.clone(), None)
+        .await
+        .expect("failed to create session");
+    completion.await.expect("session establishment failed");
+
+    let at_initiator = Arc::new(Mutex::new(Vec::<String>::new()));
+    let initiator_session = collect_and_keep(initiator_ctx, at_initiator.clone());
+    let responder_session =
+        tokio::time::timeout(Duration::from_secs(10), responder_session_rx.recv())
+            .await
+            .expect("responder never got the session")
+            .expect("responder listener ended");
+
+    // 3. Baseline, both directions.
+    p2p_publish(&initiator_session, "to-responder-before").await;
+    wait_for_message(
+        &at_responder,
+        "to-responder-before",
+        Duration::from_secs(10),
+    )
+    .await;
+    p2p_publish(&responder_session, "to-initiator-before").await;
+    wait_for_message(
+        &at_initiator,
+        "to-initiator-before",
+        Duration::from_secs(10),
+    )
+    .await;
+
+    // 4. Restart one side and restore its session from disk.
+    let (initiator_session, responder_session, _keep_alive) = match restart {
+        P2pRestart::Initiator => {
+            drop(initiator_session);
+            drop(initiator_app);
+            drop(initiator_svc);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let secret = SharedSecret::new("initiator-identity", TEST_VALID_SECRET).unwrap();
+            let (app, _rx, conn, svc) =
+                create_persistent_app(port, &initiator_name, secret, initiator_dir.path()).await;
+            app.set_route(&responder_name, conn)
+                .await
+                .expect("failed to set route to responder after restart");
+            let restored = app.restore_sessions(conn).await.expect("restore failed");
+            assert_eq!(
+                restored.len(),
+                1,
+                "the initiator session should be restored"
+            );
+            let session =
+                collect_and_keep(restored.into_iter().next().unwrap(), at_initiator.clone());
+            (session, responder_session, (app, svc))
+        }
+        P2pRestart::Responder => {
+            drop(responder_session);
+            responder_listener.abort();
+            drop(responder_app);
+            drop(responder_svc);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let secret = SharedSecret::new("responder-identity", TEST_VALID_SECRET).unwrap();
+            let (app, _rx, conn, svc) =
+                create_persistent_app(port, &responder_name, secret, responder_dir.path()).await;
+            let restored = app.restore_sessions(conn).await.expect("restore failed");
+            assert_eq!(
+                restored.len(),
+                1,
+                "the responder session should be restored"
+            );
+            let session =
+                collect_and_keep(restored.into_iter().next().unwrap(), at_responder.clone());
+            (initiator_session, session, (app, svc))
+        }
+    };
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // 5. Both directions again, through the restored session.
+    p2p_publish(&initiator_session, "to-responder-after").await;
+    wait_for_message(&at_responder, "to-responder-after", Duration::from_secs(10)).await;
+    p2p_publish(&responder_session, "to-initiator-after").await;
+    wait_for_message(&at_initiator, "to-initiator-after", Duration::from_secs(10)).await;
+}

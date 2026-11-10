@@ -1691,6 +1691,7 @@ The `endpoint` field can be configured as either a network address or a Unix soc
 | `keepalive.max_connection_age` | duration | ❌ | `"2h"` | Max connection age | - |
 | `keepalive.time` | duration | ❌ | `"2m"` | Keepalive interval | - |
 | `keepalive.timeout` | duration | ❌ | `"20s"` | Keepalive timeout | - |
+| `tcp_nodelay` | boolean | ❌ | `true` | Set TCP_NODELAY on accepted connections | - |
 | `auth` | AuthConfig | ❌ | `none` | Authentication config | - |
 | `metadata` | object | ❌ | `null` | User metadata | - |
 
@@ -1713,6 +1714,7 @@ The `endpoint` field can be configured as either a network address or a Unix soc
 | `headers` | map | ❌ | `{}` | Custom headers | - |
 | `rate_limit` | string | ❌ | `null` | Rate limiting | - |
 | `keepalive` | KeepaliveConfig | ❌ | `null` | Keepalive settings | - |
+| `tcp_nodelay` | boolean | ❌ | `true` | Set TCP_NODELAY on the connection | - |
 | `proxy` | ProxyConfig | ❌ | - | HTTP proxy config | - |
 | `auth` | AuthConfig | ❌ | `none` | Authentication config | - |
 | `backoff` | BackoffConfig | ❌ | fixed_interval 2s | Retry backoff | - |

@@ -1432,24 +1432,27 @@ where
         self.subscribed = true;
         self.conn_id = Some(conn);
 
-        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
-            return Ok(());
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            let destination = self.common.settings.destination.clone();
+            let control = self.common.settings.control.clone();
+
+            // Restore the control sender's group name so heartbeats resume after
+            // a restart, matching what `on_join_request` does for a fresh join.
+            // Without it a restored session that then sits idle emits no
+            // heartbeats and the moderator eventually marks it offline. For
+            // multicast the heartbeat/control traffic uses the control name.
+            self.common.sender.set_group_name(control.clone());
+
+            self.common.add_route(destination.clone(), conn).await?;
+            self.common.add_subscription(destination, conn).await?;
+            self.common.add_route(control.clone(), conn).await?;
+            self.common.add_subscription(control, conn).await?;
+        } else {
+            // In point-to-point sessions the group name is the destination.
+            self.common
+                .sender
+                .set_group_name(self.common.settings.destination.clone());
         }
-
-        let destination = self.common.settings.destination.clone();
-        let control = self.common.settings.control.clone();
-
-        // Restore the control sender's group name so heartbeats resume after a
-        // restart, matching what `on_join_request` does for a fresh join.
-        // Without it a restored session that then sits idle emits no heartbeats
-        // and the moderator eventually marks it offline. For multicast the
-        // heartbeat/control traffic uses the control name.
-        self.common.sender.set_group_name(control.clone());
-
-        self.common.add_route(destination.clone(), conn).await?;
-        self.common.add_subscription(destination, conn).await?;
-        self.common.add_route(control.clone(), conn).await?;
-        self.common.add_subscription(control, conn).await?;
 
         // For each other group member (moderator included), skipping self:
         // re-add its route AND re-register it with the session sender. Without
