@@ -17,6 +17,8 @@ shopt: [globstar]
 
 vars:
   GLOBAL_ARGS: '{{.GLOBAL_ARGS | default "--workspace"}}'
+  SELF_CERT_DID_PKGS: "-p agntcy-slim-auth -p agntcy-slim-config -p agntcy-slim-mls -p agntcy-slim-bindings"
+  SELF_CERT_DID_FEATURES: "--features agntcy-slim-auth/insecure-self-certified-did,agntcy-slim-config/insecure-self-certified-did,agntcy-slim-bindings/insecure-self-certified-did,agntcy-slim-mls/curve25519"
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
   PROFILE: '{{.PROFILE | default "debug"}}'
@@ -214,6 +216,15 @@ tasks:
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked"}}'
 
+  clippy:self-cert-did:
+    desc: "Run clippy with the opt-in insecure-self-certified-did feature (not built by the default workspace run)"
+    deps:
+      - task: install-target
+    cmds:
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.SELF_CERT_DID_PKGS}} {{.SELF_CERT_DID_FEATURES}} {{.ARGS}} -- -D warnings
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked"}}'
+
   sort:
     desc: "Sort the dependencies"
     deps:
@@ -279,6 +290,7 @@ tasks:
     cmds:
       - task: fmt:check
       - task: clippy
+      - task: clippy:self-cert-did
       - task: vuln
       - task: sort:check
       - task: unused:check
@@ -291,6 +303,14 @@ tasks:
     desc: "Run the tests"
     cmds:
       - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.GLOBAL_ARGS}} {{.ARGS}}
+      - task: test:self-cert-did
+    vars:
+      ARGS: '{{.ARGS | default "--all-targets --locked"}}'
+
+  test:self-cert-did:
+    desc: "Run the tests with the opt-in insecure-self-certified-did feature (not built by the default workspace run)"
+    cmds:
+      - ulimit -n 4096 2>/dev/null || true; cargo test {{.RELEASE}} {{.TARGET_ARGS}} {{.SELF_CERT_DID_PKGS}} {{.SELF_CERT_DID_FEATURES}} {{.ARGS}}
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked"}}'
 
