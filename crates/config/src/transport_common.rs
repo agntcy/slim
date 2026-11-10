@@ -72,9 +72,8 @@ impl ClientConfig {
     pub(crate) fn create_http_connector(&self) -> Result<HttpConnector, ConfigError> {
         let mut http = HttpConnector::new();
 
-        // NOTE(msardara): we might want to make these configurable as well.
         http.enforce_http(false);
-        http.set_nodelay(false);
+        http.set_nodelay(self.tcp_nodelay);
 
         match self.connect_timeout.as_millis() {
             0 => http.set_connect_timeout(None),

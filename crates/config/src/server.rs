@@ -120,6 +120,11 @@ pub struct ServerConfig {
     #[serde(default)]
     pub keepalive: KeepaliveServerParameters,
 
+    /// Set TCP_NODELAY on accepted connections, disabling Nagle's algorithm.
+    /// By default it is `true`.
+    #[serde(default = "default_tcp_nodelay")]
+    pub tcp_nodelay: bool,
+
     /// Auth for this receiver.
     #[serde(default)]
     pub auth: AuthenticationConfig,
@@ -192,6 +197,7 @@ impl Default for ServerConfig {
             read_buffer_size: Some(1024 * 1024),
             write_buffer_size: Some(1024 * 1024),
             keepalive: KeepaliveServerParameters::default(),
+            tcp_nodelay: default_tcp_nodelay(),
             auth: AuthenticationConfig::default(),
             metadata: None,
             require_header_mac: true,
@@ -209,6 +215,10 @@ fn default_require_header_mac() -> bool {
     true
 }
 
+fn default_tcp_nodelay() -> bool {
+    true
+}
+
 fn default_negotiation_timeout_secs() -> u64 {
     5
 }
@@ -222,7 +232,7 @@ impl std::fmt::Display for ServerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, auth: {:?}, metadata: {:?}, require_header_mac: {}, negotiation_timeout_secs: {}, link_hmac_poll_interval_ms: {} }}",
+            "ServerConfig {{ endpoint: {}, transport: {:?}, tls_setting: {}, http2_only: {}, max_frame_size: {:?}, max_concurrent_streams: {:?}, max_header_list_size: {:?}, read_buffer_size: {:?}, write_buffer_size: {:?}, keepalive: {:?}, tcp_nodelay: {}, auth: {:?}, metadata: {:?}, require_header_mac: {}, negotiation_timeout_secs: {}, link_hmac_poll_interval_ms: {} }}",
             self.endpoint,
             self.resolved_transport(),
             self.tls_setting,
@@ -233,6 +243,7 @@ impl std::fmt::Display for ServerConfig {
             self.read_buffer_size,
             self.write_buffer_size,
             self.keepalive,
+            self.tcp_nodelay,
             self.auth,
             self.metadata,
             self.require_header_mac,
@@ -310,6 +321,13 @@ impl ServerConfig {
         Self { keepalive, ..self }
     }
 
+    pub fn with_tcp_nodelay(self, tcp_nodelay: bool) -> Self {
+        Self {
+            tcp_nodelay,
+            ..self
+        }
+    }
+
     pub fn with_auth(self, auth: AuthenticationConfig) -> Self {
         Self { auth, ..self }
     }
@@ -351,6 +369,18 @@ impl ServerConfig {
 #[cfg(test)]
 mod metadata_tests {
     use super::*;
+
+    #[test]
+    fn server_config_tcp_nodelay() {
+        assert!(ServerConfig::default().tcp_nodelay);
+
+        let cfg: ServerConfig = serde_yaml::from_str("endpoint: 127.0.0.1:50051").unwrap();
+        assert!(cfg.tcp_nodelay);
+
+        let cfg: ServerConfig =
+            serde_yaml::from_str("endpoint: 127.0.0.1:50051\ntcp_nodelay: false").unwrap();
+        assert!(!cfg.tcp_nodelay);
+    }
 
     #[test]
     fn server_config_with_metadata_roundtrip_yaml() {
