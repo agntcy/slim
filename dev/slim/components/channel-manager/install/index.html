@@ -5520,8 +5520,8 @@
 <h2 id="install-the-channel-manager">Install the Channel Manager</h2>
 <p>The Channel Manager is available as a pre-built container image, or can be built from source.</p>
 <h3 id="docker">Docker</h3>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:2.0.0
-docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-v<span class="w"> </span>./config.yaml:/config.yaml<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:2.0.0<span class="w"> </span>--config-file<span class="w"> </span>/config.yaml
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:3.4.6
+docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-v<span class="w"> </span>./config.yaml:/config.yaml<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:3.4.6<span class="w"> </span>--config-file<span class="w"> </span>/config.yaml
 </code></pre></div>
 <p>The image is distroless and runs as a non-root user, with <code>/channel-manager</code> as its entrypoint. For containers and Kubernetes beyond this one command — bind addresses, secrets, volumes and the Helm chart — see the <a href="../deploy/">Deployment Guide</a>. The steps below run the binary directly.</p>
 <h3 id="build-from-source">Build from Source</h3>
