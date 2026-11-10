@@ -10,7 +10,7 @@ The SLIM Data Plane is the core routing and forwarding component. Install it usi
 Pull the SLIM container image and run it with a configuration file:
 
 ```bash
-docker pull ghcr.io/agntcy/slim:2.0.0
+docker pull ghcr.io/agntcy/slim:3.4.6
 ```
 
 Create a minimal configuration file:
@@ -43,7 +43,7 @@ Run the container:
 ```bash
 docker run -it \
     -v ./config.yaml:/config.yaml -p 46357:46357 \
-    ghcr.io/agntcy/slim:2.0.0 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:3.4.6 /slim --config /config.yaml
 ```
 
 ## Cargo
