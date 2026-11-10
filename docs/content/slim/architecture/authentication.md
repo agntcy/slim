@@ -128,6 +128,7 @@ claims:
 
 - **Provider:** the key must be EdDSA. `claims.issuer` and `claims.subject` must both equal the key's `did:key`, or the provider fails to build.
 - **Verifier:** the `key` field is ignored. A configured `claims.issuer` is dropped with a warning. `claims.audience` still applies.
+- **Persistence:** the persistence store holds the did:key private key (inside MLS group state), so persistence requires an `encryption_key`. Without one, persistence is disabled.
 - Pair this with mTLS on the transport (see Transport Security (TLS / mTLS) above) to limit which nodes can connect. The `did:key` check does not limit who connects.
 
 **Use when:** Open admission, where the application runs its own admission check and rate-limits callers it has not admitted. Not for closed networks: prefer JWT or SPIRE there, where each application's credential is issued by an operator-controlled authority.

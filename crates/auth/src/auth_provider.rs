@@ -311,6 +311,18 @@ impl TokenProvider for AuthProvider {
         }
     }
 
+    fn holds_long_term_signing_key(&self) -> bool {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::JwtSigner(signer) => signer.holds_long_term_signing_key(),
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthProvider::StaticToken(provider) => provider.holds_long_term_signing_key(),
+            AuthProvider::SharedSecret(secret) => secret.holds_long_term_signing_key(),
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
+            AuthProvider::Spire(spire) => spire.holds_long_term_signing_key(),
+        }
+    }
+
     fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError> {
         Ok(match self {
             #[cfg(not(target_arch = "wasm32"))]
@@ -648,6 +660,25 @@ mod tests {
         let (rsk, rpk) = restored.get_signature_keys().unwrap();
         assert_eq!(rsk, vec![7u8; 32]);
         assert_eq!(rpk, vec![9u8; 32]);
+    }
+
+    #[tokio::test]
+    async fn test_auth_provider_regular_providers_hold_no_long_term_key() {
+        let shared = AuthProvider::shared_secret_from_str("app", TEST_SECRET).unwrap();
+        assert!(!shared.holds_long_term_signing_key());
+
+        let signer = JwtBuilder::new()
+            .issuer("iss")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".into()),
+            })
+            .build()
+            .unwrap();
+        assert!(!AuthProvider::JwtSigner(signer).holds_long_term_signing_key());
     }
 
     #[tokio::test]

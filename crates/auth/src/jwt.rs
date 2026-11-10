@@ -820,9 +820,19 @@ impl TokenProvider for SignerJwt {
             // snapshot; it is not adopted on restore.
             id: self.get_id().unwrap_or_default(),
             credential: Vec::new(),
-            signature_secret_key: self.signature_keys.0.clone(),
+            // A DID-bound secret is the did:key's private key; it is reloaded from
+            // the PEM, never from the snapshot.
+            signature_secret_key: if self.did_bound {
+                Vec::new()
+            } else {
+                self.signature_keys.0.clone()
+            },
             signature_public_key: self.signature_keys.1.clone(),
         })
+    }
+
+    fn holds_long_term_signing_key(&self) -> bool {
+        self.did_bound
     }
 
     fn with_restored_identity(mut self, identity: ExportedIdentity) -> Result<Self, AuthError> {
@@ -830,14 +840,15 @@ impl TokenProvider for SignerJwt {
         // matches. The JWT signing key comes from the app config at
         // construction; `get_token` reads the MLS pubkey live, so no refresh is
         // needed.
-        let restored = (identity.signature_secret_key, identity.signature_public_key);
         if self.did_bound {
-            if restored != self.signature_keys {
-                tracing::warn!("ignoring restored MLS signature keys: bound to the did:key");
+            if identity.signature_public_key != self.signature_keys.1 {
+                return Err(AuthError::SelfCertifiedDid(
+                    "persisted state belongs to a different did:key".into(),
+                ));
             }
             return Ok(self);
         }
-        self.signature_keys = restored;
+        self.signature_keys = (identity.signature_secret_key, identity.signature_public_key);
         Ok(self)
     }
 }
@@ -1705,16 +1716,50 @@ mod tests {
         }
 
         #[test]
-        fn did_bound_signer_keeps_its_keys_on_restore() {
+        fn did_bound_signer_holds_a_long_term_key() {
+            initialize_crypto_provider();
+            let (pem, _, _) = fresh_identity();
+            assert!(did_bound_signer(&pem).holds_long_term_signing_key());
+            assert!(
+                crate::auth_provider::AuthProvider::JwtSigner(did_bound_signer(&pem))
+                    .holds_long_term_signing_key()
+            );
+        }
+
+        #[test]
+        fn did_bound_signer_does_not_export_its_secret() {
             initialize_crypto_provider();
             let (pem, _, public) = fresh_identity();
+            let snapshot = did_bound_signer(&pem).export_identity().unwrap();
+            assert!(snapshot.signature_secret_key.is_empty());
+            assert_eq!(snapshot.signature_public_key, public);
+        }
+
+        #[test]
+        fn did_bound_signer_restores_its_own_snapshot() {
+            initialize_crypto_provider();
+            let (pem, _, _) = fresh_identity();
             let signer = did_bound_signer(&pem);
-            let mut snapshot = signer.export_identity().unwrap();
-            snapshot.signature_secret_key = vec![1];
-            snapshot.signature_public_key = vec![2];
+            let before = signer.get_signature_keys().unwrap();
+            let snapshot = signer.export_identity().unwrap();
 
             let restored = signer.with_restored_identity(snapshot).unwrap();
-            assert_eq!(restored.get_signature_keys().unwrap().1, public);
+            assert_eq!(restored.get_signature_keys().unwrap(), before);
+        }
+
+        #[test]
+        fn did_bound_signer_rejects_another_dids_snapshot() {
+            initialize_crypto_provider();
+            let (pem_a, _, _) = fresh_identity();
+            let (pem_b, _, _) = fresh_identity();
+            let snapshot = did_bound_signer(&pem_a).export_identity().unwrap();
+
+            let result = did_bound_signer(&pem_b).with_restored_identity(snapshot);
+            assert!(
+                matches!(result, Err(AuthError::SelfCertifiedDid(_))),
+                "{:?}",
+                result.err()
+            );
         }
     }
 

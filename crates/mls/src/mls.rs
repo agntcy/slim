@@ -793,6 +793,21 @@ where
         #[cfg(target_arch = "wasm32")]
         let group = client.load_group(group_id).await?;
 
+        // Scoped to long-term keys: other providers hold per-clone keys but share
+        // one app-identity record, so they can legitimately differ after a
+        // rotation. A long-term (DID-bound) key cannot rotate.
+        if self.identity_provider.holds_long_term_signing_key() {
+            let (_, current_key) = self.identity_provider.get_signature_keys()?;
+            if group
+                .current_member_signing_identity()?
+                .signature_key
+                .as_bytes()
+                != current_key.as_slice()
+            {
+                return Err(MlsError::SigningKeyMismatch);
+            }
+        }
+
         self.group = Some(group);
         self.client = Some(client);
         debug!("MLS group restored successfully");
@@ -822,6 +837,8 @@ mod tests {
     use slim_auth::identity_claims::IdentityClaims;
 
     use super::*;
+    #[cfg(not(target_arch = "wasm32"))]
+    use slim_auth::errors::AuthError;
     use slim_auth::shared_secret::SharedSecret;
     use std::thread;
     use std::time::Duration;
@@ -946,13 +963,17 @@ mod tests {
 
         // The group state (post-add) is now on disk. Simulate a restart: drop
         // Alice and rebuild her purely from the persisted snapshot.
+        let identity = alice.identity_provider().export_identity().unwrap();
         drop(alice);
 
         let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
         assert_eq!(reopened.stored_groups()?, vec![group_id.clone()]);
 
         let mut alice_restored = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET)
+                .unwrap()
+                .with_restored_identity(identity)
+                .unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
         )
         .with_group_state_storage(reopened);
@@ -1011,10 +1032,14 @@ mod tests {
         }
 
         // Restart Alice from the persisted snapshot.
+        let identity = alice.identity_provider().export_identity().unwrap();
         drop(alice);
         let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
         let mut alice_restored = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET)
+                .unwrap()
+                .with_restored_identity(identity)
+                .unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
         )
         .with_group_state_storage(reopened);
@@ -1027,6 +1052,70 @@ mod tests {
         let (decrypted, _) = bob.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, msg);
 
+        Ok(())
+    }
+
+    /// `SharedSecret` that claims a long-term signing key, like a DID-bound signer.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone)]
+    struct LongTermKey(SharedSecret);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl TokenProvider for LongTermKey {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            TokenProvider::initialize(&mut self.0).await
+        }
+        fn get_token(&self) -> Result<String, AuthError> {
+            self.0.get_token()
+        }
+        fn get_id(&self) -> Result<String, AuthError> {
+            self.0.get_id()
+        }
+        fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+            self.0.get_signature_keys()
+        }
+        fn mls_signature_keys_installed(&self) -> bool {
+            self.0.mls_signature_keys_installed()
+        }
+        async fn set_signature_keys(&mut self, sk: Vec<u8>, pk: Vec<u8>) -> Result<(), AuthError> {
+            self.0.set_signature_keys(sk, pk).await
+        }
+        fn holds_long_term_signing_key(&self) -> bool {
+            true
+        }
+    }
+
+    /// A long-term-key provider's restored group must be bound to the signing
+    /// key it was saved under; other providers keep the snapshot signer.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_load_requires_matching_signing_key() -> Result<(), Box<dyn std::error::Error>> {
+        use slim_persistence::SlimGroupStateStorage;
+
+        let secret = || SharedSecret::new("alice", SHARED_SECRET).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let storage = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        let mut alice = Mls::new(LongTermKey(secret()), secret()).with_group_state_storage(storage);
+        alice.initialize().await?;
+        let group_id = alice.create_group()?;
+        let same_keys = alice.identity_provider().clone();
+        drop(alice);
+
+        let reopen = || SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None);
+
+        let mut other =
+            Mls::new(LongTermKey(secret()), secret()).with_group_state_storage(reopen()?);
+        let err = other.load(&group_id).await.unwrap_err();
+        assert!(matches!(err, MlsError::SigningKeyMismatch), "{err:?}");
+        assert!(other.get_group_id().is_none());
+
+        let mut same = Mls::new(same_keys, secret()).with_group_state_storage(reopen()?);
+        same.load(&group_id).await?;
+        assert_eq!(same.get_group_id().unwrap(), group_id);
+
+        let mut plain = Mls::new(secret(), secret()).with_group_state_storage(reopen()?);
+        plain.load(&group_id).await?;
+        assert_eq!(plain.get_group_id().unwrap(), group_id);
         Ok(())
     }
 
