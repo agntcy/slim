@@ -162,7 +162,8 @@ impl JwksCache {
 /// ```
 #[derive(Debug)]
 pub struct KeyResolver {
-    client: ReqwestClient,
+    /// `None` for [`Self::with_self_certified_did`], which never fetches.
+    client: Option<ReqwestClient>,
     jwks_cache: RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
     /// Set only by [`Self::with_self_certified_did`]: every token's decoding
@@ -188,7 +189,7 @@ impl KeyResolver {
             .expect("Failed to create reqwest client");
 
         Self {
-            client,
+            client: Some(client),
             jwks_cache: RwLock::new(HashMap::new()),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
             self_certified_did: false,
@@ -204,9 +205,17 @@ impl KeyResolver {
     #[cfg(feature = "insecure-self-certified-did")]
     pub fn with_self_certified_did() -> Self {
         Self {
+            client: None,
+            jwks_cache: RwLock::new(HashMap::new()),
+            default_jwks_ttl: Duration::from_secs(3600),
             self_certified_did: true,
-            ..Self::new()
         }
+    }
+
+    fn client(&self) -> Result<&ReqwestClient, AuthError> {
+        self.client
+            .as_ref()
+            .ok_or_else(|| AuthError::SelfCertifiedDid("resolver has no HTTP client".into()))
     }
 
     pub fn with_jwks(jwks: JwkSet) -> Self {
@@ -227,7 +236,7 @@ impl KeyResolver {
             .expect("Failed to create reqwest client");
 
         Self {
-            client,
+            client: Some(client),
             jwks_cache: RwLock::new(cache),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
             self_certified_did: false,
@@ -510,7 +519,11 @@ impl KeyResolver {
         openid_config_url.set_path(&openid_path);
 
         // Try to fetch the OpenID configuration
-        let openid_config_response = self.client.get(openid_config_url.to_string()).send().await;
+        let openid_config_response = self
+            .client()?
+            .get(openid_config_url.to_string())
+            .send()
+            .await;
 
         // If we successfully got the OpenID configuration, validate and extract the jwks_uri
         if let Ok(response) = openid_config_response
@@ -551,7 +564,7 @@ impl KeyResolver {
     /// Fetch JWKS from the specified URI
     async fn fetch_jwks_from_uri(&self, uri: &str) -> Result<JwkSet, AuthError> {
         // Send the GET request using reqwest
-        let response = self.client.get(uri).send().await?;
+        let response = self.client()?.get(uri).send().await?;
 
         // Check the response status
         if response.status() != StatusCode::OK {
@@ -693,6 +706,12 @@ mod tests {
             let candidates = resolver.resolve_candidates(&did, &header).await.unwrap();
             assert_eq!(candidates.len(), 1);
             assert_eq!(candidates[0].algorithm, Algorithm::EdDSA);
+        }
+
+        #[test]
+        fn has_no_http_client() {
+            assert!(KeyResolver::with_self_certified_did().client.is_none());
+            assert!(KeyResolver::new().client.is_some());
         }
 
         #[test]

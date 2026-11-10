@@ -366,6 +366,7 @@ pub enum IdentityProviderConfig {
     Spire { config: SpireConfig },
     /// Signs as the Ed25519 `did:key` of `config.key` and uses that key as the
     /// MLS signature key, for peers verified with `InsecureSelfCertifiedDid`.
+    /// `issuer` and `subject` default to that `did:key`; if set, they must equal it.
     /// Present in every build to keep the uniffi layout stable; rejected with an
     /// error unless the `insecure-self-certified-did` feature is enabled.
     InsecureSelfCertifiedDid { config: ClientJwtAuth },

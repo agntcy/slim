@@ -1590,10 +1590,9 @@ mod tests {
 
         fn self_certified_verifier() -> VerifierJwt {
             JwtBuilder::new()
-                .auto_resolve_keys(true)
+                .key_resolver(KeyResolver::with_self_certified_did())
                 .build()
                 .unwrap()
-                .with_key_resolver(KeyResolver::with_self_certified_did())
         }
 
         #[tokio::test]

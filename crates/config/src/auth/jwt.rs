@@ -245,8 +245,8 @@ impl Config {
     /// Ed25519 signing key itself, so its `pubkey` claim matches the `did:key`
     /// a self-certified-did verifier derives from `iss`. The key is read once
     /// at build time (no file watcher), so rotating it requires a restart.
-    /// The configured key must be EdDSA and any `iss`/`sub` must equal the
-    /// key's `did:key`. Reachable only via
+    /// The configured key must be EdDSA. `iss`/`sub` default to the key's
+    /// `did:key`; if set, they must equal it. Reachable only via
     /// [`crate::auth::identity::IdentityProviderConfig::InsecureSelfCertifiedDid`].
     #[cfg(feature = "insecure-self-certified-did")]
     pub fn get_self_certified_did_provider(&self) -> Result<SignerJwt, AuthError> {
@@ -269,7 +269,7 @@ impl Config {
             ("issuer", self.claims().issuer()),
             ("subject", self.claims().subject()),
         ] {
-            if value.as_deref() != Some(did.as_str()) {
+            if value.as_deref().is_some_and(|v| v != did) {
                 return Err(AuthError::SelfCertifiedDid(format!(
                     "{name} must equal the key's did:key: expected '{did}', configured {value:?}"
                 )));
@@ -277,6 +277,7 @@ impl Config {
         }
 
         let mut cfg = self.clone();
+        cfg.claims = cfg.claims.with_issuer(&did).with_subject(&did);
         cfg.key = JwtKey::Encoding(Key {
             key: slim_auth::jwt::KeyData::Data(pem.clone()),
             ..key.clone()
@@ -336,10 +337,9 @@ impl SelfCertifiedDidVerifierConfig {
         if let Some(subject) = &self.claims.subject {
             builder = builder.subject(subject);
         }
-        // `auto_resolve_keys(true)` is only how a `VerifierJwt` is reached with
-        // no key; its default resolver is replaced here and never resolves.
-        let verifier = builder.auto_resolve_keys(true).build()?;
-        Ok(verifier.with_key_resolver(slim_auth::resolver::KeyResolver::with_self_certified_did()))
+        builder
+            .key_resolver(slim_auth::resolver::KeyResolver::with_self_certified_did())
+            .build()
     }
 }
 
@@ -805,6 +805,35 @@ mod tests {
     }
 
     #[cfg(feature = "insecure-self-certified-did")]
+    #[tokio::test]
+    async fn self_certified_provider_fills_unset_issuer_and_subject_with_the_did() {
+        use crate::auth::identity::IdentityVerifierConfig;
+        use slim_auth::traits::{TokenProvider, Verifier};
+
+        initialize_crypto_provider();
+        let (_, did, _) = self_certified_signer_config();
+        let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Default::default())
+            .build_auth_verifier()
+            .unwrap();
+        for (iss, sub) in [
+            (None, None),
+            (Some(did.as_str()), None),
+            (None, Some(did.as_str())),
+            (Some(did.as_str()), Some(did.as_str())),
+        ] {
+            let cfg = self_certified_config_with(iss, sub, Algorithm::EdDSA, None);
+            let token = cfg
+                .get_self_certified_did_provider()
+                .unwrap()
+                .get_token()
+                .unwrap();
+            let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
+            assert_eq!(claims["iss"], did);
+            assert_eq!(claims["sub"], did);
+        }
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
     #[test]
     fn self_certified_provider_rejects_issuer_or_subject_not_the_did() {
         initialize_crypto_provider();
@@ -812,8 +841,6 @@ mod tests {
         let cases = [
             (Some("other"), Some(did.as_str()), "issuer"),
             (Some(did.as_str()), Some("other"), "subject"),
-            (None, Some(did.as_str()), "issuer"),
-            (Some(did.as_str()), None, "subject"),
         ];
         for (iss, sub, field) in cases {
             let cfg = self_certified_config_with(iss, sub, Algorithm::EdDSA, None);
