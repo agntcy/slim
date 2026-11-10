@@ -1143,6 +1143,9 @@ mod tests {
             let expected = slim_auth::utils::MLS_CIPHERSUITE;
             assert!([CipherSuite::P256_AES128, CipherSuite::CURVE25519_AES128].contains(&expected));
             assert_eq!(ciphersuite_for(false).unwrap(), expected);
+            // The reverse needs no cfg on auth's feature, which unification can enable alone.
+            #[cfg(feature = "curve25519")]
+            assert_eq!(expected, CipherSuite::CURVE25519_AES128);
         }
 
         #[cfg(target_arch = "wasm32")]

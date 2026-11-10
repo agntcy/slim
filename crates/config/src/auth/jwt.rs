@@ -260,7 +260,7 @@ impl Config {
         let pem = match &key.key {
             slim_auth::jwt::KeyData::Data(pem) => pem.clone(),
             slim_auth::jwt::KeyData::File(path) => std::fs::read_to_string(path)
-                .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?,
+                .map_err(|e| AuthError::InvalidEd25519Key(format!("{path}: {e}")))?,
         };
         if key.algorithm != slim_auth::jwt::Algorithm::EdDSA {
             return Err(AuthError::SelfCertifiedDid(format!(
@@ -367,6 +367,31 @@ where
 }
 
 // tests
+#[cfg(test)]
+pub(crate) mod test_key {
+    /// RFC 8032 section 7.1, test 1.
+    const SEED: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+    pub const PUBLIC: &str = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+
+    pub fn hex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    /// The RFC 8032 key, PKCS#8-wrapped.
+    pub fn pem() -> String {
+        let mut der = hex("302e020100300506032b657004220420");
+        der.extend_from_slice(&hex(SEED));
+        slim_auth::utils::bytes_to_pem(
+            &der,
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----\n",
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::testutils::tower_service::{Body, HeaderCheckService};
@@ -743,22 +768,7 @@ mod tests {
 
         initialize_crypto_provider();
 
-        // RFC 8032 section 7.1, test 1 -- a fixed Ed25519 key pair, PKCS#8-wrapped.
-        let seed = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
-        let seed_bytes: Vec<u8> = (0..seed.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&seed[i..i + 2], 16).unwrap())
-            .collect();
-        let mut der = vec![
-            0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22,
-            0x04, 0x20,
-        ];
-        der.extend_from_slice(&seed_bytes);
-        let pem = slim_auth::utils::bytes_to_pem(
-            &der,
-            "-----BEGIN PRIVATE KEY-----\n",
-            "\n-----END PRIVATE KEY-----\n",
-        );
+        let pem = test_key::pem();
         let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
         let public_key = slim_auth::did_key::ed25519_public_key_from_pkcs8_pem(&pem).unwrap();
         let pubkey_claim =
@@ -804,24 +814,7 @@ mod tests {
     ) {
         use crate::auth::identity::IdentityProviderConfig;
 
-        // RFC 8032 section 7.1, test 1.
-        const ED25519_SEED: &str =
-            "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
-        const ED25519_PUBLIC: &str =
-            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-        let hex = |s: &str| -> Vec<u8> {
-            (0..s.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-                .collect()
-        };
-        let mut der = hex("302e020100300506032b657004220420");
-        der.extend_from_slice(&hex(ED25519_SEED));
-        let pem = slim_auth::utils::bytes_to_pem(
-            &der,
-            "-----BEGIN PRIVATE KEY-----\n",
-            "\n-----END PRIVATE KEY-----\n",
-        );
+        let pem = test_key::pem();
         let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
         let cfg = Config::new(
             Claims::new(None, Some(did.clone()), Some(did.clone()), None),
@@ -835,7 +828,7 @@ mod tests {
         (
             IdentityProviderConfig::InsecureSelfCertifiedDid(cfg),
             did,
-            hex(ED25519_PUBLIC),
+            test_key::hex(test_key::PUBLIC),
         )
     }
 
@@ -885,6 +878,22 @@ mod tests {
                 "{err:?}"
             );
         }
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[test]
+    fn self_certified_provider_names_a_missing_key_file() {
+        let path = "/nonexistent/ed25519.pem";
+        let cfg = self_certified_config_with(
+            None,
+            None,
+            Algorithm::EdDSA,
+            Some(KeyData::File(path.to_string())),
+        );
+        let Err(err) = cfg.get_self_certified_did_provider() else {
+            panic!("a missing key file was accepted");
+        };
+        assert!(err.to_string().contains(path), "{err}");
     }
 
     #[cfg(feature = "insecure-self-certified-did")]

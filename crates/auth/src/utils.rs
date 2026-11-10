@@ -268,6 +268,21 @@ pub fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn mls_ciphersuite_is_pinned_per_build() {
+        #[cfg(feature = "curve25519")]
+        assert_eq!(
+            MLS_CIPHERSUITE,
+            mls_rs_core::crypto::CipherSuite::CURVE25519_AES128
+        );
+        #[cfg(not(feature = "curve25519"))]
+        assert_eq!(
+            MLS_CIPHERSUITE,
+            mls_rs_core::crypto::CipherSuite::P256_AES128
+        );
+    }
+
     fn generate_test_ed25519_keys() -> (Vec<u8>, Vec<u8>) {
         use ed25519_dalek::SigningKey;
         use rand::RngExt;

@@ -1555,27 +1555,9 @@ mod tests {
 
     #[cfg(feature = "insecure-self-certified-did")]
     mod self_certified_did {
-        use aws_lc_rs::rand::SystemRandom;
-        use aws_lc_rs::signature::{Ed25519KeyPair, KeyPair};
-
         use super::*;
 
-        /// A fresh Ed25519 identity: its PKCS#8 PEM, its `did:key`, and its
-        /// raw public key bytes.
-        fn fresh_identity() -> (String, String, Vec<u8>) {
-            let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
-            let public = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
-                .unwrap()
-                .public_key()
-                .as_ref()
-                .to_vec();
-            let pem = crate::utils::bytes_to_pem(
-                pkcs8.as_ref(),
-                "-----BEGIN PRIVATE KEY-----\n",
-                "\n-----END PRIVATE KEY-----\n",
-            );
-            (pem, crate::did_key::ed25519_did_key(&public), public)
-        }
+        use crate::did_key::fresh_identity;
 
         /// A token signed by `pem`, with `iss`/`sub` set to `subject` and a
         /// `pubkey` claim of `pubkey_bytes`.

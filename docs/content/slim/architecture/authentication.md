@@ -103,6 +103,9 @@ This mode makes no admission decision. A valid token shows that the holder contr
 
 **Off by default.** Enable the `insecure-self-certified-did` Cargo feature on `agntcy-slim-config`, or on `agntcy-slim-bindings`, which forwards it. The feature implies `curve25519`, so MLS uses the Ed25519 ciphersuite. Without the feature, the `insecure_self_certified_did` identity types don't exist.
 
+!!! warning
+    The feature applies to the whole build, not just this identity type. Every MLS group the application joins uses Curve25519, including sessions with other identity types, so it cannot share groups with default-built (P-256) or browser peers. With Cargo feature unification, one crate enabling it switches the whole build.
+
 Provider and verifier configuration (both use `type: insecure_self_certified_did`):
 
 ```yaml

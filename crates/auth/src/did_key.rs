@@ -92,6 +92,25 @@ fn pem_contents(pem: &str, label: &str) -> Result<Vec<u8>, AuthError> {
         .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))
 }
 
+/// A fresh Ed25519 identity for tests: its PKCS#8 PEM, its `did:key`, and its
+/// raw public key bytes.
+#[cfg(all(test, feature = "insecure-self-certified-did"))]
+pub(crate) fn fresh_identity() -> (String, String, Vec<u8>) {
+    use aws_lc_rs::rand::SystemRandom;
+    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+    let public = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+        .unwrap()
+        .public_key()
+        .as_ref()
+        .to_vec();
+    let pem = crate::utils::bytes_to_pem(
+        pkcs8.as_ref(),
+        "-----BEGIN PRIVATE KEY-----\n",
+        "\n-----END PRIVATE KEY-----\n",
+    );
+    (pem, ed25519_did_key(&public), public)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
