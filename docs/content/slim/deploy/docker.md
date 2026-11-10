@@ -49,32 +49,37 @@ Run the SLIM node:
 docker run -it \
     -v ./config.yaml:/config.yaml \
     -p 46357:46357 \
-    ghcr.io/agntcy/slim:2.0.0 /slim --config /config.yaml
+    ghcr.io/agntcy/slim:3.4.6 /slim --config /config.yaml
 ```
 
 SDK applications on the host connect to `http://127.0.0.1:46357`.
 
 ## Docker Compose: Data Plane with Client Apps
 
-The `crates/examples/` directory includes a Docker Compose file that starts a SLIM node alongside mock client applications for quick end-to-end testing.
+The `crates/examples/` directory includes a Docker Compose file that builds a SLIM node and two mock client applications from source, for quick end-to-end testing.
 
 ```yaml
-# docker-compose.yml
+# crates/examples/docker-compose.yml
 services:
   slim-server:
-    image: ghcr.io/agntcy/slim:2.0.0
+    build:
+      context: ../..
+      dockerfile: ./Dockerfile
+      target: slim-release
     entrypoint: ["/slim"]
     command: ["--config", "/config/server-config.yaml"]
     ports:
       - "46357:46357"
-    volumes:
-      - ./server-config.yaml:/config/server-config.yaml
     networks:
       - slim-network
+    volumes:
+      - ../../config/base/server-config.yaml:/config/server-config.yaml
 
   mock-app-server:
-    image: ghcr.io/agntcy/slim/examples:2.0.0
-    command: ["--config", "/config/client-config.yaml", "--local-name", "server", "--remote-name", "client"]
+    build:
+      context: ../..
+      dockerfile: ./crates/examples/Dockerfile.mock-agent
+      target: mock-app-server
     depends_on:
       - slim-server
     networks:
@@ -83,8 +88,10 @@ services:
       - ./config/docker-client-config.yaml:/config/client-config.yaml
 
   mock-app-client:
-    image: ghcr.io/agntcy/slim/examples:2.0.0
-    command: ["--config", "/config/client-config.yaml", "--local-name", "client", "--remote-name", "server", "--message", "hello from Docker!"]
+    build:
+      context: ../..
+      dockerfile: ./crates/examples/Dockerfile.mock-agent
+      target: mock-app-client
     depends_on:
       - slim-server
       - mock-app-server
@@ -98,10 +105,10 @@ networks:
     driver: bridge
 ```
 
-Start everything:
+Build and start everything from `crates/examples/`:
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
 ## Docker Compose: Adding the Telemetry Stack
@@ -154,7 +161,7 @@ docker run -it \
     -v ./controller-config.yaml:/config.yaml \
     -v ./db:/db \
     -p 50051:50051 -p 50052:50052 \
-    ghcr.io/agntcy/slim/control-plane:2.0.0 \
+    ghcr.io/agntcy/slim/control-plane:3.4.6 \
     --config /config.yaml
 ```
 
