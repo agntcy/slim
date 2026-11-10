@@ -14,8 +14,8 @@ name = "slim_session"
 # default and not part of any default feature set, so it never becomes de
 # facto public API — see the `fuzzing` module in `src/lib.rs`.
 fuzzing = []
-# Test-only forwarding: enables the self-certified did:key identity the tests
-# build their members from.
+# Forwards mls's `insecure-self-certified-did` (and so `curve25519`, build-wide);
+# exposed so this crate's tests can build did:key members.
 insecure-self-certified-did = ["agntcy-slim-mls/insecure-self-certified-did"]
 
 [dependencies]
