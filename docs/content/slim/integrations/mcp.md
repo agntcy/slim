@@ -34,9 +34,12 @@ The SLIM session layer handles key establishment, reliable delivery, and end-to-
 
 ## Implementation
 
-| Language | Repository |
-|---|---|
-| Python | [agntcy/slim-mcp-python](https://github.com/agntcy/slim-mcp-python) |
+| Language | Package | Repository |
+|---|---|---|
+| Python | [`slim-mcp`](https://pypi.org/project/slim-mcp/), for the MCP Python SDK | [agntcy/slim-mcp-python](https://github.com/agntcy/slim-mcp-python) |
+| Rust | [`agntcy-slim-mcp-transport`](https://crates.io/crates/agntcy-slim-mcp-transport), for [rmcp](https://crates.io/crates/rmcp) | [agntcy/slim-mcp-rust](https://github.com/agntcy/slim-mcp-rust) |
+
+To connect an existing MCP server without changing it, run [`mcp-proxy`](https://github.com/agntcy/slim-mcp-rust/tree/main/mcp-proxy) in front of it. The proxy forwards SLIM sessions to the server's Streamable HTTP endpoint.
 
 ## Related
 
