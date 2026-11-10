@@ -735,6 +735,92 @@ mod tests {
         assert_eq!(other.get_metadata(PEER_SUBJECT_KEY), Some(&alice_sub));
     }
 
+    /// With self-certified did:key identities, the sender's `PEER_SUBJECT_KEY`
+    /// as the receiver sees it is its did:key, and its name id derives from it.
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[tokio::test]
+    async fn a_did_bound_sender_is_named_by_its_did_key() {
+        use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+        use slim_auth::builder::JwtBuilder;
+        use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
+        use slim_auth::resolver::KeyResolver;
+        use slim_auth::utils::bytes_to_pem;
+
+        async fn did_bound_member() -> (Mls<AuthProvider, AuthVerifier>, String) {
+            let (secret, _) = Mls::<AuthProvider, AuthVerifier>::generate_key_pair().unwrap();
+            // PKCS#8 wrapper around a fresh Ed25519 seed.
+            let mut der = vec![
+                0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22,
+                0x04, 0x20,
+            ];
+            der.extend_from_slice(&secret.as_ref()[..32]);
+            let pem = bytes_to_pem(
+                &der,
+                "-----BEGIN PRIVATE KEY-----\n",
+                "\n-----END PRIVATE KEY-----\n",
+            );
+            let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
+            let key = Key {
+                algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(pem.clone()),
+            };
+            let signer = JwtBuilder::new()
+                .issuer(&did)
+                .subject(&did)
+                .private_key(&key)
+                .build()
+                .unwrap()
+                .with_did_key_signature_keys(&pem)
+                .unwrap();
+            let verifier = JwtBuilder::new()
+                .key_resolver(KeyResolver::with_self_certified_did())
+                .build()
+                .unwrap();
+            let mut mls = Mls::new(
+                AuthProvider::jwt_signer(signer),
+                AuthVerifier::jwt_verifier(verifier),
+            );
+            mls.initialize().await.unwrap();
+            (mls, did)
+        }
+
+        let (mut alice_mls, alice_did) = did_bound_member().await;
+        let (mut bob_mls, _) = did_bound_member().await;
+        alice_mls.create_group().unwrap();
+        let key_package = bob_mls.generate_key_package().unwrap();
+        let added = alice_mls.add_member(&key_package).unwrap();
+        bob_mls.process_welcome(&added.welcome_message).unwrap();
+
+        let state = |mls| MlsState {
+            mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 0,
+            identity_binding: IdentityBinding::Enforce,
+        };
+        let mut alice_state = state(alice_mls);
+        let mut bob_state = state(bob_mls);
+
+        let mut msg = Message::builder()
+            .source(
+                ProtoName::from_strings(["org", "default", "alice"])
+                    .with_id(name_id::app_id(&alice_did)),
+            )
+            .destination(ProtoName::from_strings(["org", "default", "bob"]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::Multicast)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+            .application_payload("text", b"hi".to_vec())
+            .build_publish()
+            .unwrap();
+        alice_state.encrypt_message(&mut msg).unwrap();
+        bob_state.decrypt_message(&mut msg).unwrap();
+        assert_eq!(msg.get_metadata(PEER_SUBJECT_KEY), Some(&alice_did));
+    }
+
     #[tokio::test]
     async fn test_encrypt_decrypt_with_group() {
         let mut alice_mls = Mls::new(
