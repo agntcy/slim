@@ -145,22 +145,23 @@ mod tests {
     }
 
     #[test]
-    fn parses_type_tag_audience_and_subject() {
+    fn parses_type_tag_and_audience() {
         let config: IdentityVerifierConfig = serde_json::from_str(
-            r#"{"type": "insecure_self_certified_did", "claims": {"aud": ["callee"], "sub": "s"}}"#,
+            r#"{"type": "insecure_self_certified_did", "claims": {"aud": ["callee"]}}"#,
         )
         .unwrap();
         let IdentityVerifierConfig::InsecureSelfCertifiedDid(config) = config else {
             panic!("wrong variant");
         };
         assert_eq!(config.claims.audience, Some(vec!["callee".to_string()]));
-        assert_eq!(config.claims.subject.as_deref(), Some("s"));
     }
 
     #[test]
     fn rejects_fields_the_verifier_would_ignore() {
         for body in [
             r#""claims": {"issuer": "did:key:z6Mk"}"#,
+            r#""claims": {"subject": "did:key:z6Mk"}"#,
+            r#""claims": {"sub": "did:key:z6Mk"}"#,
             r#""claims": {"duration": "60s"}"#,
             r#""key": {"type": "autoresolve"}"#,
             r#""duration": "60s""#,

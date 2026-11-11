@@ -112,6 +112,8 @@ Provider and verifier configuration (both use `type: insecure_self_certified_did
 # Provider: signs tokens
 type: insecure_self_certified_did
 # claims.issuer / claims.subject are optional: both default to the key's did:key
+claims:
+  audience: [my-callee]   # the callee's verifier requires it
 key:
   type: encoding
   algorithm: EdDSA
@@ -122,11 +124,11 @@ key:
 # Verifier: checks tokens
 type: insecure_self_certified_did
 claims:
-  audience: [my-callee]
+  audience: [my-callee]   # tokens must carry aud: my-callee
 ```
 
 - **Provider:** the key must be EdDSA. `claims.issuer` and `claims.subject` default to the key's `did:key`. If you set either, it must equal that `did:key`, or the provider fails to build.
-- **Verifier:** only `claims.audience` and `claims.subject` are accepted. Any other field, including `key`, `claims.issuer`, `duration` and `subject_binding`, is a configuration error.
+- **Verifier:** only `claims.audience` is accepted. When it is set, a token without a matching `aud` is rejected, including one with no `aud` at all. Any other field, including `key`, `claims.issuer`, `claims.subject`, `duration` and `subject_binding`, is a configuration error. Verified tokens are not cached, since anyone can mint them.
 - **Persistence:** the persistence store holds the did:key private key (inside MLS group state), so persistence requires an `encryption_key`. Without one, persistence is disabled.
 - Pair this with mTLS on the transport (see Transport Security (TLS / mTLS) above) to limit which nodes can connect. The `did:key` check does not limit who connects.
 

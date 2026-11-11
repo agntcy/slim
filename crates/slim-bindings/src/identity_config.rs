@@ -316,10 +316,8 @@ impl From<JwtAuthConfig> for JwtAuth {
 /// the claims to check. There is no key or issuer; each token's own `did:key` is both.
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct SelfCertifiedDidVerifierAuth {
-    /// JWT audience claims to verify
+    /// JWT audience claims to verify; when set, a token must carry a matching `aud`
     pub audience: Option<Vec<String>>,
-    /// JWT subject to verify
-    pub subject: Option<String>,
 }
 
 #[cfg(feature = "insecure-self-certified-did")]
@@ -328,7 +326,6 @@ impl From<SelfCertifiedDidVerifierAuth> for SelfCertifiedDidVerifierConfig {
         SelfCertifiedDidVerifierConfig {
             claims: SelfCertifiedDidVerifierClaims {
                 audience: config.audience,
-                subject: config.subject,
             },
         }
     }
@@ -339,7 +336,6 @@ impl From<SelfCertifiedDidVerifierConfig> for SelfCertifiedDidVerifierAuth {
     fn from(config: SelfCertifiedDidVerifierConfig) -> Self {
         SelfCertifiedDidVerifierAuth {
             audience: config.claims.audience,
-            subject: config.claims.subject,
         }
     }
 }
@@ -905,7 +901,6 @@ mod tests {
         let config = IdentityVerifierConfig::InsecureSelfCertifiedDid {
             config: SelfCertifiedDidVerifierAuth {
                 audience: Some(vec!["verifier".to_string()]),
-                subject: None,
             },
         };
 
@@ -971,10 +966,7 @@ mod tests {
     fn test_identity_verifier_to_auth_verifier_insecure_self_certified_did() {
         slim_config::tls::provider::initialize_crypto_provider();
         let config = IdentityVerifierConfig::InsecureSelfCertifiedDid {
-            config: SelfCertifiedDidVerifierAuth {
-                audience: None,
-                subject: None,
-            },
+            config: SelfCertifiedDidVerifierAuth { audience: None },
         };
 
         let result: Result<AuthVerifier, SlimError> = config.try_into();
@@ -997,10 +989,7 @@ mod tests {
             .try_into();
         let verifier: Result<AuthVerifier, SlimError> =
             IdentityVerifierConfig::InsecureSelfCertifiedDid {
-                config: SelfCertifiedDidVerifierAuth {
-                    audience: None,
-                    subject: None,
-                },
+                config: SelfCertifiedDidVerifierAuth { audience: None },
             }
             .try_into();
         for err in [provider.err().unwrap(), verifier.err().unwrap()] {

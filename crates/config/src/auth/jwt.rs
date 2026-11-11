@@ -318,13 +318,9 @@ pub struct SelfCertifiedDidVerifierConfig {
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SelfCertifiedDidVerifierClaims {
-    /// JWT audience
+    /// JWT audience. When set, a token must carry a matching `aud`.
     #[serde(alias = "aud", alias = "audiences")]
     pub audience: Option<Vec<String>>,
-
-    /// JWT subject
-    #[serde(alias = "sub")]
-    pub subject: Option<String>,
 }
 
 #[cfg(feature = "insecure-self-certified-did")]
@@ -332,10 +328,8 @@ impl SelfCertifiedDidVerifierConfig {
     pub fn get_verifier(&self) -> Result<VerifierJwt, AuthError> {
         let mut builder = JwtBuilder::new();
         if let Some(audience) = &self.claims.audience {
-            builder = builder.audience(audience);
-        }
-        if let Some(subject) = &self.claims.subject {
-            builder = builder.subject(subject);
+            // Requiring a claim replaces jsonwebtoken's default set, so keep exp.
+            builder = builder.audience(audience).require_exp().require_aud();
         }
         builder
             .key_resolver(slim_auth::resolver::KeyResolver::with_self_certified_did())
@@ -917,6 +911,47 @@ mod tests {
             .unwrap();
         assert_eq!(claims["sub"], did);
         assert_eq!(provider.get_signature_keys().unwrap().1, public);
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[tokio::test]
+    async fn self_certified_verifier_audience_requires_a_matching_aud() {
+        use crate::auth::identity::IdentityVerifierConfig;
+        use slim_auth::traits::{TokenProvider, Verifier};
+
+        initialize_crypto_provider();
+        let token = |aud: Option<&str>| {
+            Config::new(
+                Claims::new(aud.map(|a| vec![a.to_string()]), None, None, None),
+                Duration::from_secs(60),
+                JwtKey::Encoding(Key {
+                    algorithm: Algorithm::EdDSA,
+                    format: KeyFormat::Pem,
+                    key: KeyData::Data(test_key::pem()),
+                }),
+            )
+            .get_self_certified_did_provider()
+            .unwrap()
+            .get_token()
+            .unwrap()
+        };
+        let verifier =
+            IdentityVerifierConfig::InsecureSelfCertifiedDid(SelfCertifiedDidVerifierConfig {
+                claims: SelfCertifiedDidVerifierClaims {
+                    audience: Some(vec!["callee".to_string()]),
+                },
+            })
+            .build_auth_verifier()
+            .unwrap();
+
+        for (aud, ok) in [
+            (None, false),
+            (Some("other"), false),
+            (Some("callee"), true),
+        ] {
+            let result: Result<serde_json::Value, _> = verifier.get_claims(token(aud)).await;
+            assert_eq!(result.is_ok(), ok, "aud {aud:?}: {result:?}");
+        }
     }
 
     #[cfg(feature = "insecure-self-certified-did")]
