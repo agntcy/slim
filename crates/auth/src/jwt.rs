@@ -551,7 +551,11 @@ impl<V> Jwt<V> {
             .get("exp")
             .and_then(serde_json::Value::as_u64)
             .ok_or(AuthError::TokenInvalidMissingExp)?;
-        self.cache(token.to_owned(), exp);
+        // Anyone can mint valid self-certified tokens, so caching them would
+        // let a caller grow the unbounded cache at will.
+        if !owner.is_some_and(KeyOwner::is_self_certified) {
+            self.cache(token.to_owned(), exp);
+        }
 
         Ok(token_data.claims)
     }
@@ -1671,6 +1675,21 @@ mod tests {
             let token = self_certified_token(&pem, &did, &public);
             let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
             assert_eq!(claims.sub.as_deref(), Some(did.as_str()));
+        }
+
+        #[tokio::test]
+        async fn does_not_cache_self_certified_tokens() {
+            initialize_crypto_provider();
+            let (pem, did, public) = fresh_identity();
+            let verifier = self_certified_verifier();
+
+            let token = self_certified_token(&pem, &did, &public);
+            let _: StandardClaims = verifier.get_claims(token.clone()).await.unwrap();
+            assert!(
+                verifier
+                    .get_cached_claims::<StandardClaims>(&token)
+                    .is_none()
+            );
         }
 
         #[tokio::test]
