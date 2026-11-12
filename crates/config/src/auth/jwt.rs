@@ -320,8 +320,8 @@ pub struct SelfCertifiedDidVerifierConfig {
 pub struct SelfCertifiedDidVerifierClaims {
     /// JWT audience. When set, a token must carry a matching `aud`. This is the
     /// only claim that scopes a token to this deployment: with no issuer check
-    /// and no allow-list, leaving it unset accepts a token minted for any
-    /// deployment that uses this mode.
+    /// and no allow-list, leaving it unset accepts a token without `aud` minted
+    /// for any deployment that uses this mode, and rejects any token with one.
     #[serde(alias = "aud", alias = "audiences")]
     pub audience: Option<Vec<String>>,
 }

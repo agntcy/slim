@@ -318,7 +318,8 @@ impl From<JwtAuthConfig> for JwtAuth {
 pub struct SelfCertifiedDidVerifierAuth {
     /// JWT audience claims to verify; when set, a token must carry a matching `aud`.
     /// This is the only claim that scopes a token to this deployment; leave it
-    /// unset and a token minted for any deployment using this mode is accepted.
+    /// unset and a token without `aud` minted for any deployment using this
+    /// mode is accepted, while any token with an `aud` is rejected.
     pub audience: Option<Vec<String>>,
 }
 
@@ -459,8 +460,9 @@ pub enum IdentityVerifierConfig {
     /// - Apply rate and resource limits to callers not yet admitted, since
     ///   any key holder can open a session.
     /// - Set the verifier's `audience` to name this deployment. It is the only
-    ///   claim that scopes a token to it; if unset, a token minted for any
-    ///   deployment using this mode is accepted.
+    ///   claim that scopes a token to it; if unset, any token that carries an
+    ///   `aud` is rejected, and one without `aud` minted for any deployment
+    ///   using this mode is accepted.
     InsecureSelfCertifiedDid {
         config: SelfCertifiedDidVerifierAuth,
     },
