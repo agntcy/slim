@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0](https://github.com/agntcy/slim/compare/slim-bindings-v3.4.6...slim-bindings-v3.5.0) - 2026-11-12
+
+### Added
+
+- *(auth)* opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358))
+
+### Fixed
+
+- *(config)* enable TCP_NODELAY by default ([#2363](https://github.com/agntcy/slim/pull/2363))
+
+### Other
+
+- update and fix bindings documentation ([#2346](https://github.com/agntcy/slim/pull/2346))
+
 ## [3.4.4](https://github.com/agntcy/slim/compare/slim-bindings-v3.4.3...slim-bindings-v3.4.4) - 2026-10-18
 
 ### Fixed

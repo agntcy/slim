@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0](https://github.com/agntcy/slim/compare/slim-control-plane-v3.4.6...slim-control-plane-v3.5.0) - 2026-11-12
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [3.4.6](https://github.com/agntcy/slim/compare/slim-control-plane-v3.4.5...slim-control-plane-v3.4.6) - 2026-10-20
 
 ### Other
