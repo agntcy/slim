@@ -64,6 +64,10 @@ The channel creates the SLIM session on the first RPC call and reuses it for all
 
 Each session a channel opens carries `slimrpc-session=1` in its metadata. A server takes every session on its name, so an app that also accepts plain sessions on that name reads its own session notifications and passes only the marked ones to the server. In Rust, `is_slimrpc_session` checks a new session for the marker.
 
+### Cancellation
+
+When a client drops a call before the server has finished it, the channel sends a message with the call's `rpc-id` and `slimrpc-dir=cancel`, and the server stops that call's handler. Only the peer that made a call can cancel it. A server from a release without cancellation drops the message, and its handler runs until it finishes or reaches the call's deadline.
+
 ## Multicast RPC
 
 A group channel fans out a single RPC call to multiple servers simultaneously. Create the channel with `Channel.new_group_with_connection` (or the language-specific equivalent), passing a list of server names. Responses arrive as an async stream of `(context, response)` pairs, one per server.
