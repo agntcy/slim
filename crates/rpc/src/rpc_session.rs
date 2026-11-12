@@ -8,8 +8,10 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use futures::StreamExt;
+use futures::stream::FuturesUnordered;
+use futures::{FutureExt, StreamExt};
 use slim_session::CompletionHandle;
+use slim_session::errors::SessionError;
 use tokio::sync::mpsc;
 
 use slim_datapath::api::ProtoName as Name;
@@ -241,38 +243,121 @@ where
 {
     futures::pin_mut!(stream);
 
-    // Publish every response message without awaiting its CompletionHandle,
-    // collecting all handles so we can wait for them in a single batch once
-    // the stream is exhausted.  This avoids a per-message round-trip delay
-    // caused by the session layer's reliable-delivery acknowledgement protocol.
-    let mut handles: Vec<CompletionHandle> = Vec::new();
+    let sending_failed = |e| RpcError::internal(format!("Failed to complete sending: {e}"));
+    let mut in_flight = InFlightSends::default();
 
     while let Some(result) = stream.next().await {
-        match result {
-            Ok(response_bytes) => {
-                handles.push(
-                    session_tx
-                        .publish(
-                            target,
-                            response_bytes,
-                            Some("msg".to_string()),
-                            Some(create_data_metadata(rpc_id)),
-                        )
-                        .await
-                        .map_err(|e| RpcError::internal(format!("Failed to send response: {e}")))?,
-                );
-            }
-            Err(e) => return Err(e),
-        }
+        let response_bytes = result?;
+        let handle = session_tx
+            .publish(
+                target,
+                response_bytes,
+                Some("msg".to_string()),
+                Some(create_data_metadata(rpc_id)),
+            )
+            .await
+            .map_err(|e| RpcError::internal(format!("Failed to send response: {e}")))?;
+        in_flight.push(handle).await.map_err(sending_failed)?;
     }
 
-    // Queue the EOS marker and collect its handle too.
-    handles.push(send_eos(session_tx, target, rpc_id, None).await?);
-
-    // Wait for all in-flight sends to be acknowledged by the session layer.
-    futures::future::try_join_all(handles)
+    in_flight
+        .push(send_eos(session_tx, target, rpc_id, None).await?)
         .await
-        .map_err(|e| RpcError::internal(format!("Failed to complete sending: {e}")))?;
+        .map_err(sending_failed)?;
+    in_flight.finish().await.map_err(sending_failed)
+}
 
-    Ok(())
+/// Most sends of one stream that may wait for their delivery confirmation at
+/// once. Enough to keep a stream from waiting a round trip per message, while
+/// a long-lived stream holds a bounded number of handles.
+const MAX_IN_FLIGHT_SENDS: usize = 256;
+
+/// The sends of one stream that haven't been confirmed yet. Confirmed ones are
+/// dropped as the stream goes, so a failure surfaces at the next send instead
+/// of when the stream ends, and a full window makes the sender wait.
+#[derive(Default)]
+pub(crate) struct InFlightSends {
+    pending: FuturesUnordered<CompletionHandle>,
+}
+
+impl InFlightSends {
+    /// Track `handle`, then wait while the window is full.
+    pub(crate) async fn push(&mut self, handle: CompletionHandle) -> Result<(), SessionError> {
+        self.pending.push(handle);
+        while let Some(Some(result)) = self.pending.next().now_or_never() {
+            result?;
+        }
+        while self.pending.len() >= MAX_IN_FLIGHT_SENDS {
+            if let Some(result) = self.pending.next().await {
+                result?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Wait for every send still in flight.
+    pub(crate) async fn finish(mut self) -> Result<(), SessionError> {
+        while let Some(result) = self.pending.next().await {
+            result?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::sync::oneshot;
+
+    use super::*;
+
+    fn pending_send() -> (oneshot::Sender<Result<(), SessionError>>, CompletionHandle) {
+        let (tx, rx) = oneshot::channel();
+        (tx, CompletionHandle::from_oneshot_receiver(rx))
+    }
+
+    #[tokio::test]
+    async fn in_flight_sends_wait_while_the_window_is_full() {
+        let mut in_flight = InFlightSends::default();
+        let mut senders = Vec::new();
+        for _ in 0..MAX_IN_FLIGHT_SENDS - 1 {
+            let (tx, handle) = pending_send();
+            senders.push(tx);
+            in_flight.push(handle).await.unwrap();
+        }
+
+        let (last_tx, last) = pending_send();
+        let mut push = Box::pin(in_flight.push(last));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut push)
+                .await
+                .is_err(),
+            "a push into a full window must wait"
+        );
+
+        senders.pop().unwrap().send(Ok(())).unwrap();
+        push.await.unwrap();
+
+        for tx in senders.into_iter().chain([last_tx]) {
+            tx.send(Ok(())).unwrap();
+        }
+        in_flight.finish().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn in_flight_sends_report_a_failure_at_the_next_push() {
+        let mut in_flight = InFlightSends::default();
+        let (failed_tx, failed) = pending_send();
+        in_flight.push(failed).await.unwrap();
+        failed_tx
+            .send(Err(SessionError::AckReception("lost".into())))
+            .unwrap();
+
+        let (_tx, next) = pending_send();
+        assert!(matches!(
+            in_flight.push(next).await,
+            Err(SessionError::AckReception(_))
+        ));
+    }
 }

@@ -23,7 +23,6 @@ use std::time::Duration;
 use async_stream::stream;
 use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
-use futures::future::join_all;
 use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
@@ -127,6 +126,7 @@ use super::{
     Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
     RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_timeout_duration,
     codec::{Decoder, Encoder},
+    rpc_session::InFlightSends,
     send_eos,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
@@ -551,7 +551,15 @@ impl Channel {
         Req: Encoder,
     {
         let mut request_stream = std::pin::pin!(request_stream);
-        let mut handles = vec![];
+        let sending_failed = |e: SessionError| {
+            RpcError::internal(format!(
+                "Failed to complete sending {}-{}: {}",
+                service_name,
+                method_name,
+                ErrorChainExt::chain(&e)
+            ))
+        };
+        let mut in_flight = InFlightSends::default();
         let mut first = true;
         while let Some(request) = request_stream.next().await {
             let request_bytes = request.encode()?;
@@ -569,7 +577,7 @@ impl Channel {
                     Some(msg_meta),
                 )
                 .await?;
-            handles.push(handle);
+            in_flight.push(handle).await.map_err(sending_failed)?;
         }
         // The client EOS always carries RPC_DIR_KEY so the server can distinguish
         // it from an echoed server EOS.  When the request stream was empty we also
@@ -579,19 +587,11 @@ impl Channel {
             eos_meta.insert(SERVICE_KEY.to_string(), service_name.to_string());
             eos_meta.insert(METHOD_KEY.to_string(), method_name.to_string());
         }
-        handles.push(send_eos(session, session.destination(), rpc_id, Some(eos_meta)).await?);
-
-        // Wait for all (data + EOS) acks in a single batch.
-        for result in join_all(handles).await {
-            result.map_err(|e| {
-                RpcError::internal(format!(
-                    "Failed to complete sending {}-{}: {}",
-                    service_name,
-                    method_name,
-                    ErrorChainExt::chain(&e)
-                ))
-            })?;
-        }
+        in_flight
+            .push(send_eos(session, session.destination(), rpc_id, Some(eos_meta)).await?)
+            .await
+            .map_err(sending_failed)?;
+        in_flight.finish().await.map_err(sending_failed)?;
 
         // When the stream was empty `first` is still true: the EOS must carry
         // service + method so the server can dispatch without a preceding data frame.
