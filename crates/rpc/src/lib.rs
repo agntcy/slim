@@ -211,6 +211,31 @@ pub const RPC_DIR_KEY: &str = "slimrpc-dir";
 /// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
 pub const RPC_DIR_REQ: &str = "req";
 
+/// Session metadata key that every session a [`Channel`] opens carries, so
+/// an app serving SlimRPC and plain sessions on one name can tell them apart.
+/// See [`is_slimrpc_session`].
+pub const SESSION_MARKER_KEY: &str = "slimrpc-session";
+
+/// Value for [`SESSION_MARKER_KEY`].
+pub const SESSION_MARKER_VALUE: &str = "1";
+
+/// Whether `session` was opened by a SlimRPC [`Channel`].
+///
+/// A [`Server`] takes every session on its name. To also accept plain
+/// sessions on that name, read the app's notifications yourself, pass the
+/// ones for sessions this accepts to a [`Server`] built with [`Server::new`],
+/// and handle the rest. Channels from releases without the marker open
+/// sessions this rejects.
+pub fn is_slimrpc_session(session: &slim_session::context::SessionContext) -> bool {
+    session.session_arc().is_some_and(|controller| {
+        controller
+            .metadata()
+            .get(SESSION_MARKER_KEY)
+            .map(String::as_str)
+            == Some(SESSION_MARKER_VALUE)
+    })
+}
+
 /// Maximum timeout in seconds (10 hours)
 pub const MAX_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(36000);
 

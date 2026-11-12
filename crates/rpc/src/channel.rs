@@ -124,7 +124,8 @@ impl<T> Response<T> {
 
 use super::{
     Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
-    RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_timeout_duration,
+    RpcError, SERVICE_KEY, SESSION_MARKER_KEY, SESSION_MARKER_VALUE, STATUS_CODE_KEY,
+    calculate_timeout_duration,
     codec::{Decoder, Encoder},
     rpc_session::InFlightSends,
     send_eos,
@@ -252,14 +253,18 @@ fn generate_rpc_id() -> String {
 /// The configuration of the sessions a channel opens. They use MLS and check
 /// every received message's headers against the ones the sender bound to it,
 /// as the SLIM bindings do. The other side takes the MLS settings from the
-/// join request.
+/// join request. The join request also carries [`SESSION_MARKER_KEY`], so the
+/// other side can tell a SlimRPC session from a plain one.
 fn session_config(session_type: ProtoSessionType) -> SessionConfig {
     SessionConfig {
         session_type,
         max_retries: Some(10),
         interval: Some(Duration::from_secs(1)),
         initiator: true,
-        metadata: HashMap::new(),
+        metadata: HashMap::from([(
+            SESSION_MARKER_KEY.to_string(),
+            SESSION_MARKER_VALUE.to_string(),
+        )]),
         mls_settings: Some(MlsSettings {
             header_integrity_validation_percent: 100,
             max_seen_control_message_ids_size: None,
