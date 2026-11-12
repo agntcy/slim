@@ -959,6 +959,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#self-certified-didkey-insecure-opt-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-certified did:key (insecure, opt-in)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5223,6 +5234,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#self-certified-didkey-insecure-opt-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-certified did:key (insecure, opt-in)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5424,6 +5446,53 @@
 - <strong>Automatic rotation</strong> — SPIRE rotates JWT-SVIDs before expiry; applications receive fresh credentials without restart
 - <strong>Workload attestation</strong> — SPIRE verifies the identity of the requesting workload (Kubernetes ServiceAccount, process attributes, etc.) before issuing credentials, making impersonation very difficult</p>
 <p><strong>Use when:</strong> Production deployments, especially Kubernetes, where strong workload identity and automatic rotation are required.</p>
+<h3 id="self-certified-didkey-insecure-opt-in">Self-certified did:key (insecure, opt-in)</h3>
+<p>The application signs its identity token with an Ed25519 key, and the token's <code>iss</code> and <code>sub</code> are that key's <code>did:key</code>. A verifier needs no JWKS, allow-list, or network call: it takes the verification key from the token's own <code>iss</code>. It checks that the signature verifies under that key, that <code>sub</code> equals <code>iss</code>, and that the <code>pubkey</code> claim equals the key encoded in the DID.</p>
+<p>This mode makes no admission decision. A valid token shows that the holder controls the key behind the identity it asserts, not that the peer should be admitted. Admission is the application's job, and the application must:</p>
+<ul>
+<li>Require the holder DID in its credential presentation (for example, OID4VP) to equal the peer's verified subject, the <code>slim-peer-subject</code> message metadata key (<code>PEER_SUBJECT_KEY</code>), so a presentation can't be replayed over another caller's session.</li>
+<li>Bind each presentation to a nonce supplied by the callee and to an <code>aud</code> that names the callee.</li>
+<li>Run no RPC or message handler before admission succeeds.</li>
+<li>Apply rate and resource limits to callers it has not admitted, since any key holder can open a session.</li>
+</ul>
+<p><strong>Properties:</strong></p>
+<ul>
+<li>No infrastructure to run: no identity provider, JWKS, or allow-list</li>
+<li>Each identity is a key pair, so applications don't share a secret</li>
+<li>No admission control built in: any holder of a key can open a session</li>
+<li>The identity is the key. A new key is a new identity, and the provider reads its key once at startup, so rotating it requires a restart</li>
+<li>The provider uses the same Ed25519 key as its MLS signing key, so the <code>did:key</code> also binds the MLS identity. That key can't be replaced, and restoring a saved identity keeps it</li>
+</ul>
+<p><strong>Off by default.</strong> Enable the <code>insecure-self-certified-did</code> Cargo feature on <code>agntcy-slim-config</code>, or on <code>agntcy-slim-bindings</code>, which forwards it. The feature implies <code>curve25519</code>, so MLS uses the Ed25519 ciphersuite. Without the feature, the <code>insecure_self_certified_did</code> identity types don't exist.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The feature applies to the whole build, not just this identity type. Every MLS group the application joins uses Curve25519, including sessions with other identity types, so it cannot share groups with default-built (P-256) or browser peers. With Cargo feature unification, one crate enabling it switches the whole build.</p>
+</div>
+<p>Provider and verifier configuration (both use <code>type: insecure_self_certified_did</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Provider: signs tokens</span>
+<span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">insecure_self_certified_did</span>
+<span class="c1"># claims.issuer / claims.subject are optional: both default to the key&#39;s did:key</span>
+<span class="nt">claims</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">my-callee</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># the callee&#39;s verifier requires it</span>
+<span class="nt">key</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">encoding</span>
+<span class="w">  </span><span class="nt">algorithm</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EdDSA</span>
+<span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pem</span>
+<span class="w">  </span><span class="nt">key</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/slim/identity/ed25519.pem</span><span class="w">   </span><span class="c1"># PKCS#8 PEM; or `data: &lt;PEM text&gt;`</span>
+<span class="nn">---</span>
+<span class="c1"># Verifier: checks tokens</span>
+<span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">insecure_self_certified_did</span>
+<span class="nt">claims</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">my-callee</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># tokens must carry aud: my-callee</span>
+</code></pre></div>
+<ul>
+<li><strong>Provider:</strong> the key must be EdDSA. <code>claims.issuer</code> and <code>claims.subject</code> default to the key's <code>did:key</code>. If you set either, it must equal that <code>did:key</code>, or the provider fails to build.</li>
+<li><strong>Verifier:</strong> only <code>claims.audience</code> is accepted. When it is set, a token without a matching <code>aud</code> is rejected, including one with no <code>aud</code> at all. Set it to name this deployment: with no issuer check and no allow-list, it is the only claim that scopes a token to it, and if it is unset, a token without <code>aud</code> minted for any deployment using this mode is accepted, while any token that carries an <code>aud</code> is rejected. Within MLS sessions a replayed token is not enough, because the token's <code>pubkey</code> must be the sender's MLS signing key. Any other field, including <code>key</code>, <code>claims.issuer</code>, <code>claims.subject</code>, <code>duration</code> and <code>subject_binding</code>, is a configuration error. Verified tokens are not cached, since anyone can mint them.</li>
+<li><strong>Persistence:</strong> the persistence store holds the did:key private key (inside MLS group state), so persistence requires an <code>encryption_key</code>. Without one, persistence is disabled.</li>
+<li>Pair this with mTLS on the transport (see Transport Security (TLS / mTLS) above) to limit which nodes can connect. The <code>did:key</code> check does not limit who connects.</li>
+</ul>
+<p><strong>Use when:</strong> Open admission, where the application runs its own admission check and rate-limits callers it has not admitted. Not for closed networks: prefer JWT or SPIRE there, where each application's credential is issued by an operator-controlled authority.</p>
 <h2 id="choosing-a-credential-method">Choosing a Credential Method</h2>
 <table>
 <thead>
@@ -5463,6 +5532,13 @@
 <td>Automatic</td>
 <td>Yes</td>
 <td>Production, Kubernetes</td>
+</tr>
+<tr>
+<td>Self-certified did:key (insecure, opt-in)</td>
+<td><code>sub</code> = the token's <code>did:key</code></td>
+<td>Restart to rotate (new key, new identity)</td>
+<td>No</td>
+<td>Open admission, with an application-level admission check</td>
 </tr>
 </tbody>
 </table>
