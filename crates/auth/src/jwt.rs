@@ -256,9 +256,25 @@ impl<T> Jwt<T> {
     /// the `pubkey` claim equals the signer's `did:key` and a self-certified-did
     /// verifier accepts the token. The feature implies `curve25519`, so MLS
     /// accepts the Ed25519 key.
+    ///
+    /// The same `pem` also becomes the JWT signing key (replacing any other,
+    /// and dropping the file watchers that could swap it back), so the token
+    /// signature and the `pubkey` claim cannot come from different keys. The
+    /// signer's algorithm must be EdDSA.
     #[cfg(feature = "insecure-self-certified-did")]
     pub fn with_did_key_signature_keys(mut self, pem: &str) -> Result<Self, AuthError> {
-        self.signature_keys = crate::did_key::ed25519_mls_signature_keys_from_pkcs8_pem(pem)?;
+        if self.validation.algorithms.first() != Some(&Algorithm::EdDSA) {
+            return Err(AuthError::SelfCertifiedDid(format!(
+                "a did:key signer must use EdDSA, configured {:?}",
+                self.validation.algorithms
+            )));
+        }
+        let signature_keys = crate::did_key::ed25519_mls_signature_keys_from_pkcs8_pem(pem)?;
+        let encoding_key = EncodingKey::from_ed_pem(pem.as_bytes())
+            .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?;
+        self.signature_keys = signature_keys;
+        self.encoding_key = Some(Arc::new(RwLock::new(encoding_key)));
+        self.watchers = Arc::new(Vec::new());
         self.did_bound = true;
         Ok(self)
     }
@@ -632,6 +648,7 @@ impl<V> Jwt<V> {
         claims: &serde_json::Value,
         owner: &KeyOwner,
     ) -> Result<(), AuthError> {
+        // KeyOwner::self_certified always sets did; this only guards a future constructor.
         let Some(did) = owner.did() else {
             return Err(AuthError::TokenInvalid);
         };
@@ -1794,6 +1811,50 @@ mod tests {
                 .unwrap()
                 .with_did_key_signature_keys(pem)
                 .unwrap()
+        }
+
+        #[test]
+        fn did_key_signing_key_follows_the_installed_identity() {
+            initialize_crypto_provider();
+            let (pem_a, _, _) = fresh_identity();
+            let (pem_b, did_b, _) = fresh_identity();
+            let key_a = Key {
+                algorithm: Algorithm::EdDSA,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(pem_a),
+            };
+            let signer = JwtBuilder::new()
+                .issuer(&did_b)
+                .subject(&did_b)
+                .private_key(&key_a)
+                .build()
+                .unwrap()
+                .with_did_key_signature_keys(&pem_b)
+                .unwrap();
+
+            let token = TokenProvider::get_token(&signer).unwrap();
+            let claims: StandardClaims = self_certified_verifier().try_get_claims(token).unwrap();
+            assert_eq!(claims.sub.as_deref(), Some(did_b.as_str()));
+        }
+
+        #[test]
+        fn did_key_signer_refuses_a_non_eddsa_algorithm() {
+            let (pem, _, _) = fresh_identity();
+            let key = Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret".to_string()),
+            };
+            let result = JwtBuilder::new()
+                .private_key(&key)
+                .build()
+                .unwrap()
+                .with_did_key_signature_keys(&pem);
+            assert!(
+                matches!(result, Err(AuthError::SelfCertifiedDid(_))),
+                "{:?}",
+                result.err()
+            );
         }
 
         #[tokio::test]
