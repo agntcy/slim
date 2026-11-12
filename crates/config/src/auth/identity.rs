@@ -45,24 +45,11 @@ pub enum IdentityVerifierConfig {
     Spire(SpireConfig),
     /// Accepts any JWT whose `iss`/`sub` is a `did:key:z...` Ed25519
     /// identifier, with no JWKS, allow-list, or live authority. Contract: key
-    /// consistency only; admission is the application's job. The
-    /// config has no `key` or `issuer`; the decoding key always comes from the
-    /// token itself. Requires the `insecure-self-certified-did`
-    /// Cargo feature to construct or deserialize.
-    ///
-    /// The application must:
-    /// - Require the holder DID in the caller's credential presentation (e.g.
-    ///   OID4VP) to equal the peer's `PEER_SUBJECT_KEY`, so a presentation
-    ///   cannot be replayed over another caller's session.
-    /// - Bind the presentation to a callee-supplied nonce and an `aud` naming
-    ///   the callee.
-    /// - Run no RPC or message handler before admission succeeds.
-    /// - Apply rate and resource limits to callers not yet admitted, since
-    ///   any key holder can open a session.
-    /// - Set the verifier's `audience` to name this deployment. It is the only
-    ///   claim that scopes a token to it; if unset, any token that carries an
-    ///   `aud` is rejected, and one without `aud` minted for any deployment
-    ///   using this mode is accepted.
+    /// consistency only; admission is the application's job, as listed in
+    /// `docs/content/slim/architecture/authentication.md`. The config has no
+    /// `key` or `issuer`; the decoding key always comes from the token itself.
+    /// Requires the `insecure-self-certified-did` Cargo feature to construct
+    /// or deserialize.
     #[cfg(feature = "insecure-self-certified-did")]
     InsecureSelfCertifiedDid(SelfCertifiedDidVerifierConfig),
     #[default]

@@ -278,6 +278,7 @@ impl Config {
 
         let mut cfg = self.clone();
         cfg.claims = cfg.claims.with_issuer(&did).with_subject(&did);
+        // As `Data`, so `get_provider` neither rereads the file nor starts a watcher.
         cfg.key = JwtKey::Encoding(Key {
             key: slim_auth::jwt::KeyData::Data(pem.clone()),
             ..key.clone()
@@ -749,31 +750,11 @@ mod tests {
     }
 
     #[cfg(feature = "insecure-self-certified-did")]
-    fn self_certified_signer_config() -> (
-        crate::auth::identity::IdentityProviderConfig,
-        String,
-        Vec<u8>,
-    ) {
-        use crate::auth::identity::IdentityProviderConfig;
-
-        let pem = test_key::pem();
-        let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
-        let cfg = Config::new(
-            Claims::new(None, Some(did.clone()), Some(did.clone()), None),
-            Duration::from_secs(60),
-            JwtKey::Encoding(Key {
-                algorithm: Algorithm::EdDSA,
-                format: KeyFormat::Pem,
-                key: KeyData::Data(pem),
-            }),
-        );
-        (
-            IdentityProviderConfig::InsecureSelfCertifiedDid(cfg),
-            did,
-            test_key::hex(test_key::PUBLIC),
-        )
+    fn test_did() -> String {
+        slim_auth::did_key::ed25519_did_key(&test_key::hex(test_key::PUBLIC))
     }
 
+    /// A self-certified signer config for the RFC 8032 key, or for `key`.
     #[cfg(feature = "insecure-self-certified-did")]
     fn self_certified_config_with(
         issuer: Option<&str>,
@@ -781,22 +762,13 @@ mod tests {
         algorithm: Algorithm,
         key: Option<KeyData>,
     ) -> Config {
-        use crate::auth::identity::IdentityProviderConfig;
-        let (IdentityProviderConfig::InsecureSelfCertifiedDid(cfg), _, _) =
-            self_certified_signer_config()
-        else {
-            unreachable!()
-        };
-        let JwtKey::Encoding(k) = cfg.key().clone() else {
-            unreachable!()
-        };
         Config::new(
             Claims::new(None, issuer.map(Into::into), subject.map(Into::into), None),
             Duration::from_secs(60),
             JwtKey::Encoding(Key {
                 algorithm,
-                key: key.unwrap_or(k.key),
-                ..k
+                format: KeyFormat::Pem,
+                key: key.unwrap_or_else(|| KeyData::Data(test_key::pem())),
             }),
         )
     }
@@ -808,7 +780,7 @@ mod tests {
         use slim_auth::traits::{TokenProvider, Verifier};
 
         initialize_crypto_provider();
-        let (_, did, _) = self_certified_signer_config();
+        let did = test_did();
         let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Default::default())
             .build_auth_verifier()
             .unwrap();
@@ -834,7 +806,7 @@ mod tests {
     #[test]
     fn self_certified_provider_rejects_issuer_or_subject_not_the_did() {
         initialize_crypto_provider();
-        let (_, did, _) = self_certified_signer_config();
+        let did = test_did();
         let cases = [
             (Some("other"), Some(did.as_str()), "issuer"),
             (Some(did.as_str()), Some("other"), "subject"),
@@ -869,7 +841,7 @@ mod tests {
     #[test]
     fn self_certified_provider_rejects_non_eddsa_algorithm() {
         initialize_crypto_provider();
-        let (_, did, _) = self_certified_signer_config();
+        let did = test_did();
         let cfg = self_certified_config_with(Some(&did), Some(&did), Algorithm::ES256, None);
         let err = cfg.get_self_certified_did_provider().err().unwrap();
         assert!(
@@ -885,18 +857,9 @@ mod tests {
         use slim_auth::traits::{TokenProvider, Verifier};
 
         initialize_crypto_provider();
-        let (_, did, public) = self_certified_signer_config();
-        let JwtKey::Encoding(Key {
-            key: KeyData::Data(pem),
-            ..
-        }) = self_certified_config_with(None, None, Algorithm::EdDSA, None)
-            .key()
-            .clone()
-        else {
-            unreachable!()
-        };
+        let did = test_did();
         let file = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(file.path(), pem).unwrap();
+        std::fs::write(file.path(), test_key::pem()).unwrap();
         let cfg = self_certified_config_with(
             Some(&did),
             Some(&did),
@@ -913,7 +876,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(claims["sub"], did);
-        assert_eq!(provider.get_signature_keys().unwrap().1, public);
+        assert_eq!(
+            provider.get_signature_keys().unwrap().1,
+            test_key::hex(test_key::PUBLIC)
+        );
     }
 
     #[cfg(feature = "insecure-self-certified-did")]
@@ -965,8 +931,13 @@ mod tests {
         use slim_auth::traits::{TokenProvider, Verifier};
 
         initialize_crypto_provider();
-        let (provider_cfg, did, public) = self_certified_signer_config();
-        let provider = provider_cfg.build_auth_provider().unwrap();
+        let did = test_did();
+        let public = test_key::hex(test_key::PUBLIC);
+        let provider = crate::auth::identity::IdentityProviderConfig::InsecureSelfCertifiedDid(
+            self_certified_config_with(Some(&did), Some(&did), Algorithm::EdDSA, None),
+        )
+        .build_auth_provider()
+        .unwrap();
         let token = provider.get_token().unwrap();
 
         let verifier = IdentityVerifierConfig::InsecureSelfCertifiedDid(Default::default())

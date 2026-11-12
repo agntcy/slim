@@ -43,10 +43,10 @@ pub(crate) fn require_https(url: &str) -> Result<Url, AuthError> {
 pub(crate) struct KeyOwner {
     kid: Option<String>,
     did: Option<String>,
-    /// Set only by [`Self::self_certified`]: the key was derived from the
-    /// token's own `iss`, so `sub` and the `pubkey` claim must be bound to it.
-    /// A `did` alone does not imply this: trust-list Ed25519 keys carry one too.
-    self_certified: bool,
+    /// Set only by [`Self::self_certified`]: the key, derived from the token's
+    /// own `iss`, that `sub` and the `pubkey` claim must be bound to. A `did`
+    /// alone does not imply this: trust-list Ed25519 keys carry one too.
+    self_certified_key: Option<[u8; 32]>,
 }
 
 impl KeyOwner {
@@ -64,21 +64,25 @@ impl KeyOwner {
         KeyOwner {
             kid: jwk.common.key_id.clone(),
             did,
-            self_certified: false,
+            self_certified_key: None,
         }
     }
 
-    /// The owner of a key derived from its own `did:key`, with no JWKS `kid`.
-    pub(crate) fn self_certified(did: String) -> Self {
+    /// The owner of `public_key`, derived from its own `did:key`, with no JWKS `kid`.
+    pub(crate) fn self_certified(did: String, public_key: [u8; 32]) -> Self {
         KeyOwner {
             kid: None,
             did: Some(did),
-            self_certified: true,
+            self_certified_key: Some(public_key),
         }
     }
 
+    pub(crate) fn self_certified_key(&self) -> Option<&[u8; 32]> {
+        self.self_certified_key.as_ref()
+    }
+
     pub(crate) fn is_self_certified(&self) -> bool {
-        self.self_certified
+        self.self_certified_key.is_some()
     }
 
     /// Whether `sub` names this key's owner.
@@ -88,10 +92,6 @@ impl KeyOwner {
 
     pub(crate) fn kid(&self) -> Option<&str> {
         self.kid.as_deref()
-    }
-
-    pub(crate) fn did(&self) -> Option<&str> {
-        self.did.as_deref()
     }
 }
 
@@ -259,13 +259,6 @@ impl KeyResolver {
         self
     }
 
-    /// Whether this resolver derives decoding keys from tokens' own `iss`
-    /// claim instead of looking them up, i.e. was built via
-    /// [`Self::with_self_certified_did`].
-    pub(crate) fn is_self_certified_did(&self) -> bool {
-        self.self_certified_did
-    }
-
     /// Resolve a decoding key from various sources
     ///
     /// This function will attempt to resolve the key in the following order:
@@ -309,14 +302,10 @@ impl KeyResolver {
     /// Ed25519 identifier: no lookup, since the identifier *is* the key.
     fn self_certified_candidate(issuer: &str) -> Result<Candidate, AuthError> {
         let public_key = crate::did_key::ed25519_public_key_from_did_key(issuer)?;
-        let jwk: Jwk = serde_json::from_value(serde_json::json!({
-            "kty": "OKP", "alg": "EdDSA", "use": "sig", "crv": "Ed25519",
-            "x": URL_SAFE_NO_PAD.encode(public_key),
-        }))?;
         Ok(Candidate {
-            key: DecodingKey::from_jwk(&jwk)?,
+            key: DecodingKey::from_ed_der(&public_key),
             algorithm: Algorithm::EdDSA,
-            owner: Some(KeyOwner::self_certified(issuer.to_string())),
+            owner: Some(KeyOwner::self_certified(issuer.to_string(), public_key)),
         })
     }
 
@@ -680,14 +669,11 @@ mod tests {
 
         use super::*;
 
-        fn fresh_identity() -> (String, String) {
-            let (pem, did, _) = crate::did_key::fresh_identity();
-            (pem, did)
-        }
+        use crate::did_key::fresh_identity;
 
         #[test]
         fn cached_candidates_derives_a_key_that_verifies_the_signer() {
-            let (pem, did) = fresh_identity();
+            let (pem, did, _) = fresh_identity();
             let header = Header::new(Algorithm::EdDSA);
             let token = encode(
                 &header,
@@ -710,7 +696,7 @@ mod tests {
 
         #[tokio::test]
         async fn resolve_candidates_derives_the_same_key() {
-            let (_, did) = fresh_identity();
+            let (_, did, _) = fresh_identity();
             let header = Header::new(Algorithm::EdDSA);
             let resolver = KeyResolver::with_self_certified_did();
             let candidates = resolver.resolve_candidates(&did, &header).await.unwrap();

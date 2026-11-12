@@ -18,7 +18,8 @@ shopt: [globstar]
 vars:
   GLOBAL_ARGS: '{{.GLOBAL_ARGS | default "--workspace"}}'
   SELF_CERT_DID_PKGS: "-p agntcy-slim-auth -p agntcy-slim-config -p agntcy-slim-mls -p agntcy-slim-session -p agntcy-slim-bindings"
-  SELF_CERT_DID_FEATURES: "--features agntcy-slim-auth/insecure-self-certified-did,agntcy-slim-config/insecure-self-certified-did,agntcy-slim-bindings/insecure-self-certified-did,agntcy-slim-mls/insecure-self-certified-did,agntcy-slim-session/insecure-self-certified-did"
+  # bindings forwards to config and auth, session to mls; feature unification covers the rest.
+  SELF_CERT_DID_FEATURES: "--features agntcy-slim-bindings/insecure-self-certified-did,agntcy-slim-session/insecure-self-certified-did"
   CARGO_COMPONENTS: "cargo-sort cargo-audit cargo-llvm-cov cargo-machete cargo-deny typos-cli"
 
   PROFILE: '{{.PROFILE | default "debug"}}'

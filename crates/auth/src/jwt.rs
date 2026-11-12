@@ -557,8 +557,8 @@ impl<V> Jwt<V> {
 
         // Before caching it: a token that fails the binding must be checked again.
         self.check_subject_binding(&claims_json, owner)?;
-        if let Some(owner) = owner.filter(|o| o.is_self_certified()) {
-            self.check_pubkey_claim_binding(&claims_json, owner)?;
+        if let Some(expected) = owner.and_then(KeyOwner::self_certified_key) {
+            self.check_pubkey_claim_binding(&claims_json, expected)?;
         }
 
         // `decode` above already required a valid `exp`; this just reads the
@@ -574,15 +574,6 @@ impl<V> Jwt<V> {
         }
 
         Ok(token_data.claims)
-    }
-
-    /// Whether this verifier's key resolver derives decoding keys from
-    /// tokens' own `iss` claim (`KeyResolver::with_self_certified_did`). Only
-    /// for error mapping; the guarantees follow the verifying key's owner.
-    fn is_self_certified_did(&self) -> bool {
-        self.key_resolver
-            .as_ref()
-            .is_some_and(|r| r.is_self_certified_did())
     }
 
     /// Hold the token's `sub` to the trust-list key that verified it, so a
@@ -610,14 +601,9 @@ impl<V> Jwt<V> {
             return Ok(());
         }
         // The signature has just been verified.
-        let sub = claims
-            .get("sub")
-            .map(|v| serde_json::from_value::<Option<String>>(v.clone()))
-            .transpose()
-            .map_err(|e| {
-                jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::Json(e.into()))
-            })?
-            .flatten();
+        let sub: Option<String> =
+            serde_json::from_value(claims.get("sub").cloned().unwrap_or_default())
+                .map_err(jsonwebtoken::errors::Error::from)?;
         if sub.as_deref().is_some_and(|sub| owner.owns(sub)) {
             return Ok(());
         }
@@ -646,28 +632,20 @@ impl<V> Jwt<V> {
     fn check_pubkey_claim_binding(
         &self,
         claims: &serde_json::Value,
-        owner: &KeyOwner,
+        expected: &[u8; 32],
     ) -> Result<(), AuthError> {
-        // KeyOwner::self_certified always sets did; this only guards a future constructor.
-        let Some(did) = owner.did() else {
-            return Err(AuthError::TokenInvalid);
-        };
-        let expected = crate::did_key::ed25519_public_key_from_did_key(did)?;
+        use crate::identity_claims::IdentityClaims;
 
-        let identity_claims =
-            crate::identity_claims::IdentityClaims::from_json(claims).map_err(|e| {
-                tracing::warn!(error = %e, "self-certified did:key token has no usable pubkey claim");
-                AuthError::TokenInvalid
-            })?;
-        let claimed = STANDARD_BASE64
-            .decode(&identity_claims.public_key)
-            .map_err(|_| AuthError::TokenInvalid)?;
+        let identity_claims = IdentityClaims::from_json(claims).map_err(|e| {
+            tracing::warn!(error = %e, "self-certified did:key token has no usable pubkey claim");
+            AuthError::TokenInvalid
+        })?;
 
-        if claimed == expected {
+        if identity_claims.public_key == IdentityClaims::encode_public_key(expected) {
             Ok(())
         } else {
             tracing::warn!(
-                did,
+                iss = ?claims.get("iss"),
                 "token's pubkey claim does not match the did:key that signed it"
             );
             Err(AuthError::TokenInvalid)
@@ -738,7 +716,7 @@ impl<V> Jwt<V> {
                 .ok_or(AuthError::JwtMissingIssuer)?;
 
             return match resolver.cached_candidates(issuer, &token_data.header) {
-                Err(e) if self.is_self_certified_did() => Err(e),
+                Err(e @ AuthError::InvalidDidKey(_)) => Err(e),
                 // No cached key yet; async resolution would be required.
                 Err(_) => Err(AuthError::WouldBlockOn),
                 ok => ok,
@@ -1577,7 +1555,10 @@ mod tests {
     mod self_certified_did {
         use super::*;
 
-        use crate::did_key::fresh_identity;
+        use crate::did_key::{
+            did_bound_signer, ed25519_public_key_from_did_key, fresh_identity,
+            self_certified_verifier,
+        };
 
         /// A token signed by `pem`, with `iss`/`sub` set to `subject` and a
         /// `pubkey` claim of `pubkey_bytes`.
@@ -1608,13 +1589,6 @@ mod tests {
             .unwrap()
         }
 
-        fn self_certified_verifier() -> VerifierJwt {
-            JwtBuilder::new()
-                .key_resolver(KeyResolver::with_self_certified_did())
-                .build()
-                .unwrap()
-        }
-
         #[test]
         fn a_self_certified_owner_enforces_bindings_whatever_the_verifier_sets() {
             initialize_crypto_provider();
@@ -1631,7 +1605,6 @@ mod tests {
                 .key_resolver(KeyResolver::new())
                 .build()
                 .unwrap();
-            assert!(!verifier.is_self_certified_did());
 
             let good = self_certified_token(&pem, &did, &public);
             verifier
@@ -1667,7 +1640,7 @@ mod tests {
                 .cached_candidates("test-issuer", &header)
                 .unwrap();
             let owner = candidates[0].owner.as_ref().unwrap();
-            assert_eq!(owner.did(), Some(did.as_str()));
+            assert!(owner.owns(&did));
             assert!(!owner.is_self_certified());
 
             // No `pubkey` claim, which a self-certified owner would reject.
@@ -1792,28 +1765,6 @@ mod tests {
         }
 
         #[test]
-        fn pubkey_binding_rejects_an_owner_without_a_did() {
-            let verifier = self_certified_verifier();
-            let result =
-                verifier.check_pubkey_claim_binding(&serde_json::json!({}), &KeyOwner::default());
-            assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
-        }
-
-        fn did_bound_signer(pem: &str) -> SignerJwt {
-            let key = Key {
-                algorithm: Algorithm::EdDSA,
-                format: KeyFormat::Pem,
-                key: KeyData::Data(pem.to_string()),
-            };
-            JwtBuilder::new()
-                .private_key(&key)
-                .build()
-                .unwrap()
-                .with_did_key_signature_keys(pem)
-                .unwrap()
-        }
-
-        #[test]
         fn did_key_signing_key_follows_the_installed_identity() {
             initialize_crypto_provider();
             let (pem_a, _, _) = fresh_identity();
@@ -1860,42 +1811,45 @@ mod tests {
         #[tokio::test]
         async fn did_bound_signer_refuses_to_replace_its_keys() {
             initialize_crypto_provider();
-            let (pem, _, public) = fresh_identity();
-            let mut signer = did_bound_signer(&pem);
+            let (mut signer, did) = did_bound_signer();
 
             let result = signer.set_signature_keys(vec![1], vec![2]).await;
             assert!(
                 matches!(result, Err(AuthError::SelfCertifiedDid(_))),
                 "{result:?}"
             );
-            assert_eq!(signer.get_signature_keys().unwrap().1, public);
+            assert_eq!(
+                signer.get_signature_keys().unwrap().1,
+                ed25519_public_key_from_did_key(&did).unwrap()
+            );
         }
 
         #[test]
         fn did_bound_signer_holds_a_long_term_key() {
             initialize_crypto_provider();
-            let (pem, _, _) = fresh_identity();
-            assert!(did_bound_signer(&pem).holds_long_term_signing_key());
+            let (signer, _) = did_bound_signer();
+            assert!(signer.holds_long_term_signing_key());
             assert!(
-                crate::auth_provider::AuthProvider::JwtSigner(did_bound_signer(&pem))
-                    .holds_long_term_signing_key()
+                crate::auth_provider::AuthProvider::JwtSigner(signer).holds_long_term_signing_key()
             );
         }
 
         #[test]
         fn did_bound_signer_does_not_export_its_secret() {
             initialize_crypto_provider();
-            let (pem, _, public) = fresh_identity();
-            let snapshot = did_bound_signer(&pem).export_identity().unwrap();
+            let (signer, did) = did_bound_signer();
+            let snapshot = signer.export_identity().unwrap();
             assert!(snapshot.signature_secret_key.is_empty());
-            assert_eq!(snapshot.signature_public_key, public);
+            assert_eq!(
+                snapshot.signature_public_key,
+                ed25519_public_key_from_did_key(&did).unwrap()
+            );
         }
 
         #[test]
         fn did_bound_signer_restores_its_own_snapshot() {
             initialize_crypto_provider();
-            let (pem, _, _) = fresh_identity();
-            let signer = did_bound_signer(&pem);
+            let (signer, _) = did_bound_signer();
             let before = signer.get_signature_keys().unwrap();
             let snapshot = signer.export_identity().unwrap();
 
@@ -1906,11 +1860,9 @@ mod tests {
         #[test]
         fn did_bound_signer_rejects_another_dids_snapshot() {
             initialize_crypto_provider();
-            let (pem_a, _, _) = fresh_identity();
-            let (pem_b, _, _) = fresh_identity();
-            let snapshot = did_bound_signer(&pem_a).export_identity().unwrap();
+            let snapshot = did_bound_signer().0.export_identity().unwrap();
 
-            let result = did_bound_signer(&pem_b).with_restored_identity(snapshot);
+            let result = did_bound_signer().0.with_restored_identity(snapshot);
             assert!(
                 matches!(result, Err(AuthError::SelfCertifiedDid(_))),
                 "{:?}",

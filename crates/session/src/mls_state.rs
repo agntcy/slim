@@ -741,18 +741,13 @@ mod tests {
     #[tokio::test]
     async fn a_did_bound_sender_is_named_by_its_did_key() {
         use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-        use slim_auth::builder::JwtBuilder;
-        use slim_auth::resolver::KeyResolver;
+        use slim_auth::did_key::{did_bound_signer, self_certified_verifier};
 
         async fn did_bound_member() -> (Mls<AuthProvider, AuthVerifier>, String) {
-            let (signer, did) = slim_auth::did_key::did_bound_signer();
-            let verifier = JwtBuilder::new()
-                .key_resolver(KeyResolver::with_self_certified_did())
-                .build()
-                .unwrap();
+            let (signer, did) = did_bound_signer();
             let mut mls = Mls::new(
                 AuthProvider::jwt_signer(signer),
-                AuthVerifier::jwt_verifier(verifier),
+                AuthVerifier::jwt_verifier(self_certified_verifier()),
             );
             mls.initialize().await.unwrap();
             (mls, did)

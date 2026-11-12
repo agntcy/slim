@@ -30,14 +30,10 @@ pub fn ed25519_public_key_from_did_key(did: &str) -> Result<[u8; 32], AuthError>
         .into_vec()
         .map_err(|_| unsupported())?;
 
-    match decoded.as_slice() {
-        [0xed, 0x01, key @ ..] if key.len() == 32 => {
-            let mut pubkey = [0u8; 32];
-            pubkey.copy_from_slice(key);
-            Ok(pubkey)
-        }
-        _ => Err(unsupported()),
-    }
+    decoded
+        .strip_prefix(&ED25519_PUB_MULTICODEC)
+        .and_then(|key| key.try_into().ok())
+        .ok_or_else(unsupported)
 }
 
 /// The `did:key` of the Ed25519 key in a PKCS#8 PEM document
@@ -140,6 +136,19 @@ pub fn did_bound_signer() -> (crate::jwt::SignerJwt, String) {
     (signer, did)
 }
 
+/// A verifier that accepts self-certified `did:key` tokens, as the config
+/// layer builds it with no audience.
+#[cfg(all(
+    any(test, feature = "test-utils"),
+    feature = "insecure-self-certified-did"
+))]
+pub fn self_certified_verifier() -> crate::jwt::VerifierJwt {
+    crate::builder::JwtBuilder::new()
+        .key_resolver(crate::resolver::KeyResolver::with_self_certified_did())
+        .build()
+        .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,49 +196,28 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_did_key_without_the_did_key_prefix() {
-        assert!(matches!(
-            ed25519_public_key_from_did_key("z6MkhaXg"),
-            Err(AuthError::InvalidDidKey(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_a_did_key_without_the_multibase_prefix() {
-        assert!(matches!(
-            ed25519_public_key_from_did_key("did:key:6MkhaXg"),
-            Err(AuthError::InvalidDidKey(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_a_did_key_with_invalid_base58() {
-        assert!(matches!(
-            ed25519_public_key_from_did_key("did:key:z0OIl"),
-            Err(AuthError::InvalidDidKey(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_a_did_key_with_the_wrong_multicodec_prefix() {
-        let mut bytes = vec![0x00, 0x00];
-        bytes.extend_from_slice(&hex(PUBLIC));
-        let did = format!("did:key:z{}", bs58::encode(bytes).into_string());
-        assert!(matches!(
-            ed25519_public_key_from_did_key(&did),
-            Err(AuthError::InvalidDidKey(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_a_did_key_with_the_wrong_key_length() {
-        let mut bytes = vec![0xed, 0x01];
-        bytes.extend_from_slice(&hex(PUBLIC)[..16]);
-        let did = format!("did:key:z{}", bs58::encode(bytes).into_string());
-        assert!(matches!(
-            ed25519_public_key_from_did_key(&did),
-            Err(AuthError::InvalidDidKey(_))
-        ));
+    fn rejects_malformed_did_keys() {
+        let encoded = |prefix: &[u8], key: &[u8]| {
+            format!(
+                "did:key:z{}",
+                bs58::encode([prefix, key].concat()).into_string()
+            )
+        };
+        for did in [
+            "z6MkhaXg".to_string(),
+            "did:key:6MkhaXg".to_string(),
+            "did:key:z0OIl".to_string(),
+            encoded(&[0x00, 0x00], &hex(PUBLIC)),
+            encoded(&ED25519_PUB_MULTICODEC, &hex(PUBLIC)[..16]),
+        ] {
+            assert!(
+                matches!(
+                    ed25519_public_key_from_did_key(&did),
+                    Err(AuthError::InvalidDidKey(_))
+                ),
+                "{did}"
+            );
+        }
     }
 
     #[test]

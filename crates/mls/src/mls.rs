@@ -1132,21 +1132,17 @@ mod tests {
         assert!(err.is_err(), "loading an unknown group must fail");
     }
 
-    /// The default ciphersuite must match the one auth generates keys for:
-    /// P256_AES128 by default (so native and WASM peers can join the same MLS
-    /// group), or CURVE25519_AES128 when `curve25519` is enabled, which is
-    /// incompatible with browser WebCrypto.
+    /// `curve25519` on this crate must still switch MLS to CURVE25519_AES128,
+    /// which is incompatible with browser WebCrypto; wasm always uses P256_AES128.
+    /// The P-256 default is pinned in auth's `utils.rs`: asserting it here would
+    /// fail whenever unification enables auth's feature alone.
     #[test]
     fn test_default_ciphersuite_matches_auth_ciphersuite() {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let expected = slim_auth::utils::MLS_CIPHERSUITE;
-            assert!([CipherSuite::P256_AES128, CipherSuite::CURVE25519_AES128].contains(&expected));
-            assert_eq!(ciphersuite_for(false).unwrap(), expected);
-            // The reverse needs no cfg on auth's feature, which unification can enable alone.
-            #[cfg(feature = "curve25519")]
-            assert_eq!(expected, CipherSuite::CURVE25519_AES128);
-        }
+        #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
+        assert_eq!(
+            ciphersuite_for(false).unwrap(),
+            CipherSuite::CURVE25519_AES128
+        );
 
         #[cfg(target_arch = "wasm32")]
         assert_eq!(ciphersuite_for(false).unwrap(), CipherSuite::P256_AES128);
@@ -1907,21 +1903,17 @@ mod tests {
     #[cfg(all(not(target_arch = "wasm32"), feature = "insecure-self-certified-did"))]
     mod self_certified_did {
         use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-        use slim_auth::builder::JwtBuilder;
-        use slim_auth::did_key::{did_bound_signer, ed25519_public_key_from_did_key};
-        use slim_auth::resolver::KeyResolver;
+        use slim_auth::did_key::{
+            did_bound_signer, ed25519_public_key_from_did_key, self_certified_verifier,
+        };
 
         use super::*;
 
         async fn did_bound_member() -> (Mls<AuthProvider, AuthVerifier>, String) {
             let (signer, did) = did_bound_signer();
-            let verifier = JwtBuilder::new()
-                .key_resolver(KeyResolver::with_self_certified_did())
-                .build()
-                .unwrap();
             let mut mls = Mls::new(
                 AuthProvider::jwt_signer(signer),
-                AuthVerifier::jwt_verifier(verifier),
+                AuthVerifier::jwt_verifier(self_certified_verifier()),
             );
             mls.initialize().await.unwrap();
             (mls, did)
