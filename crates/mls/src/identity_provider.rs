@@ -191,6 +191,18 @@ mod tests {
                 serde_json::json!({ "sub": "alice" }),
             )?)
         }
+
+        fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+            slim_auth::traits::subject_from_claims(self, token)
+        }
+
+        fn try_verify_key_binding(
+            &self,
+            token: impl AsRef<str>,
+            public_key: &[u8],
+        ) -> Result<(), AuthError> {
+            slim_auth::traits::verify_pubkey_claim_binding(self, token, public_key)
+        }
     }
 
     fn identity(token: &str, key: &[u8]) -> SigningIdentity {
