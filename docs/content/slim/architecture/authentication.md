@@ -128,7 +128,7 @@ claims:
 ```
 
 - **Provider:** the key must be EdDSA. `claims.issuer` and `claims.subject` default to the key's `did:key`. If you set either, it must equal that `did:key`, or the provider fails to build.
-- **Verifier:** only `claims.audience` is accepted. When it is set, a token without a matching `aud` is rejected, including one with no `aud` at all. Any other field, including `key`, `claims.issuer`, `claims.subject`, `duration` and `subject_binding`, is a configuration error. Verified tokens are not cached, since anyone can mint them.
+- **Verifier:** only `claims.audience` is accepted. When it is set, a token without a matching `aud` is rejected, including one with no `aud` at all. Set it to name this deployment: with no issuer check and no allow-list, it is the only claim that scopes a token to it, and if it is unset, a token minted for any deployment using this mode is accepted. Within MLS sessions a replayed token is not enough, because the token's `pubkey` must be the sender's MLS signing key. Any other field, including `key`, `claims.issuer`, `claims.subject`, `duration` and `subject_binding`, is a configuration error. Verified tokens are not cached, since anyone can mint them.
 - **Persistence:** the persistence store holds the did:key private key (inside MLS group state), so persistence requires an `encryption_key`. Without one, persistence is disabled.
 - Pair this with mTLS on the transport (see Transport Security (TLS / mTLS) above) to limit which nodes can connect. The `did:key` check does not limit who connects.
 

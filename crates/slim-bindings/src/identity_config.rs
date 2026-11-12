@@ -316,7 +316,9 @@ impl From<JwtAuthConfig> for JwtAuth {
 /// the claims to check. There is no key or issuer; each token's own `did:key` is both.
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct SelfCertifiedDidVerifierAuth {
-    /// JWT audience claims to verify; when set, a token must carry a matching `aud`
+    /// JWT audience claims to verify; when set, a token must carry a matching `aud`.
+    /// This is the only claim that scopes a token to this deployment; leave it
+    /// unset and a token minted for any deployment using this mode is accepted.
     pub audience: Option<Vec<String>>,
 }
 
@@ -456,6 +458,9 @@ pub enum IdentityVerifierConfig {
     /// - Run no RPC or message handler before admission succeeds.
     /// - Apply rate and resource limits to callers not yet admitted, since
     ///   any key holder can open a session.
+    /// - Set the verifier's `audience` to name this deployment. It is the only
+    ///   claim that scopes a token to it; if unset, a token minted for any
+    ///   deployment using this mode is accepted.
     InsecureSelfCertifiedDid {
         config: SelfCertifiedDidVerifierAuth,
     },

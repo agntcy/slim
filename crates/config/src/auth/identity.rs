@@ -59,6 +59,9 @@ pub enum IdentityVerifierConfig {
     /// - Run no RPC or message handler before admission succeeds.
     /// - Apply rate and resource limits to callers not yet admitted, since
     ///   any key holder can open a session.
+    /// - Set the verifier's `audience` to name this deployment. It is the only
+    ///   claim that scopes a token to it; if unset, a token minted for any
+    ///   deployment using this mode is accepted.
     #[cfg(feature = "insecure-self-certified-did")]
     InsecureSelfCertifiedDid(SelfCertifiedDidVerifierConfig),
     #[default]
