@@ -44,8 +44,16 @@ impl IdentityClaims {
     /// Tries to get the public key from the top-level claims first,
     /// then falls back to custom_claims if not found.
     pub fn from_json(claims: &JsonValue) -> Result<Self, AuthError> {
-        // Try to get the public key from claims, falling back to custom_claims
-        let public_key = claims
+        Ok(Self {
+            subject: Self::subject_from_json(claims)?,
+            public_key: Self::public_key_from_json(claims)?,
+        })
+    }
+
+    /// Extracts the public key claim (base64), looking at the top level first
+    /// and then at `custom_claims`.
+    pub fn public_key_from_json(claims: &JsonValue) -> Result<String, AuthError> {
+        claims
             .get(claim_keys::PUBKEY)
             .and_then(|pk| pk.as_str())
             .or_else(|| {
@@ -55,20 +63,19 @@ impl IdentityClaims {
                     .and_then(|cc| cc.get(claim_keys::PUBKEY))
                     .and_then(|pk| pk.as_str())
             })
-            .ok_or(AuthError::PublicKeyNotFound)?;
+            .map(str::to_string)
+            .ok_or(AuthError::PublicKeyNotFound)
+    }
 
-        // Get the subject of this identity
-        // Fall back to "id" field if "sub" is not present (for SharedSecret compatibility)
-        let subject = claims
+    /// Extracts the subject claim. Falls back to the "id" field if "sub" is
+    /// not present (for SharedSecret compatibility).
+    pub fn subject_from_json(claims: &JsonValue) -> Result<String, AuthError> {
+        claims
             .get(claim_keys::SUBJECT)
             .and_then(|s| s.as_str())
             .or_else(|| claims.get("id").and_then(|s| s.as_str()))
-            .ok_or(AuthError::SubjectNotFound)?;
-
-        Ok(Self {
-            subject: subject.to_string(),
-            public_key: public_key.to_string(),
-        })
+            .map(str::to_string)
+            .ok_or(AuthError::SubjectNotFound)
     }
 
     /// Converts identity claims to a HashMap suitable for token generation

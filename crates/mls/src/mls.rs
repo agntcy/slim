@@ -342,7 +342,11 @@ where
         let key_package = MlsMessage::from_bytes(key_package_bytes)?
             .into_key_package()
             .ok_or(MlsError::UnknownPayloadType)?;
-        SlimIdentityProvider::new(self.identity_verifier.clone())
+        let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
+        // The token must be bound to the key package's signature key, so a token
+        // stolen from another member does not read as that member's identity.
+        identity_provider.verify_key_binding(key_package.signing_identity())?;
+        identity_provider
             .identity(key_package.signing_identity(), &ExtensionList::default())
             .await
     }
@@ -1714,6 +1718,52 @@ mod tests {
             "Expected at least one MLS operation failure (signature mismatch)"
         );
 
+        Ok(())
+    }
+
+    // A key package carrying another member's token but signed with a different
+    // key must not read as that member's identity.
+    #[tokio::test]
+    async fn test_key_package_identity_rejects_a_stolen_token()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use mls_rs::identity::basic::BasicIdentityProvider;
+
+        let alice = init_identity("alice", "").await?;
+        let verifier = init_identity("bob", "").await?;
+        let (alice_token, _) = extract_token_and_pubkey(&alice);
+
+        // The attacker signs with its own key; its client does not validate
+        // identities, so it can build a key package around Alice's token.
+        let (attacker_priv, attacker_pub) = Mls::<SharedSecret, SharedSecret>::generate_key_pair()?;
+        let stolen_identity = SigningIdentity::new(
+            BasicCredential::new(alice_token.as_bytes().to_vec()).into_credential(),
+            attacker_pub,
+        );
+        let attacker = Client::builder()
+            .identity_provider(BasicIdentityProvider::new())
+            .crypto_provider(crate::crypto::default_crypto_provider())
+            .signing_identity(
+                stolen_identity,
+                attacker_priv,
+                ciphersuite_for(false).unwrap(),
+            )
+            .build();
+        let stolen_key_package = attacker
+            .generate_key_package_message(Default::default(), Default::default(), None)?
+            .to_bytes()?;
+
+        let result = verifier.key_package_identity(&stolen_key_package);
+        assert!(
+            matches!(result, Err(MlsError::PublicKeyMismatch { .. })),
+            "{result:?}"
+        );
+
+        // Alice's own key package still reads as her identity.
+        let genuine = alice.generate_key_package()?;
+        assert_eq!(
+            verifier.key_package_identity(&genuine)?,
+            alice.identity.clone().unwrap().into_bytes()
+        );
         Ok(())
     }
 

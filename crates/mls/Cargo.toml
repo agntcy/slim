@@ -47,6 +47,7 @@ mls-rs-crypto-webcrypto = { workspace = true }
 
 [dev-dependencies]
 agntcy-slim-auth = { workspace = true, features = ["test-utils"] }
+serde = { workspace = true }
 tempfile = "3.3"
 tokio = { workspace = true, features = ["macros", "rt"] }
 
