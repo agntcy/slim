@@ -293,8 +293,10 @@ where
     /// Open the app's persistent store (keyed by the stable, id-less app name)
     /// and adopt or persist the app identity through it. Returns the (possibly
     /// restored) identity provider plus the group-state and session-record
-    /// handles. Degrades to no persistence (provider unchanged) on failure or
-    /// when persistence is disabled; on wasm32 it is always a no-op.
+    /// handles. Degrades to no persistence (provider unchanged) on failure, when
+    /// persistence is disabled, or when the provider rejects the stored identity
+    /// (the old store is then neither restored nor overwritten); on wasm32 it is
+    /// always a no-op.
     ///
     /// Public so a caller (`App`) can open **once**, derive the app id from the
     /// restored identity, then hand the handles to [`Self::new_with_storage`] —
@@ -308,12 +310,18 @@ where
         let Some(p) = persistence else {
             return (identity_provider, None, None);
         };
+        if p.encryption_key.is_none() && identity_provider.holds_long_term_signing_key() {
+            error!(
+                "did:key identity requires an encryption_key for persistence; persistence disabled"
+            );
+            return (identity_provider, None, None);
+        }
         let store_key = Self::app_store_key(app_name);
         match PersistentStore::open(&p.path, &store_key, p.encryption_key.clone()) {
-            Ok((group, kv)) => {
-                let identity_provider = Self::restore_app_identity(identity_provider, &kv);
-                (identity_provider, Some(group), Some(kv))
-            }
+            Ok((group, kv)) => match Self::restore_app_identity(identity_provider, &kv) {
+                Ok(p) => (p, Some(group), Some(kv)),
+                Err(p) => (p, None, None),
+            },
             Err(e) => {
                 error!(error = %e, "failed to open persistence store; persistence disabled");
                 (identity_provider, None, None)
@@ -354,9 +362,10 @@ where
     /// MLS layer has installed its ciphersuite-correct keypair (see
     /// `persist_app_identity`) — so we never persist the provider's initial
     /// placeholder keys here. Providers without a persistable identity, or a
-    /// missing/corrupt record, leave the provider unchanged.
+    /// missing/corrupt record, leave the provider unchanged. `Err` carries the
+    /// provider back when it rejects the stored identity as a different did:key.
     #[cfg(not(target_arch = "wasm32"))]
-    fn restore_app_identity(identity_provider: P, kv: &SlimKvStore) -> P {
+    fn restore_app_identity(identity_provider: P, kv: &SlimKvStore) -> Result<P, P> {
         match kv.get(crate::persistence::APP_IDENTITY_KEY) {
             Ok(Some(bytes)) => match serde_json::from_slice::<ExportedIdentity>(&bytes) {
                 Ok(identity) => {
@@ -366,23 +375,27 @@ where
                     match identity_provider.with_restored_identity(identity) {
                         Ok(restored) => {
                             debug!("restored persisted app identity");
-                            restored
+                            Ok(restored)
+                        }
+                        Err(e @ slim_auth::errors::AuthError::SelfCertifiedDid(_)) => {
+                            error!(error = %e, "persisted app identity rejected; persistence disabled");
+                            Err(fallback)
                         }
                         Err(e) => {
                             error!(error = %e, "failed to restore app identity; keeping current");
-                            fallback
+                            Ok(fallback)
                         }
                     }
                 }
                 Err(e) => {
                     error!(error = %e, "failed to decode app identity; keeping current");
-                    identity_provider
+                    Ok(identity_provider)
                 }
             },
-            Ok(None) => identity_provider,
+            Ok(None) => Ok(identity_provider),
             Err(e) => {
                 error!(error = %e, "failed to read app identity; keeping current");
-                identity_provider
+                Ok(identity_provider)
             }
         }
     }
@@ -1183,6 +1196,107 @@ mod tests {
         assert_eq!(session_layer.app_id(), 0);
         assert_eq!(session_layer.conn_id(), 12345);
         assert!(session_layer.is_pool_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Default)]
+    struct LongTermKeyProvider(MockTokenProvider);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl TokenProvider for LongTermKeyProvider {
+        async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
+            self.0.get_token()
+        }
+        fn get_id(&self) -> Result<String, slim_auth::errors::AuthError> {
+            self.0.get_id()
+        }
+        async fn set_signature_keys(
+            &mut self,
+            _private_key: Vec<u8>,
+            _public_key: Vec<u8>,
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn holds_long_term_signing_key(&self) -> bool {
+            true
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_long_term_key_provider_needs_encryption_key_for_persistence() {
+        use slim_persistence::MlsEncryptionKey;
+
+        let name = make_name(&["test", "app", "v1"]);
+        let open = |cfg: &PersistenceConfig| {
+            SessionLayer::<LongTermKeyProvider, MockVerifier>::open_persistent_store(
+                &name,
+                LongTermKeyProvider::default(),
+                Some(cfg),
+            )
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let (_, group, kv) = open(&PersistenceConfig::new(dir.path()));
+        assert!(group.is_none() && kv.is_none());
+
+        let keyed = PersistenceConfig::with_key(dir.path(), MlsEncryptionKey::RawKey([7; 32]));
+        let (_, group, kv) = open(&keyed);
+        assert!(group.is_some() && kv.is_some());
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "insecure-self-certified-did"))]
+    #[test]
+    fn test_restore_with_a_different_did_disables_persistence() {
+        use slim_auth::auth_provider::AuthProvider;
+        use slim_persistence::MlsEncryptionKey;
+
+        fn did_bound_provider() -> AuthProvider {
+            AuthProvider::jwt_signer(slim_auth::did_key::did_bound_signer().0)
+        }
+
+        let name = make_name(&["test", "app", "v1"]);
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = PersistenceConfig::with_key(dir.path(), MlsEncryptionKey::RawKey([7; 32]));
+        let open = |provider: AuthProvider| {
+            SessionLayer::<AuthProvider, MockVerifier>::open_persistent_store(
+                &name,
+                provider,
+                Some(&cfg),
+            )
+        };
+
+        let key_a = did_bound_provider();
+        let (_, group, kv) = open(key_a.clone());
+        let stored = {
+            let kv = kv.expect("persistence is enabled for the first key");
+            assert!(group.is_some());
+            drop(group);
+            assert_eq!(
+                crate::persistence::persist_app_identity(&kv, &key_a),
+                crate::persistence::AppIdentity::Persisted
+            );
+            kv.get(crate::persistence::APP_IDENTITY_KEY)
+                .unwrap()
+                .expect("identity was written")
+        };
+
+        let (_, group, kv) = open(did_bound_provider());
+        assert!(group.is_none() && kv.is_none());
+
+        let (_, kv) = PersistentStore::open(
+            dir.path(),
+            &SessionLayer::<AuthProvider, MockVerifier>::app_store_key(&name),
+            cfg.encryption_key.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            kv.get(crate::persistence::APP_IDENTITY_KEY).unwrap(),
+            Some(stored)
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]

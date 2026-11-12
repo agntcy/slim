@@ -160,9 +160,9 @@ fn ciphersuite_for(enforce_pqc: bool) -> Result<CipherSuite, MlsError> {
     if enforce_pqc {
         return Ok(CipherSuite::ML_KEM_768_X25519);
     }
-    #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
-    return Ok(CipherSuite::CURVE25519_AES128);
-    #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
+    #[cfg(not(target_arch = "wasm32"))]
+    return Ok(slim_auth::utils::MLS_CIPHERSUITE);
+    #[cfg(target_arch = "wasm32")]
     return Ok(CipherSuite::P256_AES128);
 }
 
@@ -270,8 +270,8 @@ where
     /// default, or Curve25519 when the `curve25519` feature is enabled).
     pub async fn generate_key_pair() -> Result<(SignatureSecretKey, SignaturePublicKey), MlsError> {
         // Single source of truth with the identity layer: `agntcy-slim-auth`
-        // generates signature keys for the same ciphersuite on every target (its
-        // `curve25519` feature is propagated from this crate), so keys an
+        // generates signature keys for the same ciphersuite on every target (MLS
+        // takes its ciphersuite from `slim_auth::utils::MLS_CIPHERSUITE`), so keys an
         // identity ships and keys MLS generates always share the same ciphersuite
         // and byte format.
         let (secret, public) = slim_auth::utils::generate_mls_signature_keys()?;
@@ -793,6 +793,21 @@ where
         #[cfg(target_arch = "wasm32")]
         let group = client.load_group(group_id).await?;
 
+        // Scoped to long-term keys: other providers hold per-clone keys but share
+        // one app-identity record, so they can legitimately differ after a
+        // rotation. A long-term (DID-bound) key cannot rotate.
+        if self.identity_provider.holds_long_term_signing_key() {
+            let (_, current_key) = self.identity_provider.get_signature_keys()?;
+            if group
+                .current_member_signing_identity()?
+                .signature_key
+                .as_bytes()
+                != current_key.as_slice()
+            {
+                return Err(MlsError::SigningKeyMismatch);
+            }
+        }
+
         self.group = Some(group);
         self.client = Some(client);
         debug!("MLS group restored successfully");
@@ -822,6 +837,8 @@ mod tests {
     use slim_auth::identity_claims::IdentityClaims;
 
     use super::*;
+    #[cfg(not(target_arch = "wasm32"))]
+    use slim_auth::errors::AuthError;
     use slim_auth::shared_secret::SharedSecret;
     use std::thread;
     use std::time::Duration;
@@ -946,13 +963,17 @@ mod tests {
 
         // The group state (post-add) is now on disk. Simulate a restart: drop
         // Alice and rebuild her purely from the persisted snapshot.
+        let identity = alice.identity_provider().export_identity().unwrap();
         drop(alice);
 
         let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
         assert_eq!(reopened.stored_groups()?, vec![group_id.clone()]);
 
         let mut alice_restored = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET)
+                .unwrap()
+                .with_restored_identity(identity)
+                .unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
         )
         .with_group_state_storage(reopened);
@@ -1011,10 +1032,14 @@ mod tests {
         }
 
         // Restart Alice from the persisted snapshot.
+        let identity = alice.identity_provider().export_identity().unwrap();
         drop(alice);
         let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
         let mut alice_restored = Mls::new(
-            SharedSecret::new("alice", SHARED_SECRET).unwrap(),
+            SharedSecret::new("alice", SHARED_SECRET)
+                .unwrap()
+                .with_restored_identity(identity)
+                .unwrap(),
             SharedSecret::new("alice", SHARED_SECRET).unwrap(),
         )
         .with_group_state_storage(reopened);
@@ -1027,6 +1052,70 @@ mod tests {
         let (decrypted, _) = bob.decrypt_message(&encrypted)?;
         assert_eq!(decrypted, msg);
 
+        Ok(())
+    }
+
+    /// `SharedSecret` that claims a long-term signing key, like a DID-bound signer.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone)]
+    struct LongTermKey(SharedSecret);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl TokenProvider for LongTermKey {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            TokenProvider::initialize(&mut self.0).await
+        }
+        fn get_token(&self) -> Result<String, AuthError> {
+            self.0.get_token()
+        }
+        fn get_id(&self) -> Result<String, AuthError> {
+            self.0.get_id()
+        }
+        fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+            self.0.get_signature_keys()
+        }
+        fn mls_signature_keys_installed(&self) -> bool {
+            self.0.mls_signature_keys_installed()
+        }
+        async fn set_signature_keys(&mut self, sk: Vec<u8>, pk: Vec<u8>) -> Result<(), AuthError> {
+            self.0.set_signature_keys(sk, pk).await
+        }
+        fn holds_long_term_signing_key(&self) -> bool {
+            true
+        }
+    }
+
+    /// A long-term-key provider's restored group must be bound to the signing
+    /// key it was saved under; other providers keep the snapshot signer.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_load_requires_matching_signing_key() -> Result<(), Box<dyn std::error::Error>> {
+        use slim_persistence::SlimGroupStateStorage;
+
+        let secret = || SharedSecret::new("alice", SHARED_SECRET).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let storage = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
+        let mut alice = Mls::new(LongTermKey(secret()), secret()).with_group_state_storage(storage);
+        alice.initialize().await?;
+        let group_id = alice.create_group()?;
+        let same_keys = alice.identity_provider().clone();
+        drop(alice);
+
+        let reopen = || SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None);
+
+        let mut other =
+            Mls::new(LongTermKey(secret()), secret()).with_group_state_storage(reopen()?);
+        let err = other.load(&group_id).await.unwrap_err();
+        assert!(matches!(err, MlsError::SigningKeyMismatch), "{err:?}");
+        assert!(other.get_group_id().is_none());
+
+        let mut same = Mls::new(same_keys, secret()).with_group_state_storage(reopen()?);
+        same.load(&group_id).await?;
+        assert_eq!(same.get_group_id().unwrap(), group_id);
+
+        let mut plain = Mls::new(secret(), secret()).with_group_state_storage(reopen()?);
+        plain.load(&group_id).await?;
+        assert_eq!(plain.get_group_id().unwrap(), group_id);
         Ok(())
     }
 
@@ -1043,25 +1132,20 @@ mod tests {
         assert!(err.is_err(), "loading an unknown group must fail");
     }
 
-    /// The default ciphersuite must be P256_AES128 so that native and WASM
-    /// peers can join the same MLS group. Operators that explicitly opt in
-    /// to the `curve25519` feature get the legacy CURVE25519_AES128 suite,
-    /// which is incompatible with browser WebCrypto.
+    /// `curve25519` on this crate must still switch MLS to CURVE25519_AES128,
+    /// which is incompatible with browser WebCrypto; wasm always uses P256_AES128.
+    /// The P-256 default is pinned in auth's `utils.rs`: asserting it here would
+    /// fail whenever unification enables auth's feature alone.
     #[test]
-    fn test_default_ciphersuite_is_p256() {
-        #[cfg(not(all(not(target_arch = "wasm32"), feature = "curve25519")))]
-        assert_eq!(
-            ciphersuite_for(false).unwrap(),
-            CipherSuite::P256_AES128,
-            "Default ciphersuite must be P256_AES128 for browser interop",
-        );
-
+    fn test_default_ciphersuite_matches_auth_ciphersuite() {
         #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
         assert_eq!(
             ciphersuite_for(false).unwrap(),
-            CipherSuite::CURVE25519_AES128,
-            "`curve25519` feature must select CURVE25519_AES128",
+            CipherSuite::CURVE25519_AES128
         );
+
+        #[cfg(target_arch = "wasm32")]
+        assert_eq!(ciphersuite_for(false).unwrap(), CipherSuite::P256_AES128);
     }
 
     /// `generate_key_pair` must yield bytes that decode back into the
@@ -1812,5 +1896,76 @@ mod tests {
         assert_eq!(bob_msg, decrypted_charlie.as_slice());
 
         Ok(())
+    }
+
+    /// Two members whose identity is a self-certified `did:key`, built as the
+    /// config layer builds them: a DID-bound signer and a self-certified verifier.
+    #[cfg(all(not(target_arch = "wasm32"), feature = "insecure-self-certified-did"))]
+    mod self_certified_did {
+        use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+        use slim_auth::did_key::{
+            did_bound_signer, ed25519_public_key_from_did_key, self_certified_verifier,
+        };
+
+        use super::*;
+
+        async fn did_bound_member() -> (Mls<AuthProvider, AuthVerifier>, String) {
+            let (signer, did) = did_bound_signer();
+            let mut mls = Mls::new(
+                AuthProvider::jwt_signer(signer),
+                AuthVerifier::jwt_verifier(self_certified_verifier()),
+            );
+            mls.initialize().await.unwrap();
+            (mls, did)
+        }
+
+        fn leaf_keys(mls: &Mls<AuthProvider, AuthVerifier>) -> Vec<Vec<u8>> {
+            mls.group
+                .as_ref()
+                .unwrap()
+                .roster()
+                .members()
+                .iter()
+                .map(|m| m.signing_identity.signature_key.as_ref().to_vec())
+                .collect()
+        }
+
+        /// Joining validates the other member's credential through the
+        /// verifier's sync `try_get_claims` (`SlimIdentityProvider::validate_member`),
+        /// so a successful add and welcome exercises that path.
+        #[tokio::test]
+        async fn did_bound_members_form_a_group_and_exchange_messages() {
+            let (mut alice, alice_did) = did_bound_member().await;
+            let (mut bob, bob_did) = did_bound_member().await;
+
+            alice.create_group().unwrap();
+            let key_package = bob.generate_key_package().unwrap();
+            let added = alice.add_member(&key_package).unwrap();
+            bob.process_welcome(&added.welcome_message).unwrap();
+            assert_eq!(added.member_identity, bob_did.as_bytes());
+
+            // The leaves are signed by each member's DID key.
+            let expected = [
+                ed25519_public_key_from_did_key(&alice_did).unwrap(),
+                ed25519_public_key_from_did_key(&bob_did).unwrap(),
+            ];
+            for member in [&alice, &bob] {
+                let mut keys = leaf_keys(member);
+                keys.sort();
+                let mut want = expected.to_vec();
+                want.sort();
+                assert_eq!(keys, want);
+            }
+
+            let (got, _) = bob
+                .decrypt_message(&alice.encrypt_message(b"hi bob", vec![]).unwrap())
+                .unwrap();
+            assert_eq!(got, b"hi bob");
+            let (got, _, sender) = alice
+                .decrypt_message_from_sender(&bob.encrypt_message(b"hi alice", vec![]).unwrap())
+                .unwrap();
+            assert_eq!(got, b"hi alice");
+            assert_eq!(sender, bob_did.as_bytes());
+        }
     }
 }

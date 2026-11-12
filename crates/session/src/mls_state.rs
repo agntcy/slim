@@ -735,6 +735,60 @@ mod tests {
         assert_eq!(other.get_metadata(PEER_SUBJECT_KEY), Some(&alice_sub));
     }
 
+    /// With self-certified did:key identities, the sender's `PEER_SUBJECT_KEY`
+    /// as the receiver sees it is its did:key, and its name id derives from it.
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[tokio::test]
+    async fn a_did_bound_sender_is_named_by_its_did_key() {
+        use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+        use slim_auth::did_key::{did_bound_signer, self_certified_verifier};
+
+        async fn did_bound_member() -> (Mls<AuthProvider, AuthVerifier>, String) {
+            let (signer, did) = did_bound_signer();
+            let mut mls = Mls::new(
+                AuthProvider::jwt_signer(signer),
+                AuthVerifier::jwt_verifier(self_certified_verifier()),
+            );
+            mls.initialize().await.unwrap();
+            (mls, did)
+        }
+
+        let (mut alice_mls, alice_did) = did_bound_member().await;
+        let (mut bob_mls, _) = did_bound_member().await;
+        alice_mls.create_group().unwrap();
+        let key_package = bob_mls.generate_key_package().unwrap();
+        let added = alice_mls.add_member(&key_package).unwrap();
+        bob_mls.process_welcome(&added.welcome_message).unwrap();
+
+        let state = |mls| MlsState {
+            mls,
+            group: vec![],
+            last_mls_msg_id: 0,
+            stored_commits_proposals: BTreeMap::new(),
+            header_integrity_validation_percent: 0,
+            identity_binding: IdentityBinding::Enforce,
+        };
+        let mut alice_state = state(alice_mls);
+        let mut bob_state = state(bob_mls);
+
+        let mut msg = Message::builder()
+            .source(
+                ProtoName::from_strings(["org", "default", "alice"])
+                    .with_id(name_id::app_id(&alice_did)),
+            )
+            .destination(ProtoName::from_strings(["org", "default", "bob"]))
+            .session_id(1)
+            .message_id(1)
+            .session_type(slim_datapath::api::ProtoSessionType::Multicast)
+            .session_message_type(slim_datapath::api::ProtoSessionMessageType::Msg)
+            .application_payload("text", b"hi".to_vec())
+            .build_publish()
+            .unwrap();
+        alice_state.encrypt_message(&mut msg).unwrap();
+        bob_state.decrypt_message(&mut msg).unwrap();
+        assert_eq!(msg.get_metadata(PEER_SUBJECT_KEY), Some(&alice_did));
+    }
+
     #[tokio::test]
     async fn test_encrypt_decrypt_with_group() {
         let mut alice_mls = Mls::new(

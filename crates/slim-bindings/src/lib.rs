@@ -101,7 +101,8 @@ pub use errors::SlimError;
 #[cfg(not(feature = "web"))]
 pub use identity_config::{
     ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAlgorithm, JwtAuth,
-    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, StaticJwtAuth,
+    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, SelfCertifiedDidVerifierAuth,
+    StaticJwtAuth,
 };
 #[cfg(not(feature = "web"))]
 pub use init_config::{

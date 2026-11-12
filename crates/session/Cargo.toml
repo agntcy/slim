@@ -14,6 +14,9 @@ name = "slim_session"
 # default and not part of any default feature set, so it never becomes de
 # facto public API — see the `fuzzing` module in `src/lib.rs`.
 fuzzing = []
+# Forwards mls's `insecure-self-certified-did` (and so `curve25519`, build-wide);
+# exposed so this crate's tests can build did:key members.
+insecure-self-certified-did = ["agntcy-slim-mls/insecure-self-certified-did"]
 
 [dependencies]
 agntcy-slim-auth = { workspace = true }
@@ -50,6 +53,7 @@ tokio = { package = "tokio_with_wasm", version = ">=0.9, <0.11", features = ["sy
 tonic = { version = "0.14", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+agntcy-slim-auth = { workspace = true, features = ["test-utils"] }
 agntcy-slim-testing = { workspace = true }
 criterion = { workspace = true }
 proptest = { workspace = true }

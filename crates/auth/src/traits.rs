@@ -185,6 +185,11 @@ pub trait TokenProvider {
         None
     }
 
+    /// Whether the MLS signing key is a long-term key that persisted group state would expose.
+    fn holds_long_term_signing_key(&self) -> bool {
+        false
+    }
+
     /// Rebuild this provider from a previously [`export_identity`]-ed identity,
     /// so it presents the same id and MLS keys as before a restart. The default
     /// returns `self` unchanged (providers without persistable identity). MLS

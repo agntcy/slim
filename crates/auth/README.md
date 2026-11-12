@@ -18,6 +18,7 @@ with a focus on JWT (JSON Web Token) authentication and SPIFFE/SPIRE integration
   - JWT SVID with configurable audiences
   - Native Workload API integration
   - Support for federated trust domains
+- Opt-in `insecure-self-certified-did` feature: verifies tokens whose `iss`/`sub` is a `did:key` Ed25519 identifier, with no admission decision (see the [authentication docs](../../docs/content/slim/architecture/authentication.md))
 
 ## Testing
 
