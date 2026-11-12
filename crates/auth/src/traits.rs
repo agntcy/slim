@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
+use crate::identity_claims::IdentityClaims;
 use crate::metadata::MetadataMap;
 
 /// Standard JWT Claims structure that includes the registered claims
@@ -84,6 +85,37 @@ pub trait Verifier {
     fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
+
+    /// Verifies the token and returns the subject it identifies, without async context.
+    ///
+    /// The default reads the `sub` claim. Verifiers whose tokens carry the
+    /// subject elsewhere should override this.
+    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+        let claims: serde_json::Value = self.try_get_claims(token)?;
+        IdentityClaims::subject_from_json(&claims)
+    }
+
+    /// Verifies the token, checks that it is bound to `public_key` (e.g. the MLS
+    /// signature public key), and returns the subject, without async context.
+    ///
+    /// The default expects the base64-encoded key in the `pubkey` claim. Verifiers
+    /// that bind keys differently (e.g. DPoP `cnf`/`jkt` confirmation) should
+    /// override this. Fails with [`AuthError::PublicKeyMismatch`] if the token is
+    /// bound to a different key.
+    fn try_verify_key_binding(
+        &self,
+        token: impl AsRef<str>,
+        public_key: &[u8],
+    ) -> Result<String, AuthError> {
+        let claims: serde_json::Value = self.try_get_claims(token)?;
+        let subject = IdentityClaims::subject_from_json(&claims)?;
+        let found = IdentityClaims::public_key_from_json(&claims)?;
+        let expected = IdentityClaims::encode_public_key(public_key);
+        if found != expected {
+            return Err(AuthError::PublicKeyMismatch { expected, found });
+        }
+        Ok(subject)
+    }
 }
 
 /// Trait for signing JWT claims

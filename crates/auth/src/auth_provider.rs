@@ -400,6 +400,30 @@ impl Verifier for AuthVerifier {
             AuthVerifier::SharedSecret(secret) => secret.try_get_claims(token),
         }
     }
+
+    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::JwtVerifier(verifier) => verifier.try_get_subject(token),
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
+            AuthVerifier::Spire(spire) => spire.try_get_subject(token),
+            AuthVerifier::SharedSecret(secret) => secret.try_get_subject(token),
+        }
+    }
+
+    fn try_verify_key_binding(
+        &self,
+        token: impl AsRef<str>,
+        public_key: &[u8],
+    ) -> Result<String, AuthError> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::JwtVerifier(verifier) => verifier.try_verify_key_binding(token, public_key),
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
+            AuthVerifier::Spire(spire) => spire.try_verify_key_binding(token, public_key),
+            AuthVerifier::SharedSecret(secret) => secret.try_verify_key_binding(token, public_key),
+        }
+    }
 }
 
 /// Convenience constructors and utility methods for [`AuthProvider`]
