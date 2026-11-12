@@ -1248,6 +1248,57 @@ mod tests {
         assert!(group.is_some() && kv.is_some());
     }
 
+    #[cfg(all(not(target_arch = "wasm32"), feature = "insecure-self-certified-did"))]
+    #[test]
+    fn test_restore_with_a_different_did_disables_persistence() {
+        use slim_auth::auth_provider::AuthProvider;
+        use slim_persistence::MlsEncryptionKey;
+
+        fn did_bound_provider() -> AuthProvider {
+            AuthProvider::jwt_signer(slim_auth::did_key::did_bound_signer().0)
+        }
+
+        let name = make_name(&["test", "app", "v1"]);
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = PersistenceConfig::with_key(dir.path(), MlsEncryptionKey::RawKey([7; 32]));
+        let open = |provider: AuthProvider| {
+            SessionLayer::<AuthProvider, MockVerifier>::open_persistent_store(
+                &name,
+                provider,
+                Some(&cfg),
+            )
+        };
+
+        let key_a = did_bound_provider();
+        let (_, group, kv) = open(key_a.clone());
+        let stored = {
+            let kv = kv.expect("persistence is enabled for the first key");
+            assert!(group.is_some());
+            drop(group);
+            assert_eq!(
+                crate::persistence::persist_app_identity(&kv, &key_a),
+                crate::persistence::AppIdentity::Persisted
+            );
+            kv.get(crate::persistence::APP_IDENTITY_KEY)
+                .unwrap()
+                .expect("identity was written")
+        };
+
+        let (_, group, kv) = open(did_bound_provider());
+        assert!(group.is_none() && kv.is_none());
+
+        let (_, kv) = PersistentStore::open(
+            dir.path(),
+            &SessionLayer::<AuthProvider, MockVerifier>::app_store_key(&name),
+            cfg.encryption_key.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            kv.get(crate::persistence::APP_IDENTITY_KEY).unwrap(),
+            Some(stored)
+        );
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_restore_sessions_from_store() {
