@@ -42,6 +42,10 @@ SLIM carries A2A messages using [SLIMRPC](../components/sdk/slimrpc/index.md) �
 | .NET | [agntcy/slim-a2a-dotnet](https://github.com/agntcy/slim-a2a-dotnet) |
 | Rust | [a2aproject/a2a-rs](https://github.com/a2aproject/a2a-rs/tree/main/a2a-slimrpc) |
 
+## Compatibility Matrix
+
+Interoperability between the SLIMRPC implementations is continuously tested in [AGNTCY CSIT](https://github.com/agntcy/csit). The [A2A over SLIMRPC Interop Dashboard](https://agntcy.github.io/csit/a2a-slimrpc/) shows the cross-language compatibility matrix (client → server pairs across .NET, Go, Java, Node, and Python) for the following scenarios: echo, input-required, message-only, multi-turn, streaming, task-cancel, and task-failure.
+
 ## Related
 
 - [A2A SLIMRPC Custom Protocol Binding spec](https://github.com/a2aproject/experimental-cpb-slimrpc) — full specification including multicast RPC
