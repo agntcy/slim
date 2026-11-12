@@ -38,32 +38,44 @@ pub(crate) const SESSION_KEY_PREFIX: &str = "session:";
 /// when listing session records.
 pub(crate) const APP_IDENTITY_KEY: &str = "app-identity";
 
+/// Whether the app identity a session record depends on is in the store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppIdentity {
+    /// Written to the store.
+    Persisted,
+    /// The provider has nothing to restore: `StaticJwt`, which refuses MLS
+    /// keys, so its session records depend on nothing beyond its config.
+    NotExportable,
+    /// Not written; the session record must not be written either.
+    Failed,
+}
+
 /// Persist the app's identity (id + secret + MLS keypair) into the store, so it
 /// can be restored verbatim after a restart.
 ///
 /// Called alongside session persistence, by which point the MLS layer has
 /// installed its ciphersuite-correct keypair — persisting here (rather than at
 /// startup) ensures the saved identity matches the group's leaf. No-op for
-/// providers without a persistable identity (`export_identity` -> `None`).
-/// Returns `false` only when the identity could not be written.
+/// providers without a persistable identity (`export_identity` -> `None`),
+/// reported as [`AppIdentity::NotExportable`].
 pub(crate) fn persist_app_identity<P: slim_auth::traits::TokenProvider>(
     kv: &slim_persistence::SlimKvStore,
     provider: &P,
-) -> bool {
+) -> AppIdentity {
     let Some(identity) = provider.export_identity() else {
-        return true;
+        return AppIdentity::NotExportable;
     };
     match serde_json::to_vec(&identity) {
         Ok(bytes) => match kv.put(APP_IDENTITY_KEY, &bytes) {
-            Ok(()) => true,
+            Ok(()) => AppIdentity::Persisted,
             Err(e) => {
                 tracing::error!(error = %e, "failed to persist app identity");
-                false
+                AppIdentity::Failed
             }
         },
         Err(e) => {
             tracing::error!(error = %e, "failed to encode app identity");
-            false
+            AppIdentity::Failed
         }
     }
 }

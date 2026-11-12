@@ -495,7 +495,9 @@ where
             .map_or(&self.common.settings.identity_provider, |m| {
                 m.common.mls.identity_provider()
             });
-        if !persistence::persist_app_identity(kv, identity_provider) {
+        if persistence::persist_app_identity(kv, identity_provider)
+            == persistence::AppIdentity::Failed
+        {
             tracing::error!(
                 session_id = self.common.settings.id,
                 "skipping moderator session record: app identity not persisted"
