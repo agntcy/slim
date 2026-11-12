@@ -656,6 +656,18 @@ impl Verifier for OidcVerifier {
         self.verify_token(token.as_ref()).await
     }
 
+    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+        crate::traits::subject_from_claims(self, token)
+    }
+
+    fn try_verify_key_binding(
+        &self,
+        token: impl AsRef<str>,
+        public_key: &[u8],
+    ) -> Result<(), AuthError> {
+        crate::traits::verify_pubkey_claim_binding(self, token, public_key)
+    }
+
     fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,

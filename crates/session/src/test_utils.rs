@@ -71,6 +71,18 @@ impl Verifier for MockVerifier {
     {
         Err(AuthError::TokenInvalid)
     }
+
+    fn try_get_subject(&self, _token: impl AsRef<str>) -> Result<String, AuthError> {
+        Err(AuthError::TokenInvalid)
+    }
+
+    fn try_verify_key_binding(
+        &self,
+        _token: impl AsRef<str>,
+        _public_key: &[u8],
+    ) -> Result<(), AuthError> {
+        Err(AuthError::TokenInvalid)
+    }
 }
 
 /// Mock inner message handler for testing.
