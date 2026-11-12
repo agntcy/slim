@@ -222,6 +222,7 @@ tasks:
       - task: install-target
     cmds:
       - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} {{.SELF_CERT_DID_PKGS}} {{.SELF_CERT_DID_FEATURES}} {{.ARGS}} -- -D warnings
+      - cargo clippy {{.RELEASE}} {{.TARGET_ARGS}} -p agntcy-slim-bindings --features agntcy-slim-bindings/insecure-self-certified-did {{.ARGS}} -- -D warnings
     vars:
       ARGS: '{{.ARGS | default "--all-targets --locked"}}'
 
