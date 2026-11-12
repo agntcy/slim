@@ -742,37 +742,10 @@ mod tests {
     async fn a_did_bound_sender_is_named_by_its_did_key() {
         use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
         use slim_auth::builder::JwtBuilder;
-        use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
         use slim_auth::resolver::KeyResolver;
-        use slim_auth::utils::bytes_to_pem;
 
         async fn did_bound_member() -> (Mls<AuthProvider, AuthVerifier>, String) {
-            let (secret, _) = Mls::<AuthProvider, AuthVerifier>::generate_key_pair().unwrap();
-            // PKCS#8 wrapper around a fresh Ed25519 seed.
-            let mut der = vec![
-                0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22,
-                0x04, 0x20,
-            ];
-            der.extend_from_slice(&secret.as_ref()[..32]);
-            let pem = bytes_to_pem(
-                &der,
-                "-----BEGIN PRIVATE KEY-----\n",
-                "\n-----END PRIVATE KEY-----\n",
-            );
-            let did = slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(&pem).unwrap();
-            let key = Key {
-                algorithm: Algorithm::EdDSA,
-                format: KeyFormat::Pem,
-                key: KeyData::Data(pem.clone()),
-            };
-            let signer = JwtBuilder::new()
-                .issuer(&did)
-                .subject(&did)
-                .private_key(&key)
-                .build()
-                .unwrap()
-                .with_did_key_signature_keys(&pem)
-                .unwrap();
+            let (signer, did) = slim_auth::did_key::did_bound_signer();
             let verifier = JwtBuilder::new()
                 .key_resolver(KeyResolver::with_self_certified_did())
                 .build()

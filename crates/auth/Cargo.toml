@@ -28,6 +28,12 @@ curve25519 = []
 # ciphersuite from `slim_auth::utils::MLS_CIPHERSUITE`, so they cannot diverge.
 insecure-self-certified-did = ["curve25519"]
 
+# Test helpers for other workspace crates' tests; enable it only from
+# [dev-dependencies]. It does not enable insecure-self-certified-did, which
+# would switch those crates' test builds to Curve25519; the did:key helpers
+# exist only when that feature is on as well.
+test-utils = []
+
 # Dependencies shared by the always-available core modules (errors,
 # identity_claims, metadata, shared_secret, traits) on every target,
 # including wasm32.

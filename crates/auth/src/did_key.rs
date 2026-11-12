@@ -94,8 +94,11 @@ fn pem_contents(pem: &str, label: &str) -> Result<Vec<u8>, AuthError> {
 
 /// A fresh Ed25519 identity for tests: its PKCS#8 PEM, its `did:key`, and its
 /// raw public key bytes.
-#[cfg(all(test, feature = "insecure-self-certified-did"))]
-pub(crate) fn fresh_identity() -> (String, String, Vec<u8>) {
+#[cfg(all(
+    any(test, feature = "test-utils"),
+    feature = "insecure-self-certified-did"
+))]
+pub fn fresh_identity() -> (String, String, Vec<u8>) {
     use aws_lc_rs::rand::SystemRandom;
     let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
     let public = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
@@ -109,6 +112,32 @@ pub(crate) fn fresh_identity() -> (String, String, Vec<u8>) {
         "\n-----END PRIVATE KEY-----\n",
     );
     (pem, ed25519_did_key(&public), public)
+}
+
+/// A signer for a fresh `did:key`, built as the config layer builds it:
+/// `iss`/`sub` are the did:key and its key is also the MLS signature key.
+#[cfg(all(
+    any(test, feature = "test-utils"),
+    feature = "insecure-self-certified-did"
+))]
+pub fn did_bound_signer() -> (crate::jwt::SignerJwt, String) {
+    use crate::jwt::{Algorithm, Key, KeyData, KeyFormat};
+
+    let (pem, did, _) = fresh_identity();
+    let key = Key {
+        algorithm: Algorithm::EdDSA,
+        format: KeyFormat::Pem,
+        key: KeyData::Data(pem.clone()),
+    };
+    let signer = crate::builder::JwtBuilder::new()
+        .issuer(&did)
+        .subject(&did)
+        .private_key(&key)
+        .build()
+        .unwrap()
+        .with_did_key_signature_keys(&pem)
+        .unwrap();
+    (signer, did)
 }
 
 #[cfg(test)]
