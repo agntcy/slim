@@ -2950,3 +2950,112 @@ async fn test_a_pinned_channel_requires_and_reports_its_peer() {
 
     env.shutdown().await;
 }
+
+/// One name serves SlimRPC and plain sessions when the app routes each new
+/// session with `is_slimrpc_session`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_slimrpc_and_plain_sessions_share_a_name() {
+    use slim_datapath::api::ProtoSessionType;
+    use slim_session::notification::Notification;
+    use slim_session::session_config::SessionConfig;
+
+    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-session-marker").unwrap();
+    let service = Arc::new(Service::new(id));
+
+    let secret = SharedSecret::new("server", TEST_VALID_SECRET).unwrap();
+    let (server_app, mut notifications) = service
+        .create_app(
+            &Name::from_strings(["org", "ns", "server"]),
+            AuthProvider::shared_secret(secret.clone()),
+            AuthVerifier::shared_secret(secret),
+        )
+        .unwrap();
+    let server_app = Arc::new(server_app);
+    let server_name = server_app.app_name().clone();
+
+    // SlimRPC sessions go to the server, the others to `plain_rx`.
+    let (rpc_tx, rpc_rx) = tokio::sync::mpsc::channel(8);
+    let (plain_tx, mut plain_rx) = tokio::sync::mpsc::channel(8);
+    tokio::spawn(async move {
+        while let Some(notification) = notifications.recv().await {
+            match notification {
+                Ok(Notification::NewSession(session))
+                    if !slim_rpc::is_slimrpc_session(&session) =>
+                {
+                    let _ = plain_tx.send(session).await;
+                }
+                other => {
+                    if rpc_tx.send(other).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    let server = Arc::new(Server::new(server_app.clone(), server_name.clone(), rpc_rx));
+    server.register_unary_unary(
+        "TestService",
+        "Echo",
+        |request: TestRequest, _ctx: Context| async move {
+            Ok(TestResponse {
+                result: request.message,
+                count: request.value,
+            })
+        },
+    );
+    let serving = server.clone();
+    tokio::spawn(async move { serving.serve().await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
+    let (client_app, _) = service
+        .create_app(
+            &Name::from_strings(["org", "ns", "client"]),
+            AuthProvider::shared_secret(secret.clone()),
+            AuthVerifier::shared_secret(secret),
+        )
+        .unwrap();
+    let client_app = Arc::new(client_app);
+
+    let channel =
+        Channel::new_with_members(client_app.clone(), vec![server_name.clone()], false, None)
+            .expect("single non-empty member list is always valid");
+    let response: TestResponse = channel
+        .unary(
+            "TestService",
+            "Echo",
+            TestRequest {
+                message: "routed".to_string(),
+                value: 7,
+            },
+            Some(Duration::from_secs(5)),
+            None,
+        )
+        .await
+        .expect("a SlimRPC session reaches the server");
+    assert_eq!(response.result, "routed");
+
+    let (_plain, established) = client_app
+        .create_session(
+            SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                initiator: true,
+                ..Default::default()
+            },
+            server_name,
+            None,
+        )
+        .await
+        .unwrap();
+    established.await.unwrap();
+    let plain = tokio::time::timeout(Duration::from_secs(5), plain_rx.recv())
+        .await
+        .expect("the plain session reaches the app")
+        .unwrap();
+    assert!(!slim_rpc::is_slimrpc_session(&plain));
+
+    server.shutdown().await;
+    service.shutdown().await.unwrap();
+}
