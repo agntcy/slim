@@ -25,6 +25,8 @@ pub(crate) struct NegotiationParams<'a> {
     pub node_id: &'a str,
     /// Deployment name for peer-group verification.
     pub deployment_name: &'a str,
+    /// This process's random instance identifier, shared by all its connections.
+    pub instance_id: &'a str,
     /// The connection type the local side wants to advertise to the remote.
     pub connection_type: ConnType,
     /// When true, link negotiation must use hybrid X25519 + ML-KEM-768 key agreement.
@@ -37,6 +39,8 @@ pub(crate) struct NegotiationResult {
     pub(crate) connection_type: ConnType,
     /// The remote node's identifier (from the negotiation payload).
     pub(crate) remote_node_id: String,
+    /// The remote process's instance identifier. Empty for peers that don't send it.
+    pub(crate) remote_instance_id: String,
     /// The remote's advertised deployment name.
     pub(crate) remote_deployment_name: String,
 }
@@ -93,6 +97,7 @@ where
             conn_type_to_link(params.connection_type),
             params.node_id,
             params.deployment_name,
+            params.instance_id,
         );
 
         connection.send(negotiation_msg).await.map_err(|e| {
@@ -175,6 +180,7 @@ where
     // Capture remote identity from the payload.
     let remote_node_id = payload.node_id.clone();
     let remote_deployment_name = payload.deployment_name.clone();
+    let remote_instance_id = payload.instance_id.clone();
     let remote_conn_type = match LinkConnectionType::try_from(payload.connection_type) {
         Ok(LinkConnectionType::Peer) => ConnType::Peer,
         Ok(LinkConnectionType::Edge) => ConnType::Edge,
@@ -348,6 +354,7 @@ where
             reply_conn_type,
             params.node_id,
             params.deployment_name,
+            params.instance_id,
         );
         connection.send(reply).await.map_err(|e| {
             DataPathError::NegotiationError(format!(
@@ -361,6 +368,7 @@ where
     Ok(NegotiationResult {
         connection_type: remote_conn_type,
         remote_node_id,
+        remote_instance_id,
         remote_deployment_name,
     })
 }
