@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.6...slim-rpc-v3.5.0) - 2026-11-12
+
+### Fixed
+
+- *(rpc)* check message headers in MLS sessions ([#2355](https://github.com/agntcy/slim/pull/2355))
+
+### Other
+
+- update and fix bindings documentation ([#2346](https://github.com/agntcy/slim/pull/2346))
+
 ## [3.4.5](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.4...slim-rpc-v3.4.5) - 2026-10-18
 
 ### Fixed

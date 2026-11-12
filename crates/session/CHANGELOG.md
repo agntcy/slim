@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.28](https://github.com/agntcy/slim/compare/slim-session-v0.7.27...slim-session-v0.7.28) - 2026-11-12
+
+### Added
+
+- *(auth)* opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358))
+
+### Fixed
+
+- *(session)* re-establish peer routing when restoring P2P sessions ([#2364](https://github.com/agntcy/slim/pull/2364))
+
 ## [0.7.27](https://github.com/agntcy/slim/compare/slim-session-v0.7.26...slim-session-v0.7.27) - 2026-10-20
 
 ### Other

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.16](https://github.com/agntcy/slim/compare/slim-service-v0.13.15...slim-service-v0.13.16) - 2026-11-12
+
+### Fixed
+
+- *(session)* re-establish peer routing when restoring P2P sessions ([#2364](https://github.com/agntcy/slim/pull/2364))
+
 ## [0.13.15](https://github.com/agntcy/slim/compare/slim-service-v0.13.14...slim-service-v0.13.15) - 2026-10-20
 
 ### Other

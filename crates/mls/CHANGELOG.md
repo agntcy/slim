@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/agntcy/slim/compare/slim-mls-v0.5.1...slim-mls-v0.5.2) - 2026-11-12
+
+### Added
+
+- *(auth)* opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358))
+
 ## [0.5.1](https://github.com/agntcy/slim/compare/slim-mls-v0.5.0...slim-mls-v0.5.1) - 2026-10-20
 
 ### Other

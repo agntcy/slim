@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.11](https://github.com/agntcy/slim/compare/slim-config-v0.17.10...slim-config-v0.17.11) - 2026-11-12
+
+### Added
+
+- *(auth)* opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358))
+
+### Fixed
+
+- *(config)* enable TCP_NODELAY by default ([#2363](https://github.com/agntcy/slim/pull/2363))
+
 ## [0.17.10](https://github.com/agntcy/slim/compare/slim-config-v0.17.9...slim-config-v0.17.10) - 2026-10-20
 
 ### Other
