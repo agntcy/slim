@@ -25,6 +25,30 @@ use crate::{
     UniffiRequestStream,
 };
 
+/// A foreign streaming handler's responses. The handler runs in its own task;
+/// dropping this, when the call is cancelled or its deadline passes, stops it.
+struct HandlerResponses<S> {
+    responses: S,
+    handler: tokio::task::JoinHandle<()>,
+}
+
+impl<S: futures::Stream + Unpin> futures::Stream for HandlerResponses<S> {
+    type Item = S::Item;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<S::Item>> {
+        std::pin::Pin::new(&mut self.get_mut().responses).poll_next(cx)
+    }
+}
+
+impl<S> Drop for HandlerResponses<S> {
+    fn drop(&mut self) {
+        self.handler.abort();
+    }
+}
+
 // ── Channel: FFI constructors ───────────────────────────────────────────────
 
 #[uniffi::export]
@@ -486,12 +510,10 @@ impl Server {
                         })
                     };
 
-                    // Detach the task - it will run independently
-                    drop(handler_task);
-
-                    // Convert the receiver to a stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-                    Ok(stream)
+                    Ok(HandlerResponses {
+                        responses: tokio_stream::wrappers::UnboundedReceiverStream::new(rx),
+                        handler: handler_task,
+                    })
                 }
             },
         );
@@ -543,12 +565,10 @@ impl Server {
                         })
                     };
 
-                    // Detach the task - it will run independently
-                    drop(handler_task);
-
-                    // Convert the receiver to a stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-                    Ok(stream)
+                    Ok(HandlerResponses {
+                        responses: tokio_stream::wrappers::UnboundedReceiverStream::new(rx),
+                        handler: handler_task,
+                    })
                 }
             },
         );

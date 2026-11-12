@@ -3059,3 +3059,172 @@ async fn test_slimrpc_and_plain_sessions_share_a_name() {
     server.shutdown().await;
     service.shutdown().await.unwrap();
 }
+
+/// Sets a flag when dropped, to see that a handler's future or stream was.
+struct SetOnDrop(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for SetOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+async fn wait_until(flag: &std::sync::atomic::AtomicBool) -> bool {
+    for _ in 0..100 {
+        if flag.load(std::sync::atomic::Ordering::SeqCst) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_dropping_a_streaming_call_stops_its_handler() {
+    let mut env = TestEnv::new("test-cancel-stream").await;
+
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stopped.clone();
+    env.server.register_unary_stream(
+        "TestService",
+        "Forever",
+        move |_request: TestRequest, _ctx: Context| {
+            let flag = flag.clone();
+            async move {
+                let guard = SetOnDrop(flag);
+                Ok(async_stream::stream! {
+                    let _guard = guard;
+                    for i in 0.. {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        yield Ok(TestResponse { result: String::new(), count: i });
+                    }
+                })
+            }
+        },
+    );
+    env.start_server().await;
+
+    {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Forever",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        stream.next().await.expect("a response").expect("ok");
+        // The caller walks away with the call still running.
+    }
+
+    assert!(
+        wait_until(&stopped).await,
+        "the handler kept running after its caller dropped the call"
+    );
+    assert!(logs_contain("Call cancelled by its caller"));
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_dropping_a_unary_call_stops_its_handler() {
+    let mut env = TestEnv::new("test-cancel-unary").await;
+
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stopped.clone();
+    env.server.register_unary_unary(
+        "TestService",
+        "Hang",
+        move |_request: TestRequest, _ctx: Context| {
+            let flag = flag.clone();
+            async move {
+                let _guard = SetOnDrop(flag);
+                std::future::pending::<()>().await;
+                Ok(TestResponse::default())
+            }
+        },
+    );
+    env.start_server().await;
+
+    // The caller gives up after 200 ms, which drops the call.
+    let outcome = tokio::time::timeout(
+        Duration::from_millis(200),
+        env.channel.unary::<TestRequest, TestResponse>(
+            "TestService",
+            "Hang",
+            TestRequest::default(),
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert!(outcome.is_err(), "the handler never answers");
+
+    assert!(
+        wait_until(&stopped).await,
+        "the handler kept running after its caller dropped the call"
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_a_finished_call_sends_no_cancel() {
+    let mut env = TestEnv::new("test-no-cancel-when-done").await;
+
+    env.server.register_unary_unary(
+        "TestService",
+        "Echo",
+        |request: TestRequest, _ctx: Context| async move {
+            Ok(TestResponse {
+                result: request.message,
+                count: 0,
+            })
+        },
+    );
+    env.server.register_unary_stream(
+        "TestService",
+        "Three",
+        |_request: TestRequest, _ctx: Context| async move {
+            Ok(futures::stream::iter((0..3).map(|count| {
+                Ok(TestResponse {
+                    result: String::new(),
+                    count,
+                })
+            })))
+        },
+    );
+    env.start_server().await;
+
+    let _: TestResponse = env
+        .channel
+        .unary("TestService", "Echo", TestRequest::default(), None, None)
+        .await
+        .unwrap();
+    {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Three",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        let mut received = 0;
+        while let Some(item) = stream.next().await {
+            item.unwrap();
+            received += 1;
+        }
+        assert_eq!(received, 3);
+    }
+
+    // A cancel would arrive, and be logged, within moments.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!logs_contain("Call cancelled by its caller"));
+    assert!(!logs_contain("Ignoring cancel"));
+
+    env.shutdown().await;
+}

@@ -211,6 +211,11 @@ pub const RPC_DIR_KEY: &str = "slimrpc-dir";
 /// Value for [`RPC_DIR_KEY`] that marks a message as a client request.
 pub const RPC_DIR_REQ: &str = "req";
 
+/// Value for [`RPC_DIR_KEY`] on the message a client sends when it drops a
+/// call before the server has finished it. The server stops that call's
+/// handler. Servers that predate it drop the message, as it isn't a request.
+pub const RPC_DIR_CANCEL: &str = "cancel";
+
 /// Session metadata key that every session a [`Channel`] opens carries, so
 /// an app serving SlimRPC and plain sessions on one name can tell them apart.
 /// See [`is_slimrpc_session`].
