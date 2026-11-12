@@ -342,7 +342,11 @@ where
         let key_package = MlsMessage::from_bytes(key_package_bytes)?
             .into_key_package()
             .ok_or(MlsError::UnknownPayloadType)?;
-        SlimIdentityProvider::new(self.identity_verifier.clone())
+        let identity_provider = SlimIdentityProvider::new(self.identity_verifier.clone());
+        // The token must be bound to the key package's signature key, so a token
+        // stolen from another member does not read as that member's identity.
+        identity_provider.verify_key_binding(key_package.signing_identity())?;
+        identity_provider
             .identity(key_package.signing_identity(), &ExtensionList::default())
             .await
     }
