@@ -9,7 +9,7 @@ use mls_rs::{
 use mls_rs_core::identity::MemberValidationContext;
 use tracing::debug;
 
-use slim_auth::identity_claims::IdentityClaims;
+use slim_auth::errors::AuthError;
 use slim_auth::traits::Verifier;
 
 use crate::errors::MlsError;
@@ -30,47 +30,22 @@ where
         Self { identity_verifier }
     }
 
-    fn resolve_slim_identity(
-        &self,
-        signing_id: &SigningIdentity,
-    ) -> Result<IdentityClaims, MlsError> {
+    fn credential_token(signing_id: &SigningIdentity) -> Result<&str, MlsError> {
         let basic_cred = signing_id
             .credential
             .as_basic()
             .ok_or(MlsError::NotBasicCredential)?;
-        let credential_data = std::str::from_utf8(&basic_cred.identifier)?;
-
-        // Verify token and extract claims (sync on native, async on wasm32)
-        let claims: serde_json::Value = self
-            .identity_verifier
-            .try_get_claims(credential_data)
-            .map_err(|e| {
-                MlsError::verification_failed(format!("could not get claims from token: {}", e))
-            })?;
-
-        // Extract identity claims using the abstraction
-        let identity_claims = IdentityClaims::from_json(&claims)?;
-
-        debug!(
-            claims = %claims,
-            "Extracted public key from claims",
-        );
-        debug!(sub = %identity_claims.subject, "Extracted subject from claims");
-
-        Ok(identity_claims)
+        Ok(std::str::from_utf8(&basic_cred.identifier)?)
     }
 
-    fn verify_public_key_match(expected: &str, found: &str, subject: &str) -> Result<(), MlsError> {
-        if found != expected {
-            tracing::error!(
-                expected = %expected, found = %found, subject = %subject, "public key mismatch",
-            );
-            return Err(MlsError::PublicKeyMismatch {
-                expected: expected.to_string(),
-                found: found.to_string(),
-            });
-        }
-        Ok(())
+    /// Verify the token and return its subject, without checking key binding.
+    fn resolve_subject(&self, signing_id: &SigningIdentity) -> Result<String, MlsError> {
+        let token = Self::credential_token(signing_id)?;
+        let subject = self.identity_verifier.try_get_subject(token).map_err(|e| {
+            MlsError::verification_failed(format!("could not get subject from token: {}", e))
+        })?;
+        debug!(sub = %subject, "Extracted subject from token");
+        Ok(subject)
     }
 }
 
@@ -91,17 +66,19 @@ where
         _context: MemberValidationContext<'_>,
     ) -> Result<(), Self::Error> {
         debug!("Validating MLS group member identity");
-        let identity_claims = self.resolve_slim_identity(signing_identity)?;
+        let token = Self::credential_token(signing_identity)?;
 
-        // make sure the public key matches the signing identity's public key
-        let signing_pubkey =
-            IdentityClaims::encode_public_key(signing_identity.signature_key.as_ref());
-
-        Self::verify_public_key_match(
-            &signing_pubkey,
-            &identity_claims.public_key,
-            &identity_claims.subject,
-        )?;
+        // The verifier decides how the token binds the signing public key
+        // (e.g. `pubkey` claim, DPoP confirmation).
+        self.identity_verifier
+            .try_verify_key_binding(token, signing_identity.signature_key.as_ref())
+            .map_err(|e| match e {
+                AuthError::PublicKeyMismatch { expected, found } => {
+                    tracing::error!(%expected, %found, "public key mismatch");
+                    MlsError::PublicKeyMismatch { expected, found }
+                }
+                e => MlsError::verification_failed(format!("could not verify token: {}", e)),
+            })?;
 
         Ok(())
     }
@@ -121,9 +98,7 @@ where
         signing_identity: &SigningIdentity,
         _extensions: &ExtensionList,
     ) -> Result<Vec<u8>, Self::Error> {
-        let identity_claims = self.resolve_slim_identity(signing_identity)?;
-
-        Ok(identity_claims.subject.into_bytes())
+        Ok(self.resolve_subject(signing_identity)?.into_bytes())
     }
 
     async fn valid_successor(
@@ -133,11 +108,11 @@ where
         _extensions: &ExtensionList,
     ) -> Result<bool, Self::Error> {
         debug!("Validating identity succession");
-        let pred_claims = self.resolve_slim_identity(predecessor)?;
-        let succ_claims = self.resolve_slim_identity(successor)?;
+        let pred_subject = self.resolve_subject(predecessor)?;
+        let succ_subject = self.resolve_subject(successor)?;
 
         // Successor is valid if both identities have the same subject
-        let is_valid = pred_claims.subject == succ_claims.subject;
+        let is_valid = pred_subject == succ_subject;
         debug!(%is_valid, "Identity succession validation result");
         Ok(is_valid)
     }
