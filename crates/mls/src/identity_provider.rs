@@ -38,14 +38,50 @@ where
         Ok(std::str::from_utf8(&basic_cred.identifier)?)
     }
 
+    /// Map a verifier error to an `MlsError`. A missing claim stays a typed
+    /// `IdentityProviderError`, so callers can tell it from a bad token.
+    fn auth_error(e: AuthError, context: &str) -> MlsError {
+        match e {
+            AuthError::PublicKeyNotFound | AuthError::SubjectNotFound => {
+                MlsError::IdentityProviderError(e)
+            }
+            e => MlsError::verification_failed(format!("{context}: {e}")),
+        }
+    }
+
     /// Verify the token and return its subject, without checking key binding.
     fn resolve_subject(&self, signing_id: &SigningIdentity) -> Result<String, MlsError> {
         let token = Self::credential_token(signing_id)?;
-        let subject = self.identity_verifier.try_get_subject(token).map_err(|e| {
-            MlsError::verification_failed(format!("could not get subject from token: {}", e))
-        })?;
+        let subject = self
+            .identity_verifier
+            .try_get_subject(token)
+            .map_err(|e| Self::auth_error(e, "could not get subject from token"))?;
         debug!(sub = %subject, "Extracted subject from token");
         Ok(subject)
+    }
+
+    /// Verify the token and that it is bound to the identity's signature key.
+    ///
+    /// The verifier decides how the token binds the key (e.g. a `pubkey` claim,
+    /// DPoP confirmation). Without this check a token stolen from another member
+    /// would pass for any key.
+    pub fn verify_key_binding(&self, signing_id: &SigningIdentity) -> Result<(), MlsError> {
+        let token = Self::credential_token(signing_id)?;
+        self.identity_verifier
+            .try_verify_key_binding(token, signing_id.signature_key.as_ref())
+            .map_err(|e| match e {
+                AuthError::PublicKeyMismatch {
+                    subject,
+                    expected,
+                    found,
+                } => {
+                    tracing::error!(
+                        %expected, %found, %subject, "public key mismatch",
+                    );
+                    MlsError::PublicKeyMismatch { expected, found }
+                }
+                e => Self::auth_error(e, "could not verify token"),
+            })
     }
 }
 
@@ -66,19 +102,7 @@ where
         _context: MemberValidationContext<'_>,
     ) -> Result<(), Self::Error> {
         debug!("Validating MLS group member identity");
-        let token = Self::credential_token(signing_identity)?;
-
-        // The verifier decides how the token binds the signing public key
-        // (e.g. `pubkey` claim, DPoP confirmation).
-        self.identity_verifier
-            .try_verify_key_binding(token, signing_identity.signature_key.as_ref())
-            .map_err(|e| match e {
-                AuthError::PublicKeyMismatch { expected, found } => {
-                    tracing::error!(%expected, %found, "public key mismatch");
-                    MlsError::PublicKeyMismatch { expected, found }
-                }
-                e => MlsError::verification_failed(format!("could not verify token: {}", e)),
-            })?;
+        self.verify_key_binding(signing_identity)?;
 
         Ok(())
     }
@@ -119,5 +143,88 @@ where
 
     fn supported_types(&self) -> Vec<CredentialType> {
         vec![CredentialType::BASIC]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mls_rs::identity::{SigningIdentity, basic::BasicCredential};
+    use mls_rs_core::crypto::SignaturePublicKey;
+    use serde::de::DeserializeOwned;
+    use slim_auth::errors::AuthError;
+
+    use super::*;
+
+    /// Verifier for tokens that carry a subject but no `pubkey` claim, binding
+    /// keys some other way (the key `b"bound"`).
+    #[derive(Clone)]
+    struct NoPubkeyClaim;
+
+    impl Verifier for NoPubkeyClaim {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        async fn verify(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        async fn get_claims<Claims>(
+            &self,
+            token: impl AsRef<str> + Send,
+        ) -> Result<Claims, AuthError>
+        where
+            Claims: DeserializeOwned + Send,
+        {
+            self.try_get_claims(token)
+        }
+
+        fn try_get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
+        where
+            Claims: DeserializeOwned + Send,
+        {
+            Ok(serde_json::from_value(
+                serde_json::json!({ "sub": "alice" }),
+            )?)
+        }
+    }
+
+    fn identity(token: &str, key: &[u8]) -> SigningIdentity {
+        SigningIdentity::new(
+            BasicCredential::new(token.as_bytes().to_vec()).into_credential(),
+            SignaturePublicKey::new(key.to_vec()),
+        )
+    }
+
+    #[test]
+    fn identity_and_succession_do_not_need_a_pubkey_claim() {
+        let provider = SlimIdentityProvider::new(NoPubkeyClaim);
+        let old = identity("token", b"key-1");
+        let new = identity("token", b"key-2");
+
+        assert_eq!(
+            provider.identity(&old, &ExtensionList::default()).unwrap(),
+            b"alice"
+        );
+        assert!(
+            provider
+                .valid_successor(&old, &new, &ExtensionList::default())
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn a_missing_pubkey_claim_is_a_typed_error() {
+        let provider = SlimIdentityProvider::new(NoPubkeyClaim);
+        assert!(matches!(
+            provider.verify_key_binding(&identity("token", b"key")),
+            Err(MlsError::IdentityProviderError(
+                AuthError::PublicKeyNotFound
+            ))
+        ));
     }
 }

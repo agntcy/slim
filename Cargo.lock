@@ -363,6 +363,7 @@ dependencies = [
  "mls-rs-core",
  "mls-rs-crypto-awslc",
  "mls-rs-crypto-webcrypto",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
