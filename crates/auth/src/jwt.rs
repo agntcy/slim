@@ -279,6 +279,26 @@ impl<T> Jwt<T> {
         Ok(self)
     }
 
+    /// Use `(secret_key, public_key)` as the MLS signature key pair instead of a
+    /// generated one, so the app's MLS identity is stable and chosen by the
+    /// caller. The pair must be valid for the MLS ciphersuite
+    /// ([`crate::utils::validate_mls_signature_keys`]). Refused for a
+    /// did:key-bound signer, whose key pair is its identity.
+    pub fn with_signature_keys(
+        mut self,
+        secret_key: Vec<u8>,
+        public_key: Vec<u8>,
+    ) -> Result<Self, AuthError> {
+        if self.did_bound {
+            return Err(AuthError::SelfCertifiedDid(
+                "MLS signature keys are bound to the did:key and cannot be replaced".to_string(),
+            ));
+        }
+        crate::utils::validate_mls_signature_keys(&secret_key, &public_key)?;
+        self.signature_keys = (secret_key, public_key);
+        Ok(self)
+    }
+
     pub fn with_watcher(mut self, w: FileWatcher) -> Self {
         // Clone the Arc, get a mutable reference to the Vec, and push to it
         let watchers =
@@ -973,6 +993,54 @@ mod tests {
 
     use crate::builder::JwtBuilder;
     use slim_testing::utils::setup_test_jwt_resolver;
+
+    fn hs256_signer() -> SignerJwt {
+        JwtBuilder::new()
+            .issuer("iss")
+            .audience(&["aud"])
+            .subject("sub")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("secret-key".into()),
+            })
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn signer_uses_injected_signature_keys() {
+        initialize_crypto_provider();
+        let (secret_key, public_key) = crate::utils::generate_mls_signature_keys().unwrap();
+        let signer = hs256_signer()
+            .with_signature_keys(secret_key.clone(), public_key.clone())
+            .unwrap();
+
+        assert_eq!(
+            signer.get_signature_keys().unwrap(),
+            (secret_key, public_key)
+        );
+        let claims: serde_json::Value =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(
+                &TokenProvider::get_token(&signer).unwrap(),
+            )
+            .unwrap()
+            .claims;
+        assert_eq!(
+            crate::identity_claims::IdentityClaims::public_key_from_json(&claims).unwrap(),
+            crate::identity_claims::IdentityClaims::encode_public_key(
+                &signer.get_signature_keys().unwrap().1
+            )
+        );
+    }
+
+    #[test]
+    fn signer_rejects_an_invalid_injected_key_pair() {
+        let (secret_key, _) = crate::utils::generate_mls_signature_keys().unwrap();
+        let (_, other_public) = crate::utils::generate_mls_signature_keys().unwrap();
+        let result = hs256_signer().with_signature_keys(secret_key, other_public);
+        assert!(matches!(result, Err(AuthError::InvalidMlsSignatureKeys(_))));
+    }
 
     fn temp_file_path(prefix: &str) -> PathBuf {
         let mut path = env::temp_dir();

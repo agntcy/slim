@@ -1721,6 +1721,31 @@ mod tests {
         Ok(())
     }
 
+    // A key pair injected into the identity provider becomes the member's leaf
+    // key, and the member can still join a group.
+    #[tokio::test]
+    async fn test_injected_signature_keys_are_the_leaf_key()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (secret, public) = slim_auth::utils::generate_mls_signature_keys()?;
+        let provider = SharedSecret::builder("alice", SHARED_SECRET)
+            .signature_keys(secret, public.clone())
+            .build()?;
+        let mut alice = Mls::new(provider, SharedSecret::new("alice", SHARED_SECRET)?);
+        alice.initialize().await?;
+        alice.create_group()?;
+
+        let bob_kp = init_identity("bob", "").await?.generate_key_package()?;
+        alice.add_member(&bob_kp)?;
+
+        let leaf = alice
+            .group
+            .as_ref()
+            .unwrap()
+            .current_member_signing_identity()?;
+        assert_eq!(leaf.signature_key.as_bytes(), public.as_slice());
+        Ok(())
+    }
+
     // A key package carrying another member's token but signed with a different
     // key must not read as that member's identity.
     #[tokio::test]
