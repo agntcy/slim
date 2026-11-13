@@ -22,6 +22,41 @@ pub const MLS_CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
 pub const MLS_CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
     mls_rs_core::crypto::CipherSuite::P256_AES128;
 
+/// Check that `(secret, public)` is a consistent MLS signature key pair for the
+/// ciphersuite MLS uses, so an injected key pair fails at construction rather
+/// than when MLS first signs with it.
+///
+/// On native targets the public key is derived from the secret and compared; on
+/// wasm32 only non-emptiness is checked, as the browser provider cannot derive.
+pub fn validate_mls_signature_keys(
+    secret: &[u8],
+    public: &[u8],
+) -> Result<(), crate::errors::AuthError> {
+    use crate::errors::AuthError::InvalidMlsSignatureKeys as Invalid;
+    if secret.is_empty() || public.is_empty() {
+        return Err(Invalid("empty key".to_string()));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let crypto_provider = AwsLcCryptoProvider::default();
+        let cipher_suite_provider = crypto_provider
+            .cipher_suite_provider(MLS_CIPHERSUITE)
+            .ok_or_else(|| Invalid("MLS ciphersuite unavailable".to_string()))?;
+        let derived = cipher_suite_provider
+            .signature_key_derive_public(&mls_rs_core::crypto::SignatureSecretKey::new(
+                secret.to_vec(),
+            ))
+            .map_err(|_| Invalid("secret key is not valid for the MLS ciphersuite".to_string()))?;
+        if derived.as_bytes() != public {
+            return Err(Invalid(
+                "public key does not match the secret key".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Generate an MLS signature key pair valid for the ciphersuite MLS uses.
 ///
 /// Returns provider-compatible `(secret_key_bytes, public_key_bytes)`: AWS-LC
@@ -267,6 +302,19 @@ pub fn bytes_to_pem(key_bytes: &[u8], header: &str, footer: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn validate_mls_signature_keys_accepts_a_generated_pair_only() {
+        let (secret, public) = generate_mls_signature_keys().unwrap();
+        assert!(validate_mls_signature_keys(&secret, &public).is_ok());
+
+        let (_, other_public) = generate_mls_signature_keys().unwrap();
+        assert!(validate_mls_signature_keys(&secret, &other_public).is_err());
+        assert!(validate_mls_signature_keys(&[7; 32], &public).is_err());
+        assert!(validate_mls_signature_keys(&[], &public).is_err());
+        assert!(validate_mls_signature_keys(&secret, &[]).is_err());
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]

@@ -191,6 +191,8 @@ pub enum AuthError {
     MlsNotSupported,
     #[error("MLS signature key generation failed")]
     MlsKeyGenerationFailed,
+    #[error("invalid MLS signature key pair: {0}")]
+    InvalidMlsSignatureKeys(String),
     #[error("public key not found in identity claims")]
     PublicKeyNotFound,
     #[error("subject not found in identity claims")]
