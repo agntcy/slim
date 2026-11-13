@@ -3838,7 +3838,7 @@ dependencies = [
  "maybe-async",
  "mls-rs-codec",
  "mls-rs-core",
- "mls-rs-identity-x509",
+ "mls-rs-identity-x509 0.21.0",
  "portable-atomic",
  "portable-atomic-util",
  "rand_core 0.6.4",
@@ -3893,18 +3893,18 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-crypto-awslc"
-version = "0.26.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ef778ced473553363cf0de75cb01856a6b713b85a23a13ada94229035eb46e5"
+checksum = "7f71c5b6f7cedc60cc137ba7671f28fe778b15e5e8715750560d1425b329c990"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
  "aws-lc-sys",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-hpke",
+ "mls-rs-crypto-hpke 0.22.0",
  "mls-rs-crypto-traits",
- "mls-rs-identity-x509",
+ "mls-rs-identity-x509 0.22.0",
  "thiserror 2.0.21",
  "zeroize",
 ]
@@ -3914,6 +3914,21 @@ name = "mls-rs-crypto-hpke"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b53db9a20568dec53e4f280ec8152c862b98efe105894e378d996be3305f32f2"
+dependencies = [
+ "async-trait",
+ "cfg-if",
+ "maybe-async",
+ "mls-rs-core",
+ "mls-rs-crypto-traits",
+ "thiserror 2.0.21",
+ "zeroize",
+]
+
+[[package]]
+name = "mls-rs-crypto-hpke"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b2856673608cf5a5038a184f3a4424514ded44ff120771871a06a88a3841172"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -3948,7 +3963,7 @@ dependencies = [
  "js-sys",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-hpke",
+ "mls-rs-crypto-hpke 0.21.0",
  "mls-rs-crypto-traits",
  "serde",
  "serde-wasm-bindgen",
@@ -3964,6 +3979,19 @@ name = "mls-rs-identity-x509"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec1ecb6a61a296b8240cea19171477293663dcc6540353dc8cbcda2d9f61039b"
+dependencies = [
+ "async-trait",
+ "maybe-async",
+ "mls-rs-core",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "mls-rs-identity-x509"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f50eeca93cbede255ded62621f8765e23a7652259ad5f95af74b10ecb353f8af"
 dependencies = [
  "async-trait",
  "maybe-async",
@@ -5530,7 +5558,7 @@ checksum = "7bd22781911de0ca6debda95f073c8f18bec65d1a94f1fa9573f3102e514cea4"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64 0.21.7",
+ "base64 0.22.1",
  "encoding_rs_io",
  "getrandom 0.3.4",
  "granit-parser",
@@ -6043,7 +6071,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
