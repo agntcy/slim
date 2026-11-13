@@ -238,6 +238,8 @@ pub struct SharedSecretBuilder {
     clock_skew: std::time::Duration,
     /// `Some(max)` enables the replay cache with that capacity; `None` disables it.
     replay_cache: Option<usize>,
+    /// Caller-supplied MLS signature key pair `(secret, public)`; generated when `None`.
+    signature_keys: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 impl SharedSecretBuilder {
@@ -248,6 +250,7 @@ impl SharedSecretBuilder {
             validity_window: std::time::Duration::from_secs(DEFAULT_VALIDITY_WINDOW),
             clock_skew: std::time::Duration::from_secs(DEFAULT_CLOCK_SKEW),
             replay_cache: None,
+            signature_keys: None,
         }
     }
 
@@ -269,6 +272,15 @@ impl SharedSecretBuilder {
         self
     }
 
+    /// Use `(secret_key, public_key)` as the MLS signature key pair instead of a
+    /// generated one, so the app's MLS identity is stable and chosen by the
+    /// caller. Validated at [`SharedSecretBuilder::build`]; it must be valid for
+    /// the MLS ciphersuite ([`crate::utils::validate_mls_signature_keys`]).
+    pub fn signature_keys(mut self, secret_key: Vec<u8>, public_key: Vec<u8>) -> Self {
+        self.signature_keys = Some((secret_key, public_key));
+        self
+    }
+
     /// Validate the inputs and construct the [`SharedSecret`], generating a
     /// random `id` suffix and a fresh placeholder MLS signature key pair.
     pub fn build(self) -> Result<SharedSecret, AuthError> {
@@ -282,7 +294,13 @@ impl SharedSecretBuilder {
             .collect();
         let full_id = format!("{}_{}", self.base_id, random_suffix);
 
-        let (secret_key, public_key) = crate::utils::generate_mls_signature_keys()?;
+        let (secret_key, public_key) = match self.signature_keys {
+            Some((secret_key, public_key)) => {
+                crate::utils::validate_mls_signature_keys(&secret_key, &public_key)?;
+                (secret_key, public_key)
+            }
+            None => crate::utils::generate_mls_signature_keys()?,
+        };
         let claims_b64 = SharedSecret::compute_claims_b64(&public_key);
         let hmac_key = HmacKey::new(self.shared_secret.as_bytes());
 
@@ -784,6 +802,39 @@ mod tests {
         // The updated identity still produces a verifiable token.
         let token = s.get_token().unwrap();
         assert!(s.try_verify(token).is_ok());
+    }
+
+    #[test]
+    fn test_builder_uses_injected_signature_keys() {
+        let (secret_key, public_key) = crate::utils::generate_mls_signature_keys().unwrap();
+        let s = SharedSecret::builder("svc", &valid_secret())
+            .signature_keys(secret_key.clone(), public_key.clone())
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            s.get_signature_keys().unwrap(),
+            (secret_key, public_key.clone())
+        );
+        assert!(s.mls_signature_keys_installed());
+
+        // The token is bound to the injected public key, and clones share it.
+        let token = s.get_token().unwrap();
+        assert!(
+            s.clone()
+                .try_verify_key_binding(&token, &public_key)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_builder_rejects_an_invalid_injected_key_pair() {
+        let (secret_key, _) = crate::utils::generate_mls_signature_keys().unwrap();
+        let (_, other_public) = crate::utils::generate_mls_signature_keys().unwrap();
+        let result = SharedSecret::builder("svc", &valid_secret())
+            .signature_keys(secret_key, other_public)
+            .build();
+        assert!(matches!(result, Err(AuthError::InvalidMlsSignatureKeys(_))));
     }
 
     #[test]

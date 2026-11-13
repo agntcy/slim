@@ -390,6 +390,8 @@ pub struct SpireIdentityManagerBuilder {
     socket_path: Option<String>,
     target_spiffe_id: Option<String>,
     jwt_audiences: Vec<String>,
+    /// Caller-supplied MLS signature key pair `(secret, public)`; generated when `None`.
+    signature_keys: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 impl Default for SpireIdentityManagerBuilder {
@@ -398,6 +400,7 @@ impl Default for SpireIdentityManagerBuilder {
             socket_path: None,
             target_spiffe_id: None,
             jwt_audiences: vec!["slim".to_string()],
+            signature_keys: None,
         }
     }
 }
@@ -426,12 +429,27 @@ impl SpireIdentityManagerBuilder {
         self
     }
 
+    /// Use `(secret_key, public_key)` as the MLS signature key pair instead of a
+    /// generated one, so the app's MLS identity is stable and chosen by the
+    /// caller. Validated at [`Self::build`]; it must be valid for the MLS
+    /// ciphersuite ([`crate::utils::validate_mls_signature_keys`]).
+    pub fn with_signature_keys(mut self, secret_key: Vec<u8>, public_key: Vec<u8>) -> Self {
+        self.signature_keys = Some((secret_key, public_key));
+        self
+    }
+
     pub fn build(self) -> Result<SpireIdentityManager, crate::errors::AuthError> {
-        // Generate the MLS signature key pair up front, for the ciphersuite MLS
+        // Generate (or take the caller's) MLS signature key pair up front, for the ciphersuite MLS
         // uses, so `initialize` embeds the pubkey in the SVID audiences from the
         // start and MLS adopts the key instead of rotating the signing identity
         // mid-handshake. Mirrors `SharedSecret`.
-        let signature_keys = crate::utils::generate_mls_signature_keys()?;
+        let signature_keys = match self.signature_keys {
+            Some((secret_key, public_key)) => {
+                crate::utils::validate_mls_signature_keys(&secret_key, &public_key)?;
+                (secret_key, public_key)
+            }
+            None => crate::utils::generate_mls_signature_keys()?,
+        };
         let internal = SpireIdentityManagerInternal {
             socket_path: self.socket_path,
             target_spiffe_id: self.target_spiffe_id,
@@ -896,6 +914,34 @@ mod tests {
     use super::decode_jwt_expiry_unverified;
     use serde_json::json;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn builder_uses_injected_signature_keys() {
+        use crate::traits::TokenProvider;
+
+        let (secret_key, public_key) = crate::utils::generate_mls_signature_keys().unwrap();
+        let spire = super::SpireIdentityManager::builder()
+            .with_signature_keys(secret_key.clone(), public_key.clone())
+            .build()
+            .unwrap();
+        assert_eq!(
+            spire.get_signature_keys().unwrap(),
+            (secret_key, public_key)
+        );
+    }
+
+    #[test]
+    fn builder_rejects_an_invalid_injected_key_pair() {
+        let (secret_key, _) = crate::utils::generate_mls_signature_keys().unwrap();
+        let (_, other_public) = crate::utils::generate_mls_signature_keys().unwrap();
+        let result = super::SpireIdentityManager::builder()
+            .with_signature_keys(secret_key, other_public)
+            .build();
+        assert!(matches!(
+            result,
+            Err(crate::errors::AuthError::InvalidMlsSignatureKeys(_))
+        ));
+    }
 
     // Helper to build a JWT with a specific exp claim (numeric or string) using jsonwebtoken.
     fn build_token_with_exp(exp_value: serde_json::Value) -> String {
