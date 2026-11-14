@@ -37,7 +37,7 @@ jobs:
         uses: ./.github/actions/setup-rust
       - name: Run release-plz
         id: release-plz
-        uses: release-plz/action@18641b6c63063cc5ff8786ebf69cd57e8541bae1 # v0.5.140
+        uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
           command: release
           manifest_path: ./Cargo.toml
@@ -179,7 +179,7 @@ jobs:
           persist-credentials: false
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
       # Two explicit patterns rather than one glob: excludes any
       # .sigstore.json/.intoto.jsonl sidecars already on the release from a
@@ -382,7 +382,7 @@ jobs:
         # shipped, so this is safe to run on every push.
         run: cargo publish --dry-run -p agntcy-slim-version
       - name: Run release-plz
-        uses: release-plz/action@18641b6c63063cc5ff8786ebf69cd57e8541bae1 # v0.5.140
+        uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
           command: release-pr
           manifest_path: ./Cargo.toml
