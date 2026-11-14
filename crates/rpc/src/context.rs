@@ -193,13 +193,13 @@ impl Context {
         &mut self.session.metadata
     }
 
-    /// Parse deadline from metadata
+    /// Parse deadline from metadata. The value comes from the caller, so a
+    /// negative, NaN, infinite or out-of-range one counts as no deadline
+    /// instead of panicking.
     fn parse_deadline(metadata: &Metadata) -> Option<SystemTime> {
-        metadata.get(DEADLINE_KEY).and_then(|deadline_str| {
-            deadline_str.parse::<f64>().ok().and_then(|seconds| {
-                SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs_f64(seconds))
-            })
-        })
+        let seconds = metadata.get(DEADLINE_KEY)?.parse::<f64>().ok()?;
+        let since_epoch = Duration::try_from_secs_f64(seconds).ok()?;
+        SystemTime::UNIX_EPOCH.checked_add(since_epoch)
     }
 
     /// Set the deadline
@@ -314,6 +314,15 @@ mod tests {
 
         let parsed = Context::parse_deadline(&metadata);
         assert!(parsed.is_some());
+    }
+
+    #[test]
+    fn test_context_deadline_parsing_rejects_malformed_values() {
+        for value in ["-1", "NaN", "inf", "-inf", "1e300", "not-a-number"] {
+            let mut metadata = Metadata::new();
+            metadata.insert(DEADLINE_KEY.into(), value.into());
+            assert_eq!(Context::parse_deadline(&metadata), None, "{value}");
+        }
     }
 
     #[test]
