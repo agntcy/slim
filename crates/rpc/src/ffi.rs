@@ -162,7 +162,7 @@ impl Channel {
     ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         let channel = self.clone();
         let (tx, rx) = unbounded_channel();
-        self.runtime.spawn(async move {
+        let task = self.runtime.spawn(async move {
             let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
@@ -177,7 +177,7 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(ResponseStreamReader::new(rx)))
+        Ok(Arc::new(ResponseStreamReader::new(rx, task.abort_handle())))
     }
 
     pub fn call_stream_unary(
@@ -247,7 +247,7 @@ impl Channel {
     ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         let channel = self.clone();
         let (tx, rx) = unbounded_channel();
-        self.runtime.spawn(async move {
+        let task = self.runtime.spawn(async move {
             let stream = channel.multicast_unary::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
@@ -262,7 +262,10 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(MulticastResponseReader::new(rx)))
+        Ok(Arc::new(MulticastResponseReader::new(
+            rx,
+            task.abort_handle(),
+        )))
     }
 
     /// Broadcast one request to all GROUP members and stream their responses
@@ -301,7 +304,7 @@ impl Channel {
     ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         let channel = self.clone();
         let (tx, rx) = unbounded_channel();
-        self.runtime.spawn(async move {
+        let task = self.runtime.spawn(async move {
             let stream = channel.multicast_unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
@@ -316,7 +319,10 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(MulticastResponseReader::new(rx)))
+        Ok(Arc::new(MulticastResponseReader::new(
+            rx,
+            task.abort_handle(),
+        )))
     }
 
     /// Broadcast a request stream to all GROUP members and collect their

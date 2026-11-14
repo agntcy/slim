@@ -66,7 +66,18 @@ Each session a channel opens carries `slimrpc-session=1` in its metadata. A serv
 
 ### Cancellation
 
-When a client drops a call before the server has finished it, the channel sends a message with the call's `rpc-id` and `slimrpc-dir=cancel`, and the server stops that call's handler. Only the peer that made a call can cancel it. A server from a release without cancellation drops the message, and its handler runs until it finishes or reaches the call's deadline.
+A caller cancels a call by giving up on its response. The channel then sends a message with the call's `rpc-id` and `slimrpc-dir=cancel`, and the server stops that call's handler. Only the peer that made a call can cancel it. A server from a release without cancellation drops the message, and its handler runs until it finishes or reaches the call's deadline.
+
+In Rust, giving up means:
+
+- **Unary-unary and stream-unary:** abandoning the call while it waits for its response, for example when a timeout around it fires.
+- **Unary-stream and stream-stream:** dropping the response stream before the server has ended it.
+
+In the other languages, call `cancel()` on the object the call returns: the response reader of a unary-stream call, the request writer of a stream-unary call, or the handler of a stream-stream call, and the same for multicast calls. Responses already received can still be read. After them, the next read returns a `Cancelled` error, and sending fails. A unary-unary call has no such object; set a deadline instead.
+
+Ending the request stream is not a cancel. It only tells the server that no more requests are coming (`close_send` on a stream-stream call). The server keeps running the call, and its responses can still be received. Dropping a whole channel closes its session, which stops every handler running on it.
+
+Letting a response reader or a stream-stream handler go without calling `cancel()` also cancels the call, but not until the next response arrives, and the language's garbage collector decides when the object goes. A request writer that is let go only ends its requests.
 
 ## Multicast RPC
 
