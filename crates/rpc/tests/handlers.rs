@@ -1117,3 +1117,385 @@ async fn test_context_all_fields_trait() {
 
     env.shutdown().await;
 }
+
+// ============================================================================
+// Cancelling a call from the foreign side
+// ============================================================================
+
+/// What a handler that never finishes reports: that it started, and that it
+/// was dropped, which is what stopping it does to its future.
+#[derive(Default)]
+struct HandlerProgress {
+    started: std::sync::atomic::AtomicBool,
+    stopped: std::sync::atomic::AtomicBool,
+}
+
+struct ReportOnDrop(Arc<HandlerProgress>);
+
+impl Drop for ReportOnDrop {
+    fn drop(&mut self) {
+        self.0
+            .stopped
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl HandlerProgress {
+    fn start(self: &Arc<Self>) -> ReportOnDrop {
+        self.started
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        ReportOnDrop(self.clone())
+    }
+
+    async fn wait_for(
+        flag: impl Fn(&Self) -> &std::sync::atomic::AtomicBool,
+        this: &Arc<Self>,
+    ) -> bool {
+        for _ in 0..100 {
+            if flag(this).load(std::sync::atomic::Ordering::SeqCst) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        false
+    }
+
+    async fn started(this: &Arc<Self>) -> bool {
+        Self::wait_for(|p| &p.started, this).await
+    }
+
+    async fn stopped(this: &Arc<Self>) -> bool {
+        Self::wait_for(|p| &p.stopped, this).await
+    }
+}
+
+/// Answers once, then never finishes.
+struct SilentStreamHandler(Arc<HandlerProgress>);
+
+#[async_trait::async_trait]
+impl UnaryStreamHandler for SilentStreamHandler {
+    async fn handle(
+        &self,
+        _request: Vec<u8>,
+        _context: Arc<Context>,
+        sink: Arc<ResponseSink>,
+    ) -> Result<(), RpcError> {
+        let _guard = self.0.start();
+        sink.send_async(vec![1]).await?;
+        std::future::pending::<()>().await;
+        Ok(())
+    }
+}
+
+/// Waits for request messages that never end.
+struct WaitingAccumulator(Arc<HandlerProgress>);
+
+#[async_trait::async_trait]
+impl StreamUnaryHandler for WaitingAccumulator {
+    async fn handle(
+        &self,
+        stream: Arc<UniffiRequestStream>,
+        _context: Arc<Context>,
+    ) -> Result<Vec<u8>, RpcError> {
+        let _guard = self.0.start();
+        while let StreamMessage::Data(_) = stream.next_async().await {}
+        std::future::pending::<()>().await;
+        Ok(Vec::new())
+    }
+}
+
+/// Echoes the first request message, then waits for more without end.
+struct WaitingEcho(Arc<HandlerProgress>);
+
+#[async_trait::async_trait]
+impl StreamStreamHandler for WaitingEcho {
+    async fn handle(
+        &self,
+        stream: Arc<UniffiRequestStream>,
+        _context: Arc<Context>,
+        sink: Arc<ResponseSink>,
+    ) -> Result<(), RpcError> {
+        let _guard = self.0.start();
+        while let StreamMessage::Data(data) = stream.next_async().await {
+            sink.send_async(data).await?;
+        }
+        std::future::pending::<()>().await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_cancelling_a_unary_stream_reader_stops_the_handler() {
+    let mut env = TestEnv::new("trait-cancel-unary-stream").await;
+    let progress = Arc::new(HandlerProgress::default());
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "Silent".to_string(),
+        Arc::new(SilentStreamHandler(progress.clone())),
+    );
+    env.start_server().await;
+
+    let reader = env
+        .channel
+        .call_unary_stream_async(
+            "TestService".to_string(),
+            "Silent".to_string(),
+            Vec::new(),
+            Some(Duration::from_secs(60)),
+            None,
+        )
+        .await
+        .expect("Unary stream call failed");
+    assert!(matches!(reader.next_async().await, StreamMessage::Data(_)));
+    assert!(HandlerProgress::started(&progress).await);
+
+    reader.cancel();
+
+    assert!(
+        HandlerProgress::stopped(&progress).await,
+        "the handler kept running after the reader cancelled the call"
+    );
+    match reader.next_async().await {
+        StreamMessage::Error(e) => assert_eq!(e.code(), RpcCode::Cancelled),
+        _ => panic!("expected a Cancelled error after cancel"),
+    }
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_cancelling_a_stream_unary_writer_stops_the_handler() {
+    let mut env = TestEnv::new("trait-cancel-stream-unary").await;
+    let progress = Arc::new(HandlerProgress::default());
+    env.server.register_stream_unary(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Arc::new(WaitingAccumulator(progress.clone())),
+    );
+    env.start_server().await;
+
+    let writer = env.channel.call_stream_unary(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Some(Duration::from_secs(60)),
+        None,
+    );
+    writer.send_async(vec![1]).await.expect("send failed");
+    assert!(HandlerProgress::started(&progress).await);
+
+    writer.cancel();
+
+    assert!(
+        HandlerProgress::stopped(&progress).await,
+        "the handler kept running after the writer cancelled the call"
+    );
+    assert_eq!(
+        writer.send_async(vec![2]).await.unwrap_err().code(),
+        RpcCode::Cancelled
+    );
+    assert_eq!(
+        writer.finalize_stream_async().await.unwrap_err().code(),
+        RpcCode::Cancelled
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_cancelling_a_bidi_handler_stops_the_server_handler() {
+    let mut env = TestEnv::new("trait-cancel-stream-stream").await;
+    let progress = Arc::new(HandlerProgress::default());
+    env.server.register_stream_stream(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Arc::new(WaitingEcho(progress.clone())),
+    );
+    env.start_server().await;
+
+    let call = env.channel.call_stream_stream(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Some(Duration::from_secs(60)),
+        None,
+    );
+    call.send_async(vec![7]).await.expect("send failed");
+    assert!(matches!(call.recv_async().await, StreamMessage::Data(d) if d == vec![7]));
+    assert!(HandlerProgress::started(&progress).await);
+
+    call.cancel();
+
+    assert!(
+        HandlerProgress::stopped(&progress).await,
+        "the handler kept running after the caller cancelled the call"
+    );
+    match call.recv_async().await {
+        StreamMessage::Error(e) => assert_eq!(e.code(), RpcCode::Cancelled),
+        _ => panic!("expected a Cancelled error after cancel"),
+    }
+    assert_eq!(
+        call.send_async(vec![8]).await.unwrap_err().code(),
+        RpcCode::Cancelled
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_closing_the_request_side_does_not_cancel() {
+    let mut env = TestEnv::new("trait-close-send-keeps-call").await;
+    let progress = Arc::new(HandlerProgress::default());
+    env.server.register_stream_stream(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Arc::new(WaitingEcho(progress.clone())),
+    );
+    env.start_server().await;
+
+    let call = env.channel.call_stream_stream(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Some(Duration::from_secs(60)),
+        None,
+    );
+    call.send_async(vec![1]).await.expect("send failed");
+    assert!(HandlerProgress::started(&progress).await);
+
+    // A half-close: the server's handler sees the input end and carries on.
+    call.close_send_async().await.expect("close failed");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !progress.stopped.load(std::sync::atomic::Ordering::SeqCst),
+        "ending the request side must not stop the handler"
+    );
+    assert!(!logs_contain("Call cancelled by its caller"));
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_cancelling_a_finished_call_changes_nothing() {
+    let mut env = TestEnv::new("trait-cancel-after-end").await;
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "Counter".to_string(),
+        Arc::new(CounterHandler),
+    );
+    env.start_server().await;
+
+    let reader = env
+        .channel
+        .call_unary_stream_async(
+            "TestService".to_string(),
+            "Counter".to_string(),
+            3u32.to_le_bytes().to_vec(),
+            Some(Duration::from_secs(30)),
+            None,
+        )
+        .await
+        .expect("Unary stream call failed");
+    let mut received = 0;
+    while let StreamMessage::Data(_) = reader.next_async().await {
+        received += 1;
+    }
+    assert_eq!(received, 3);
+
+    reader.cancel();
+
+    assert!(matches!(reader.next_async().await, StreamMessage::End));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!logs_contain("Call cancelled by its caller"));
+
+    env.shutdown().await;
+}
+
+/// Answers every 20 ms, without end.
+struct TickingStreamHandler(Arc<HandlerProgress>);
+
+#[async_trait::async_trait]
+impl UnaryStreamHandler for TickingStreamHandler {
+    async fn handle(
+        &self,
+        _request: Vec<u8>,
+        _context: Arc<Context>,
+        sink: Arc<ResponseSink>,
+    ) -> Result<(), RpcError> {
+        let _guard = self.0.start();
+        loop {
+            sink.send_async(vec![1]).await?;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_letting_go_of_a_reader_cancels_at_the_next_response() {
+    let mut env = TestEnv::new("trait-drop-reader").await;
+    let progress = Arc::new(HandlerProgress::default());
+    env.server.register_unary_stream(
+        "TestService".to_string(),
+        "Ticking".to_string(),
+        Arc::new(TickingStreamHandler(progress.clone())),
+    );
+    env.start_server().await;
+
+    let reader = env
+        .channel
+        .call_unary_stream_async(
+            "TestService".to_string(),
+            "Ticking".to_string(),
+            Vec::new(),
+            Some(Duration::from_secs(60)),
+            None,
+        )
+        .await
+        .expect("Unary stream call failed");
+    assert!(matches!(reader.next_async().await, StreamMessage::Data(_)));
+
+    drop(reader);
+
+    assert!(
+        HandlerProgress::stopped(&progress).await,
+        "the handler kept running after its reader was let go"
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_letting_go_of_a_request_writer_only_ends_its_requests() {
+    let mut env = TestEnv::new("trait-drop-writer").await;
+    let progress = Arc::new(HandlerProgress::default());
+    env.server.register_stream_unary(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Arc::new(WaitingAccumulator(progress.clone())),
+    );
+    env.start_server().await;
+
+    let writer = env.channel.call_stream_unary(
+        "TestService".to_string(),
+        "Waiting".to_string(),
+        Some(Duration::from_secs(60)),
+        None,
+    );
+    writer.send_async(vec![1]).await.expect("send failed");
+    assert!(HandlerProgress::started(&progress).await);
+
+    drop(writer);
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !progress.stopped.load(std::sync::atomic::Ordering::SeqCst),
+        "letting go of the writer must not stop the handler"
+    );
+    assert!(!logs_contain("Call cancelled by its caller"));
+
+    env.shutdown().await;
+}

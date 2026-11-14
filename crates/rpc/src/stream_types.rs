@@ -40,6 +40,52 @@ type RpcBytesSender = UnboundedSender<RpcBytesResult>;
 #[cfg(feature = "uniffi")]
 type RpcBytesJoinHandle = tokio::task::JoinHandle<RpcBytesResult>;
 
+/// Lets a foreign caller cancel a call whose work runs in a background task.
+///
+/// Cancelling aborts the task, which drops the call, so the channel tells the
+/// server to stop the handler. A call that has already finished isn't marked
+/// cancelled.
+#[cfg(feature = "uniffi")]
+pub(crate) struct CallCanceller {
+    task: tokio::task::AbortHandle,
+    cancelled: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(feature = "uniffi")]
+impl CallCanceller {
+    pub(crate) fn new(task: tokio::task::AbortHandle) -> Self {
+        Self {
+            task,
+            cancelled: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    pub(crate) fn cancel(&self) {
+        if !self.task.is_finished() {
+            self.cancelled
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            self.task.abort();
+        }
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(crate) fn error() -> RpcError {
+        RpcError::cancelled("Call cancelled by the caller")
+    }
+
+    /// `Err` with the cancellation error once the call has been cancelled.
+    pub(crate) fn check(&self) -> Result<(), RpcError> {
+        if self.is_cancelled() {
+            Err(Self::error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Raw byte stream for a stream-input RPC call.
 ///
 /// Implements [`Stream`] directly using `poll_recv` — no heap allocation.
@@ -339,14 +385,19 @@ impl ResponseSink {
 pub struct ResponseStreamReader {
     /// Inner receiver channel for stream messages
     inner: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
+    canceller: CallCanceller,
 }
 
 #[cfg(feature = "uniffi")]
 impl ResponseStreamReader {
-    /// Create a new response stream reader
-    pub fn new(rx: UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
+    /// Create a new response stream reader for the call run by `task`.
+    pub(crate) fn new(
+        rx: UnboundedReceiver<Result<Vec<u8>, RpcError>>,
+        task: tokio::task::AbortHandle,
+    ) -> Self {
         Self {
             inner: TokioMutex::new(rx),
+            canceller: CallCanceller::new(task),
         }
     }
 }
@@ -369,8 +420,17 @@ impl ResponseStreamReader {
         match rx.recv().await {
             Some(Ok(data)) => StreamMessage::Data(data),
             Some(Err(e)) => StreamMessage::Error(e),
+            None if self.canceller.is_cancelled() => StreamMessage::Error(CallCanceller::error()),
             None => StreamMessage::End,
         }
+    }
+
+    /// Cancel the call: the server stops its handler.
+    ///
+    /// Messages already received can still be read; after them, `next`
+    /// returns a `Cancelled` error. Does nothing if the call has finished.
+    pub fn cancel(&self) {
+        self.canceller.cancel();
     }
 }
 
@@ -382,6 +442,7 @@ impl ResponseStreamReader {
 pub struct RequestStreamWriter {
     sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     response: TokioMutex<Option<RpcBytesJoinHandle>>,
+    canceller: CallCanceller,
 }
 
 #[cfg(feature = "uniffi")]
@@ -422,6 +483,7 @@ impl RequestStreamWriter {
 
         Self {
             sender: TokioMutex::new(Some(tx)),
+            canceller: CallCanceller::new(response_handle.abort_handle()),
             response: TokioMutex::new(Some(response_handle)),
         }
     }
@@ -442,6 +504,7 @@ impl RequestStreamWriter {
 
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        self.canceller.check()?;
         let sender = self.sender.lock().await;
         if let Some(tx) = sender.as_ref() {
             tx.send(data)
@@ -454,8 +517,18 @@ impl RequestStreamWriter {
         }
     }
 
+    /// Cancel the call: the server stops its handler.
+    ///
+    /// `send` and `finalize_stream` then return a `Cancelled` error. Does
+    /// nothing if the call has finished.
+    pub fn cancel(&self) {
+        self.canceller.cancel();
+    }
+
     /// Finalize the stream and get the response (async version)
     pub async fn finalize_stream_async(&self) -> Result<Vec<u8>, RpcError> {
+        self.canceller.check()?;
+
         // Drop the sender to signal end of stream
         {
             let mut sender = self.sender.lock().await;
@@ -465,9 +538,13 @@ impl RequestStreamWriter {
         // Wait for response
         let mut response_guard = self.response.lock().await;
         if let Some(handle) = response_guard.take() {
-            handle
-                .await
-                .map_err(|e| RpcError::new(RpcCode::Internal, format!("Task failed: {e}")))?
+            handle.await.map_err(|e| {
+                if e.is_cancelled() {
+                    CallCanceller::error()
+                } else {
+                    RpcError::new(RpcCode::Internal, format!("Task failed: {e}"))
+                }
+            })?
         } else {
             Err(RpcError::new(
                 RpcCode::Internal,
@@ -496,6 +573,7 @@ impl RequestStreamWriter {
 pub struct BidiStreamHandler {
     sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     receiver: TokioMutex<UnboundedReceiver<Result<Vec<u8>, RpcError>>>,
+    canceller: CallCanceller,
 }
 
 #[cfg(feature = "uniffi")]
@@ -511,7 +589,7 @@ impl BidiStreamHandler {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         // Spawn task to handle the stream_stream call
-        crate::spawn(async move {
+        let task = crate::spawn(async move {
             use async_stream::stream;
 
             let request_stream = stream! {
@@ -539,6 +617,7 @@ impl BidiStreamHandler {
         Self {
             sender: TokioMutex::new(Some(req_tx)),
             receiver: TokioMutex::new(resp_rx),
+            canceller: CallCanceller::new(task.abort_handle()),
         }
     }
 }
@@ -552,6 +631,10 @@ impl BidiStreamHandler {
     }
 
     /// Close the request stream (no more messages will be sent)
+    ///
+    /// This only ends the request side. The server keeps running the call and
+    /// its responses can still be received; use [`cancel`](Self::cancel) to
+    /// stop it.
     pub fn close_send(&self) -> Result<(), RpcError> {
         crate::get_runtime().block_on(self.close_send_async())
     }
@@ -561,8 +644,18 @@ impl BidiStreamHandler {
         crate::get_runtime().block_on(self.recv_async())
     }
 
+    /// Cancel the call: the server stops its handler.
+    ///
+    /// Responses already received can still be read; after them, `recv`
+    /// returns a `Cancelled` error, and `send` fails. Does nothing if the call
+    /// has finished.
+    pub fn cancel(&self) {
+        self.canceller.cancel();
+    }
+
     /// Send a request message to the stream (async version)
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        self.canceller.check()?;
         let sender = self.sender.lock().await;
         if let Some(tx) = sender.as_ref() {
             tx.send(data)
@@ -588,6 +681,7 @@ impl BidiStreamHandler {
         match rx.recv().await {
             Some(Ok(data)) => StreamMessage::Data(data),
             Some(Err(e)) => StreamMessage::Error(e),
+            None if self.canceller.is_cancelled() => StreamMessage::Error(CallCanceller::error()),
             None => StreamMessage::End,
         }
     }
@@ -641,14 +735,19 @@ pub enum MulticastStreamMessage {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct MulticastResponseReader {
     inner: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
+    canceller: CallCanceller,
 }
 
 #[cfg(feature = "uniffi")]
 impl MulticastResponseReader {
     /// Create a new reader backed by the given mpsc receiver.
-    pub fn new(rx: UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>) -> Self {
+    pub(crate) fn new(
+        rx: UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>,
+        task: tokio::task::AbortHandle,
+    ) -> Self {
         Self {
             inner: TokioMutex::new(rx),
+            canceller: CallCanceller::new(task),
         }
     }
 
@@ -687,8 +786,19 @@ impl MulticastResponseReader {
         let mut rx = self.inner.lock().await;
         match rx.recv().await {
             Some(item) => Self::convert_item(item),
+            None if self.canceller.is_cancelled() => MulticastStreamMessage::Error {
+                error: CallCanceller::error(),
+            },
             None => MulticastStreamMessage::End,
         }
+    }
+
+    /// Cancel the call: every member stops its handler.
+    ///
+    /// Responses already received can still be read; after them, `next`
+    /// returns a `Cancelled` error. Does nothing if the call has finished.
+    pub fn cancel(&self) {
+        self.canceller.cancel();
     }
 }
 
@@ -704,6 +814,7 @@ impl MulticastResponseReader {
 pub struct MulticastBidiStreamHandler {
     sender: TokioMutex<Option<UnboundedSender<Vec<u8>>>>,
     receiver: TokioMutex<UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>>,
+    canceller: CallCanceller,
 }
 
 #[cfg(feature = "uniffi")]
@@ -720,7 +831,7 @@ impl MulticastBidiStreamHandler {
         let (req_tx, mut req_rx) = unbounded_channel();
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        crate::spawn(async move {
+        let task = crate::spawn(async move {
             use async_stream::stream;
 
             let request_stream = stream! {
@@ -748,6 +859,7 @@ impl MulticastBidiStreamHandler {
         Self {
             sender: TokioMutex::new(Some(req_tx)),
             receiver: TokioMutex::new(resp_rx),
+            canceller: CallCanceller::new(task.abort_handle()),
         }
     }
 }
@@ -762,6 +874,10 @@ impl MulticastBidiStreamHandler {
 
     /// Close the request stream — signals that no more messages will be sent
     /// (blocking).
+    ///
+    /// This only ends the request side. The members keep running the call and
+    /// their responses can still be received; use [`cancel`](Self::cancel) to
+    /// stop it.
     pub fn close_send(&self) -> Result<(), RpcError> {
         crate::get_runtime().block_on(self.close_send_async())
     }
@@ -771,8 +887,18 @@ impl MulticastBidiStreamHandler {
         crate::get_runtime().block_on(self.recv_async())
     }
 
+    /// Cancel the call: every member stops its handler.
+    ///
+    /// Responses already received can still be read; after them, `recv`
+    /// returns a `Cancelled` error, and `send` fails. Does nothing if the call
+    /// has finished.
+    pub fn cancel(&self) {
+        self.canceller.cancel();
+    }
+
     /// Send a request message to the stream (async).
     pub async fn send_async(&self, data: Vec<u8>) -> Result<(), RpcError> {
+        self.canceller.check()?;
         let sender = self.sender.lock().await;
         if let Some(tx) = sender.as_ref() {
             tx.send(data)
@@ -797,6 +923,9 @@ impl MulticastBidiStreamHandler {
         let mut rx = self.receiver.lock().await;
         match rx.recv().await {
             Some(item) => MulticastResponseReader::convert_item(item),
+            None if self.canceller.is_cancelled() => MulticastStreamMessage::Error {
+                error: CallCanceller::error(),
+            },
             None => MulticastStreamMessage::End,
         }
     }

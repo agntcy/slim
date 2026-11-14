@@ -123,9 +123,9 @@ impl<T> Response<T> {
 }
 
 use super::{
-    Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
-    RpcError, SERVICE_KEY, SESSION_MARKER_KEY, SESSION_MARKER_VALUE, STATUS_CODE_KEY,
-    calculate_timeout_duration,
+    Context, METHOD_KEY, Metadata, RPC_DIR_CANCEL, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY,
+    ReceivedMessage, RpcCode, RpcError, SERVICE_KEY, SESSION_MARKER_KEY, SESSION_MARKER_VALUE,
+    STATUS_CODE_KEY, calculate_timeout_duration,
     codec::{Decoder, Encoder},
     rpc_session::InFlightSends,
     send_eos,
@@ -197,6 +197,57 @@ struct DispatcherGuard {
 impl Drop for DispatcherGuard {
     fn drop(&mut self) {
         self.dispatcher.unregister(&self.rpc_id);
+    }
+}
+
+// ── CancelOnDrop ──────────────────────────────────────────────────────────────
+
+/// Cancels a call that is dropped before the server has finished it: stops
+/// sending its requests and tells the server, which stops the call's handler.
+/// Disarmed once every server has ended the call.
+struct CancelOnDrop {
+    session_tx: SessionTx,
+    rpc_id: String,
+    runtime: tokio::runtime::Handle,
+    send_task: tokio::task::AbortHandle,
+    armed: bool,
+}
+
+impl CancelOnDrop {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.send_task.abort();
+        let session_tx = self.session_tx.clone();
+        let rpc_id = std::mem::take(&mut self.rpc_id);
+        self.runtime.spawn(async move {
+            let metadata = HashMap::from([
+                (RPC_ID_KEY.to_string(), rpc_id.clone()),
+                (RPC_DIR_KEY.to_string(), RPC_DIR_CANCEL.to_string()),
+            ]);
+            let sent = session_tx
+                .publish(
+                    session_tx.destination(),
+                    Vec::new(),
+                    Some("msg".to_string()),
+                    Some(metadata),
+                )
+                .await;
+            let result = match sent {
+                Ok(handle) => handle.await.map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            };
+            if let Err(error) = result {
+                tracing::debug!(%rpc_id, %error, "Failed to send cancel");
+            }
+        });
     }
 }
 
@@ -632,6 +683,32 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
+        self.call(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+            false,
+        )
+    }
+
+    /// [`Self::responses_from_stream_input`]. Dropping the stream before every
+    /// server has ended the call cancels it. With `single_response`, the
+    /// caller takes only the first response, which ends a P2P call.
+    fn call<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+        single_response: bool,
+    ) -> impl Stream<Item = Result<Response<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
         let service_name = service_name.to_string();
         let method_name = method_name.to_string();
         let channel = self.clone();
@@ -667,8 +744,16 @@ impl Channel {
                     )
                     .await
             });
+            let mut cancel = CancelOnDrop {
+                session_tx: session_tx.clone(),
+                rpc_id: rpc_id.clone(),
+                runtime: channel.runtime.clone(),
+                send_task: send_handle.abort_handle(),
+                armed: true,
+            };
             let mut members = members;
             let num_members = members.len();
+            let single_response = single_response && num_members == 1;
             let mut num_completed = 0usize;
             let mut send_completed = false;
 
@@ -691,6 +776,8 @@ impl Channel {
                 let received = match received_opt {
                     Err(e) => { yield Err(e); break; }
                     Ok(None) => {
+                        // The session closed: there is nothing left to cancel.
+                        cancel.disarm();
                         if num_completed < num_members {
                             if channel.is_group {
                                 yield Err(RpcError::multicast_session_closed(
@@ -716,7 +803,7 @@ impl Channel {
                         members.insert(source, true);
                         num_completed += 1;
                     }
-                    if num_completed >= num_members { break; }
+                    if num_completed >= num_members { cancel.disarm(); break; }
                     continue;
                 }
                 let code = RpcCode::from_metadata_str(
@@ -729,6 +816,8 @@ impl Channel {
                         num_completed += 1;
                     }
                     let err = RpcError::new(code, msg_text);
+                    // A server that sent an error has ended its side of the call.
+                    if num_completed >= num_members { cancel.disarm(); }
                     yield Err(if channel.is_group { err.with_origin(source.to_string()) } else { err });
                     if num_completed >= num_members { break; }
                     continue;
@@ -758,6 +847,9 @@ impl Channel {
                     Some(sub) => Some(PeerIdentity::new(sub.clone(), None)),
                     None => joined,
                 };
+                // The caller drops the stream after this response, before the
+                // server's EOS arrives; the server has already finished.
+                if single_response { cancel.disarm(); }
                 yield Ok(Response { source: full_source, identity, message: response });
             }
         }
@@ -780,12 +872,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let stream = self.responses_from_stream_input(
+        let stream = self.call(
             service_name,
             method_name,
             futures::stream::once(std::future::ready(request)),
             timeout,
             metadata,
+            true,
         );
         futures::pin_mut!(stream);
         stream
@@ -833,12 +926,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let stream = self.responses_from_stream_input(
+        let stream = self.call(
             service_name,
             method_name,
             request_stream,
             timeout,
             metadata,
+            true,
         );
         futures::pin_mut!(stream);
         stream
