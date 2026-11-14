@@ -31,7 +31,7 @@ For example, a server with SLIM name `myorg/default/my-service` handles every me
 
 The SLIMRPC channel maintains **one persistent SLIM session** to the remote server. All concurrent RPC calls share that session — there is no per-method session negotiation.
 
-```
+```text
 Client                               Server
   │                                     │
   │── session establishment ───────────►│
@@ -59,6 +59,10 @@ This allows many concurrent RPC calls — unary or streaming — to share a sing
 ### Lazy Session Creation
 
 The channel creates the SLIM session on the first RPC call and reuses it for all subsequent calls. If the session dies, the channel recreates it transparently on the next call.
+
+### Session Marker
+
+Each session a channel opens carries `slimrpc-session=1` in its metadata. A server takes every session on its name, so an app that also accepts plain sessions on that name reads its own session notifications and passes only the marked ones to the server. In Rust, `is_slimrpc_session` checks a new session for the marker.
 
 ## Multicast RPC
 
