@@ -5052,6 +5052,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#session-marker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Marker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cancellation
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -5329,6 +5351,18 @@
 <p>This allows many concurrent RPC calls — unary or streaming — to share a single SLIM session with no head-of-line blocking between calls.</p>
 <h3 id="lazy-session-creation">Lazy Session Creation</h3>
 <p>The channel creates the SLIM session on the first RPC call and reuses it for all subsequent calls. If the session dies, the channel recreates it transparently on the next call.</p>
+<h3 id="session-marker">Session Marker</h3>
+<p>Each session a channel opens carries <code>slimrpc-session=1</code> in its metadata. A server takes every session on its name, so an app that also accepts plain sessions on that name reads its own session notifications and passes only the marked ones to the server. In Rust, <code>is_slimrpc_session</code> checks a new session for the marker.</p>
+<h3 id="cancellation">Cancellation</h3>
+<p>A caller cancels a call by giving up on its response. The channel then sends a message with the call's <code>rpc-id</code> and <code>slimrpc-dir=cancel</code>, and the server stops that call's handler. Only the peer that made a call can cancel it. A server from a release without cancellation drops the message, and its handler runs until it finishes or reaches the call's deadline.</p>
+<p>In Rust, giving up means:</p>
+<ul>
+<li><strong>Unary-unary and stream-unary:</strong> abandoning the call while it waits for its response, for example when a timeout around it fires.</li>
+<li><strong>Unary-stream and stream-stream:</strong> dropping the response stream before the server has ended it.</li>
+</ul>
+<p>In the other languages, call <code>cancel()</code> on the object the call returns: the response reader of a unary-stream call, the request writer of a stream-unary call, or the handler of a stream-stream call, and the same for multicast calls. Responses already received can still be read. After them, the next read returns a <code>Cancelled</code> error, and sending fails. A unary-unary call has no such object; set a deadline instead.</p>
+<p>Ending the request stream is not a cancel. It only tells the server that no more requests are coming (<code>close_send</code> on a stream-stream call). The server keeps running the call, and its responses can still be received. Dropping a whole channel closes its session, which stops every handler running on it.</p>
+<p>Letting a response reader or a stream-stream handler go without calling <code>cancel()</code> also cancels the call, but not until the next response arrives, and the language's garbage collector decides when the object goes. A request writer that is let go only ends its requests.</p>
 <h2 id="multicast-rpc">Multicast RPC</h2>
 <p>A group channel fans out a single RPC call to multiple servers simultaneously. Create the channel with <code>Channel.new_group_with_connection</code> (or the language-specific equivalent), passing a list of server names. Responses arrive as an async stream of <code>(context, response)</code> pairs, one per server.</p>
 <p>This is useful for broadcasting configuration, querying multiple services, or scatter-gather patterns.</p>
