@@ -30,7 +30,9 @@ use super::{RPC_DIR_CANCEL, RPC_DIR_KEY, RPC_DIR_REQ};
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcSession,
-    SERVICE_KEY, send_error_to,
+    SERVICE_KEY,
+    call_queue::{CallQueueTx, Pushed, call_queue},
+    send_error_to,
     session_wrapper::{SessionRx, SessionTx, new_session},
     stream_types::StreamSource,
 };
@@ -339,7 +341,7 @@ fn spawn_handler_task(
     rpc_id: Arc<str>,
     method_path: String,
     session_tx: SessionTx,
-    pending_streams: &mut HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>>,
+    pending_streams: &mut HashMap<Arc<str>, CallQueueTx>,
     session_drain_watch: drain::Watch,
 ) -> AbortHandle {
     // For stream-input handlers, create the mpsc channel and register the sender
@@ -348,7 +350,7 @@ fn spawn_handler_task(
     // stream_tx immediately so the handler's channel closes after the first message.
     let stream_rx = match &handler_info {
         HandlerInfo::Stream(_) => {
-            let (stream_tx, stream_rx) = mpsc::unbounded_channel();
+            let (stream_tx, stream_rx) = call_queue();
             if !msg.is_eos() {
                 pending_streams.insert(rpc_id.clone(), stream_tx);
             }
@@ -426,8 +428,7 @@ async fn run_session_demux(
     drain_watch: drain::Watch,
 ) {
     // Map rpc_id → mpsc sender for live stream-input handlers.
-    let mut pending_streams: HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>> =
-        HashMap::new();
+    let mut pending_streams: HashMap<Arc<str>, CallQueueTx> = HashMap::new();
     // Running calls, so a cancel from a call's caller can stop it.
     let mut running = RunningCalls::default();
 
@@ -471,7 +472,7 @@ async fn run_session_demux(
             continue;
         }
 
-        if let Some(tx) = pending_streams.get(rpc_id_str.as_str()).cloned() {
+        if let Some((rpc_id, tx)) = pending_streams.get_key_value(rpc_id_str.as_str()) {
             // Route client request messages (data or EOS) to the existing stream-input handler.
             //
             // All client-originated messages carry RPC_DIR_KEY="req".  Server responses
@@ -482,13 +483,20 @@ async fn run_session_demux(
                 tracing::trace!(%rpc_id_str, src = %msg.source, "Skipping server response for active stream");
                 continue;
             }
-            // Remove before send so rpc_id_str (borrows msg.metadata) is last used
-            // before msg is moved — NLL lets the borrow end here.
+            // Take what is needed from rpc_id_str (it borrows msg.metadata)
+            // before msg is moved into the queue.
+            let rpc_id = rpc_id.clone();
             let is_terminal = msg.is_eos();
-            if is_terminal {
-                pending_streams.remove(rpc_id_str.as_str());
+            // A handler that falls too far behind fails with RESOURCE_EXHAUSTED once
+            // it has read what is queued. Waiting for it here would stall every other
+            // call on the session, and a cancel with them.
+            let overflowed = matches!(tx.push(msg), Pushed::Overflowed);
+            if overflowed {
+                tracing::warn!(%rpc_id, "Handler fell too far behind its request stream");
             }
-            let _ = tx.send(msg);
+            if is_terminal || overflowed {
+                pending_streams.remove(&rpc_id);
+            }
             continue;
         }
 

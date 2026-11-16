@@ -10,9 +10,7 @@
 use std::pin::Pin;
 use std::task::Poll;
 
-use tokio::sync::mpsc;
-
-use super::{ReceivedMessage, RpcCode, RpcError, STATUS_CODE_KEY};
+use super::{CallQueueRx, RpcCode, RpcError, STATUS_CODE_KEY, call_queue::overflow_error};
 
 // The UniFFI FFI stream wrapper types below use these; the native raw stream
 // (`RawStream`/`StreamSource`/`DecodedStream`) does not.
@@ -97,7 +95,7 @@ impl CallCanceller {
 ///
 /// The stream ends (returns `None`) on EOS or after yielding an error.
 pub struct RawStream {
-    session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
+    session_rx: Option<CallQueueRx>,
     payload: Vec<u8>,
     first_is_eos: bool,
     first_code: RpcCode,
@@ -168,8 +166,13 @@ impl futures::Stream for RawStream {
                 Poll::Ready(Some(Ok(msg.payload)))
             }
             Poll::Ready(None) => {
+                let error = if rx.overflowed() {
+                    overflow_error()
+                } else {
+                    RpcError::internal("Stream channel closed")
+                };
                 self.done = true;
-                Poll::Ready(Some(Err(RpcError::internal("Stream channel closed"))))
+                Poll::Ready(Some(Err(error)))
             }
             Poll::Pending => Poll::Pending,
         }
@@ -193,7 +196,7 @@ pub type DecodedStream<Req> =
 /// wrapper calls [`StreamSource::into_raw_stream`] to get a [`RawStream`], then
 /// maps it to the decoded type — with zero heap allocations.
 pub struct StreamSource {
-    pub session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
+    pub session_rx: Option<CallQueueRx>,
     pub payload: Vec<u8>,
     pub first_is_eos: bool,
     pub first_code: RpcCode,
@@ -939,50 +942,61 @@ mod tests {
 
     #[tokio::test]
     async fn test_request_stream() {
-        use crate::{ReceivedMessage, StreamSource};
+        use crate::{
+            ReceivedMessage, StreamSource,
+            call_queue::{Pushed, call_queue},
+        };
         use futures::StreamExt;
         use slim_datapath::api::ProtoName as Name;
 
         let dummy_name = Name::from_strings(["", "", ""]);
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ReceivedMessage>();
+        let (tx, rx) = call_queue();
 
         // Second message: data frame, no status header
-        tx.send(ReceivedMessage {
-            metadata: std::collections::HashMap::new(),
-            payload: vec![4, 5, 6],
-            source: dummy_name.clone(),
-        })
-        .unwrap();
+        assert!(matches!(
+            tx.push(ReceivedMessage {
+                metadata: std::collections::HashMap::new(),
+                payload: vec![4, 5, 6],
+                source: dummy_name.clone(),
+            }),
+            Pushed::Queued
+        ));
         // Third message: zero-byte data frame. No status header, so it is data
         // and must be delivered rather than ending the stream.
-        tx.send(ReceivedMessage {
-            metadata: std::collections::HashMap::new(),
-            payload: vec![],
-            source: dummy_name.clone(),
-        })
-        .unwrap();
+        assert!(matches!(
+            tx.push(ReceivedMessage {
+                metadata: std::collections::HashMap::new(),
+                payload: vec![],
+                source: dummy_name.clone(),
+            }),
+            Pushed::Queued
+        ));
         // Fourth message: a data frame that also carries an Ok status, as a
         // peer predating this convention would send. Still data, because the
         // payload is non-empty.
-        tx.send(ReceivedMessage {
-            metadata: std::collections::HashMap::from([(
-                crate::STATUS_CODE_KEY.to_string(),
-                (i32::from(RpcCode::Ok)).to_string(),
-            )]),
-            payload: vec![7, 8, 9],
-            source: dummy_name.clone(),
-        })
-        .unwrap();
+        assert!(matches!(
+            tx.push(ReceivedMessage {
+                metadata: std::collections::HashMap::from([(
+                    crate::STATUS_CODE_KEY.to_string(),
+                    (i32::from(RpcCode::Ok)).to_string(),
+                )]),
+                payload: vec![7, 8, 9],
+                source: dummy_name.clone(),
+            }),
+            Pushed::Queued
+        ));
         // EOS: empty payload carrying an explicit Ok status header
-        tx.send(ReceivedMessage {
-            metadata: std::collections::HashMap::from([(
-                crate::STATUS_CODE_KEY.to_string(),
-                (i32::from(RpcCode::Ok)).to_string(),
-            )]),
-            payload: vec![],
-            source: dummy_name,
-        })
-        .unwrap();
+        assert!(matches!(
+            tx.push(ReceivedMessage {
+                metadata: std::collections::HashMap::from([(
+                    crate::STATUS_CODE_KEY.to_string(),
+                    (i32::from(RpcCode::Ok)).to_string(),
+                )]),
+                payload: vec![],
+                source: dummy_name,
+            }),
+            Pushed::Queued
+        ));
 
         let source = StreamSource {
             session_rx: Some(rx),

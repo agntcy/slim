@@ -3228,3 +3228,141 @@ async fn test_a_finished_call_sends_no_cancel() {
 
     env.shutdown().await;
 }
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_a_caller_that_falls_behind_its_responses_fails_and_stops_the_handler() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut env = TestEnv::new("test-slow-response-reader").await;
+
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let (flag, produced) = (stopped.clone(), sent.clone());
+    env.server.register_unary_stream(
+        "TestService",
+        "Flood",
+        move |_request: TestRequest, _ctx: Context| {
+            let (flag, produced) = (flag.clone(), produced.clone());
+            async move {
+                let guard = SetOnDrop(flag);
+                Ok(async_stream::stream! {
+                    let _guard = guard;
+                    for i in 0.. {
+                        produced.fetch_add(1, Ordering::SeqCst);
+                        yield Ok(TestResponse { result: String::new(), count: i });
+                    }
+                })
+            }
+        },
+    );
+    env.start_server().await;
+
+    {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Flood",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        stream.next().await.expect("a response").expect("ok");
+
+        // The caller stops reading while the server keeps sending.
+        let limit = 2 * slim_rpc::CALL_QUEUE_LEN;
+        for _ in 0..200 {
+            if sent.load(Ordering::SeqCst) > limit {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            sent.load(Ordering::SeqCst) > limit,
+            "the server never flooded"
+        );
+
+        // It reads what was queued, then the call fails. The first response was read
+        // before the queue began to fill, so one more may have been queued behind it.
+        let (received, error) = collect_stream_until_error(stream).await;
+        assert!(
+            (slim_rpc::CALL_QUEUE_LEN - 1..=slim_rpc::CALL_QUEUE_LEN).contains(&received.len()),
+            "read {} responses",
+            received.len()
+        );
+        assert_error_with_code(
+            Err::<(), _>(error.expect("an error")),
+            RpcCode::ResourceExhausted,
+            None,
+        );
+    }
+
+    assert!(
+        wait_until(&stopped).await,
+        "the handler kept flooding a caller that had given up"
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_a_handler_that_falls_behind_its_requests_fails() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut env = TestEnv::new("test-slow-request-reader").await;
+
+    let release = Arc::new(tokio::sync::Notify::new());
+    let read = Arc::new(AtomicUsize::new(0));
+    let (gate, counted) = (release.clone(), read.clone());
+    env.server.register_stream_unary(
+        "TestService",
+        "Slow",
+        move |mut requests: DecodedStream<TestRequest>, _ctx: Context| {
+            let (gate, counted) = (gate.clone(), counted.clone());
+            async move {
+                // Reads nothing until released, while the caller keeps sending.
+                gate.notified().await;
+                while let Some(request) = requests.next().await {
+                    request?;
+                    counted.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(TestResponse::default())
+            }
+        },
+    );
+    env.start_server().await;
+
+    let total = slim_rpc::CALL_QUEUE_LEN + 300;
+    let channel = env.channel.clone();
+    let call = tokio::spawn(async move {
+        channel
+            .stream_unary::<TestRequest, TestResponse>(
+                "TestService",
+                "Slow",
+                stream::iter((0..total).map(|_| TestRequest::default())),
+                None,
+                None,
+            )
+            .await
+    });
+
+    for _ in 0..200 {
+        if logs_contain("Handler fell too far behind its request stream") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        logs_contain("Handler fell too far behind its request stream"),
+        "the server queued every request"
+    );
+
+    release.notify_one();
+    let outcome = call.await.unwrap();
+    assert_error_with_code(outcome, RpcCode::ResourceExhausted, None);
+    // The handler read the first request and what was queued behind it.
+    assert_eq!(read.load(Ordering::SeqCst), slim_rpc::CALL_QUEUE_LEN + 1);
+
+    env.shutdown().await;
+}

@@ -79,6 +79,12 @@ Ending the request stream is not a cancel. It only tells the server that no more
 
 Letting a response reader or a stream-stream handler go without calling `cancel()` also cancels the call, but not until the next response arrives, and the language's garbage collector decides when the object goes. A request writer that is let go only ends its requests.
 
+### Slow Consumers
+
+One task reads all the messages of a session, so it never waits for a slow reader: that would stall every other call on the session, and cancels with them. Instead, a call holds up to 1024 messages that its consumer has not read yet, either the responses a caller has not read or the requests a handler has not read. A consumer that falls further behind has its call fail with `RESOURCE_EXHAUSTED`, once it has read what was queued. A caller's response stream returns the error and the channel cancels the call. A handler's request stream returns it, and the handler can fail the call with it.
+
+The limit counts messages, not bytes. The language wrappers keep their own queue between a call and the foreign code, which is not bounded.
+
 ## Multicast RPC
 
 A group channel fans out a single RPC call to multiple servers simultaneously. Create the channel with `Channel.new_group_with_connection` (or the language-specific equivalent), passing a list of server names. Responses arrive as an async stream of `(context, response)` pairs, one per server.
