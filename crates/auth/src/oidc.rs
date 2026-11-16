@@ -656,6 +656,10 @@ impl Verifier for OidcVerifier {
         self.verify_token(token.as_ref()).await
     }
 
+    async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
+        crate::traits::public_key_from_claims(self, token).await
+    }
+
     fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         crate::traits::subject_from_claims(self, token)
     }

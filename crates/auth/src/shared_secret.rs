@@ -649,6 +649,10 @@ impl Verifier for SharedSecret {
         self.try_get_claims(token)
     }
 
+    async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
+        crate::traits::public_key_from_claims(self, token).await
+    }
+
     fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         crate::traits::subject_from_claims(self, token)
     }

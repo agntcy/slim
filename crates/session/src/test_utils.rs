@@ -72,6 +72,10 @@ impl Verifier for MockVerifier {
         Err(AuthError::TokenInvalid)
     }
 
+    async fn get_public_key(&self, _token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
+        Err(AuthError::TokenInvalid)
+    }
+
     fn try_get_subject(&self, _token: impl AsRef<str>) -> Result<String, AuthError> {
         Err(AuthError::TokenInvalid)
     }

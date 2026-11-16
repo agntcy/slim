@@ -192,6 +192,13 @@ mod tests {
             )?)
         }
 
+        async fn get_public_key(
+            &self,
+            token: impl AsRef<str> + Send,
+        ) -> Result<Vec<u8>, AuthError> {
+            slim_auth::traits::public_key_from_claims(self, token).await
+        }
+
         fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
             slim_auth::traits::subject_from_claims(self, token)
         }
