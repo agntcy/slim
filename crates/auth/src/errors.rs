@@ -195,4 +195,12 @@ pub enum AuthError {
     PublicKeyNotFound,
     #[error("subject not found in identity claims")]
     SubjectNotFound,
+    #[error(
+        "token of {subject} is not bound to the expected public key: expected: {expected}, found: {found}"
+    )]
+    PublicKeyMismatch {
+        subject: String,
+        expected: String,
+        found: String,
+    },
 }
