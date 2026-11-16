@@ -15,6 +15,12 @@ license = "Apache-2.0"
 [package.metadata]
 cargo-fuzz = true
 
+# Imported as `slim_*` (the lib names), so machete cannot match the
+# `agntcy-slim-*` dependency keys. Not covered by the root ignore list because
+# this crate is its own workspace.
+[package.metadata.cargo-machete]
+ignored = ["agntcy-slim-auth", "agntcy-slim-mls"]
+
 # Shared group-setup scaffolding used by all three targets (see src/lib.rs).
 [lib]
 name = "agntcy_slim_mls_fuzz"
