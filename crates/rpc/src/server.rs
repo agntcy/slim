@@ -18,7 +18,7 @@ use futures::stream::Stream;
 use futures::{FutureExt, StreamExt, stream};
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
 use slim_datapath::api::ProtoName as Name;
@@ -26,7 +26,7 @@ use slim_service::app::App as SlimApp;
 use slim_session::errors::SessionError;
 use slim_session::notification::Notification;
 
-use super::{RPC_DIR_KEY, RPC_DIR_REQ};
+use super::{RPC_DIR_CANCEL, RPC_DIR_KEY, RPC_DIR_REQ};
 
 use super::{
     Context, HandlerInfo, METHOD_KEY, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcSession,
@@ -332,6 +332,7 @@ pub struct Server {
 
 /// Spawn a handler task for a new RPC call and, for stream-input handlers, register the mpsc
 /// sender in `pending_streams` so that subsequent messages can be routed to the same task.
+/// Returns the task's abort handle, so a cancel from the caller can stop it.
 fn spawn_handler_task(
     handler_info: HandlerInfo,
     msg: ReceivedMessage,
@@ -340,7 +341,7 @@ fn spawn_handler_task(
     session_tx: SessionTx,
     pending_streams: &mut HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>>,
     session_drain_watch: drain::Watch,
-) {
+) -> AbortHandle {
     // For stream-input handlers, create the mpsc channel and register the sender
     // so that subsequent messages can be routed to the same handler task.
     // Only register if the first message is not already terminal; otherwise drop
@@ -381,7 +382,37 @@ fn spawn_handler_task(
         if let Some(e) = error {
             let _ = send_error_to(&session_tx, &caller, e, &rpc_id).await;
         }
-    });
+    })
+    .abort_handle()
+}
+
+/// The calls a session's handler tasks are running, with who made each one.
+#[derive(Default)]
+struct RunningCalls {
+    calls: HashMap<Arc<str>, (Name, AbortHandle)>,
+}
+
+impl RunningCalls {
+    fn insert(&mut self, rpc_id: Arc<str>, caller: Name, task: AbortHandle) {
+        self.calls.retain(|_, (_, task)| !task.is_finished());
+        self.calls.insert(rpc_id, (caller, task));
+    }
+
+    /// Stop the call `rpc_id` if `sender` made it. In a group session every
+    /// member sees the others' calls, so only the caller may cancel one.
+    fn cancel(&mut self, rpc_id: &str, sender: &Name) -> bool {
+        if !self
+            .calls
+            .get(rpc_id)
+            .is_some_and(|(caller, _)| caller == sender)
+        {
+            return false;
+        }
+        if let Some((_, task)) = self.calls.remove(rpc_id) {
+            task.abort();
+        }
+        true
+    }
 }
 
 /// Per-session demultiplexer: routes incoming messages by `rpc-id` and dispatches each new
@@ -397,6 +428,8 @@ async fn run_session_demux(
     // Map rpc_id → mpsc sender for live stream-input handlers.
     let mut pending_streams: HashMap<Arc<str>, mpsc::UnboundedSender<ReceivedMessage>> =
         HashMap::new();
+    // Running calls, so a cancel from a call's caller can stop it.
+    let mut running = RunningCalls::default();
 
     // Per-session drain: signals all active handler tasks when the session closes.
     // drain().await serves as a barrier — it resolves once every task has dropped its Watch.
@@ -427,6 +460,16 @@ async fn run_session_demux(
             tracing::trace!("Skipping message with missing or empty rpc-id");
             continue;
         };
+
+        if msg.metadata.get(RPC_DIR_KEY).map(String::as_str) == Some(RPC_DIR_CANCEL) {
+            if running.cancel(rpc_id_str, &msg.source) {
+                tracing::debug!(%rpc_id_str, "Call cancelled by its caller");
+                pending_streams.remove(rpc_id_str.as_str());
+            } else {
+                tracing::debug!(%rpc_id_str, src = %msg.source, "Ignoring cancel for no call of this sender");
+            }
+            continue;
+        }
 
         if let Some(tx) = pending_streams.get(rpc_id_str.as_str()).cloned() {
             // Route client request messages (data or EOS) to the existing stream-input handler.
@@ -493,15 +536,17 @@ async fn run_session_demux(
             continue;
         };
 
-        spawn_handler_task(
+        let caller = msg.source.clone();
+        let task = spawn_handler_task(
             handler_info,
             msg,
-            rpc_id,
+            rpc_id.clone(),
             method_path,
             session_tx.clone(),
             &mut pending_streams,
             session_drain_watch.clone(),
         );
+        running.insert(rpc_id, caller, task);
     }
 
     // Drop mpsc senders so stream-input handlers see channel close at their next recv.
@@ -1345,5 +1390,26 @@ mod tests {
     fn test_handler_type_equality() {
         assert_eq!(HandlerType::UnaryUnary, HandlerType::UnaryUnary);
         assert_ne!(HandlerType::UnaryUnary, HandlerType::UnaryStream);
+    }
+
+    #[tokio::test]
+    async fn test_only_the_caller_can_cancel_its_call() {
+        let caller = Name::from_strings(["org", "ns", "caller"]);
+        let other = Name::from_strings(["org", "ns", "other"]);
+        let task = tokio::spawn(std::future::pending::<()>());
+
+        let mut running = RunningCalls::default();
+        running.insert(Arc::from("call-1"), caller.clone(), task.abort_handle());
+
+        assert!(!running.cancel("call-1", &other), "another sender's cancel");
+        assert!(!task.is_finished());
+        assert!(
+            !running.cancel("unknown", &caller),
+            "a call that isn't running"
+        );
+
+        assert!(running.cancel("call-1", &caller));
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!running.cancel("call-1", &caller), "already cancelled");
     }
 }
