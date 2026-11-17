@@ -3284,7 +3284,11 @@ async fn test_a_caller_that_falls_behind_its_responses_fails_and_stops_the_handl
 
         // It reads what was queued, then the call fails. The first response was read
         // before the queue began to fill, so one more may have been queued behind it.
-        let (received, error) = collect_stream_until_error(stream).await;
+        // The handler never stops, so without the limit this would read forever.
+        let (received, error) =
+            tokio::time::timeout(Duration::from_secs(30), collect_stream_until_error(stream))
+                .await
+                .expect("the response stream never failed");
         assert!(
             (slim_rpc::CALL_QUEUE_LEN - 1..=slim_rpc::CALL_QUEUE_LEN).contains(&received.len()),
             "read {} responses",
@@ -3363,6 +3367,80 @@ async fn test_a_handler_that_falls_behind_its_requests_fails() {
     assert_error_with_code(outcome, RpcCode::ResourceExhausted, None);
     // The handler read the first request and what was queued behind it.
     assert_eq!(read.load(Ordering::SeqCst), slim_rpc::CALL_QUEUE_LEN + 1);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_streams_longer_than_the_queue_succeed_when_they_are_read_promptly() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let total = 4 * slim_rpc::CALL_QUEUE_LEN;
+    let mut env = TestEnv::new("test-long-streams").await;
+
+    env.server.register_unary_stream(
+        "TestService",
+        "Many",
+        move |_request: TestRequest, _ctx: Context| async move {
+            Ok(stream::iter((0..total as i32).map(|count| {
+                Ok::<_, RpcError>(TestResponse {
+                    result: String::new(),
+                    count,
+                })
+            })))
+        },
+    );
+    let read = Arc::new(AtomicUsize::new(0));
+    let counted = read.clone();
+    env.server.register_stream_unary(
+        "TestService",
+        "Upload",
+        move |mut requests: DecodedStream<TestRequest>, _ctx: Context| {
+            let counted = counted.clone();
+            async move {
+                while let Some(request) = requests.next().await {
+                    request?;
+                    counted.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(TestResponse::default())
+            }
+        },
+    );
+    env.start_server().await;
+
+    // Downloading.
+    let responses = {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Many",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        tokio::time::timeout(Duration::from_secs(60), collect_stream_until_error(stream))
+            .await
+            .expect("the download stalled")
+    };
+    assert!(responses.1.is_none(), "download failed: {:?}", responses.1);
+    assert_eq!(responses.0.len(), total);
+
+    // Uploading.
+    tokio::time::timeout(
+        Duration::from_secs(60),
+        env.channel.stream_unary::<TestRequest, TestResponse>(
+            "TestService",
+            "Upload",
+            stream::iter((0..total).map(|_| TestRequest::default())),
+            None,
+            None,
+        ),
+    )
+    .await
+    .expect("the upload stalled")
+    .expect("the upload failed");
+    assert_eq!(read.load(Ordering::SeqCst), total);
 
     env.shutdown().await;
 }

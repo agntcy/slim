@@ -81,9 +81,9 @@ Letting a response reader or a stream-stream handler go without calling `cancel(
 
 ### Slow Consumers
 
-One task reads all the messages of a session, so it never waits for a slow reader: that would stall every other call on the session, and cancels with them. Instead, a call holds up to 1024 messages that its consumer has not read yet, either the responses a caller has not read or the requests a handler has not read. A consumer that falls further behind has its call fail with `RESOURCE_EXHAUSTED`, once it has read what was queued. A caller's response stream returns the error and the channel cancels the call. A handler's request stream returns it, and the handler can fail the call with it.
+One task reads all the messages of a session, so it never waits for a slow reader: that would stall every other call on the session, and cancels with them. Instead, a call holds up to 1024 messages that its consumer has not read yet, either the responses a caller has not read or the requests a handler has not read. A consumer that falls further behind has its call fail with `RESOURCE_EXHAUSTED`, once it has read what was queued. A caller's response stream returns the error and the channel cancels the call. A handler's request stream returns it, and the handler should fail the call with it: a handler that stops reading at the first error and replies normally has taken a truncated request stream for a complete one.
 
-The limit counts messages, not bytes. The language wrappers keep their own queue between a call and the foreign code, which is not bounded.
+The limit counts messages, not bytes, and a message that ends the call does not count. The response readers of the language wrappers move the responses into a queue of their own, which is not bounded, so a slow reader there is not limited. A wrapper's request stream reads the call's queue directly, so a slow handler is.
 
 ## Multicast RPC
 
