@@ -344,6 +344,22 @@ impl TokenProvider for AuthProvider {
     }
 }
 
+/// Forward a call to the verifier wrapped by each `AuthVerifier` variant. The
+/// `Verifier` key-binding methods have defaults, so an arm missing from a
+/// hand-written `match` would silently drop that variant's override; keeping the
+/// variants in one place avoids that.
+macro_rules! dispatch_verifier {
+    ($self:expr, $v:ident => $call:expr) => {
+        match $self {
+            #[cfg(not(target_arch = "wasm32"))]
+            AuthVerifier::JwtVerifier($v) => $call,
+            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
+            AuthVerifier::Spire($v) => $call,
+            AuthVerifier::SharedSecret($v) => $call,
+        }
+    };
+}
+
 impl Verifier for AuthVerifier {
     async fn initialize(&mut self) -> Result<(), AuthError> {
         match self {
@@ -392,13 +408,19 @@ impl Verifier for AuthVerifier {
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        match self {
-            #[cfg(not(target_arch = "wasm32"))]
-            AuthVerifier::JwtVerifier(verifier) => verifier.try_get_claims(token),
-            #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
-            AuthVerifier::Spire(spire) => spire.try_get_claims(token),
-            AuthVerifier::SharedSecret(secret) => secret.try_get_claims(token),
-        }
+        dispatch_verifier!(self, v => v.try_get_claims(token))
+    }
+
+    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+        dispatch_verifier!(self, v => v.try_get_subject(token))
+    }
+
+    fn try_verify_key_binding(
+        &self,
+        token: impl AsRef<str>,
+        public_key: &[u8],
+    ) -> Result<(), AuthError> {
+        dispatch_verifier!(self, v => v.try_verify_key_binding(token, public_key))
     }
 }
 
@@ -718,5 +740,23 @@ mod tests {
         let (rsk, rpk) = restored.get_signature_keys().unwrap();
         assert_eq!(rsk, sk);
         assert_eq!(rpk, pk);
+    }
+
+    #[tokio::test]
+    async fn test_auth_verifier_forwards_subject_and_key_binding() {
+        let provider = AuthProvider::shared_secret_from_str("test-id", TEST_SECRET).unwrap();
+        let verifier = AuthVerifier::shared_secret_from_str("test-id", TEST_SECRET).unwrap();
+        let token = provider.get_token().unwrap();
+        let (_, public_key) = provider.get_signature_keys().unwrap();
+
+        assert_eq!(
+            verifier.try_get_subject(&token).unwrap(),
+            provider.get_id().unwrap()
+        );
+        assert!(verifier.try_verify_key_binding(&token, &public_key).is_ok());
+        assert!(matches!(
+            verifier.try_verify_key_binding(&token, b"another-key"),
+            Err(AuthError::PublicKeyMismatch { .. })
+        ));
     }
 }
