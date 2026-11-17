@@ -11,6 +11,9 @@ use slim_config::auth::jwt::{Claims as JwtClaims, JwtKey};
 use slim_config::auth::static_jwt::Config as StaticJwtConfig;
 use std::time::Duration;
 
+#[cfg(feature = "insecure-self-certified-did")]
+use slim_config::auth::jwt::{SelfCertifiedDidVerifierClaims, SelfCertifiedDidVerifierConfig};
+
 use crate::common_config::SpireConfig;
 #[cfg(target_family = "windows")]
 use crate::common_config::spire_unsupported;
@@ -309,6 +312,45 @@ impl From<JwtAuthConfig> for JwtAuth {
     }
 }
 
+/// Verifier settings for `IdentityVerifierConfig::InsecureSelfCertifiedDid`: only
+/// the claims to check. There is no key or issuer; each token's own `did:key` is both.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct SelfCertifiedDidVerifierAuth {
+    /// JWT audience claims to verify; when set, a token must carry a matching `aud`.
+    /// This is the only claim that scopes a token to this deployment; leave it
+    /// unset and a token without `aud` minted for any deployment using this
+    /// mode is accepted, while any token with an `aud` is rejected.
+    pub audience: Option<Vec<String>>,
+}
+
+#[cfg(feature = "insecure-self-certified-did")]
+impl From<SelfCertifiedDidVerifierAuth> for SelfCertifiedDidVerifierConfig {
+    fn from(config: SelfCertifiedDidVerifierAuth) -> Self {
+        SelfCertifiedDidVerifierConfig {
+            claims: SelfCertifiedDidVerifierClaims {
+                audience: config.audience,
+            },
+        }
+    }
+}
+
+#[cfg(feature = "insecure-self-certified-did")]
+impl From<SelfCertifiedDidVerifierConfig> for SelfCertifiedDidVerifierAuth {
+    fn from(config: SelfCertifiedDidVerifierConfig) -> Self {
+        SelfCertifiedDidVerifierAuth {
+            audience: config.claims.audience,
+        }
+    }
+}
+
+/// The error returned for `InsecureSelfCertifiedDid` when the Cargo feature is off.
+#[cfg(not(feature = "insecure-self-certified-did"))]
+fn self_certified_did_unsupported() -> SlimError {
+    SlimError::InvalidArgument {
+        message: "InsecureSelfCertifiedDid requires the `insecure-self-certified-did` Cargo feature, which is not enabled in this build".to_string(),
+    }
+}
+
 /// Identity provider configuration - used to prove identity to others
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum IdentityProviderConfig {
@@ -321,13 +363,21 @@ pub enum IdentityProviderConfig {
     /// SPIRE-based identity provider. Present on every platform to keep the uniffi
     /// layout stable; rejected with an error on Windows.
     Spire { config: SpireConfig },
+    /// Signs as the Ed25519 `did:key` of `config.key` and uses that key as the
+    /// MLS signature key, for peers verified with `InsecureSelfCertifiedDid`.
+    /// `issuer` and `subject` default to that `did:key`; if set, they must equal it.
+    /// Present in every build to keep the uniffi layout stable; rejected with an
+    /// error unless the `insecure-self-certified-did` feature is enabled.
+    InsecureSelfCertifiedDid { config: ClientJwtAuth },
     /// No identity provider configured
     None,
 }
 
-impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
-    fn from(config: IdentityProviderConfig) -> Self {
-        match config {
+impl TryFrom<IdentityProviderConfig> for CoreIdentityProviderConfig {
+    type Error = SlimError;
+
+    fn try_from(config: IdentityProviderConfig) -> Result<Self, Self::Error> {
+        Ok(match config {
             IdentityProviderConfig::SharedSecret { id, data } => {
                 CoreIdentityProviderConfig::SharedSecret { id, data }
             }
@@ -342,11 +392,17 @@ impl From<IdentityProviderConfig> for CoreIdentityProviderConfig {
                 CoreIdentityProviderConfig::Spire(config.into())
             }
             #[cfg(target_family = "windows")]
-            IdentityProviderConfig::Spire { .. } => {
-                panic!("SPIRE is not supported on Windows");
+            IdentityProviderConfig::Spire { .. } => return Err(spire_unsupported()),
+            #[cfg(feature = "insecure-self-certified-did")]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { config } => {
+                CoreIdentityProviderConfig::InsecureSelfCertifiedDid(config.into())
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { .. } => {
+                return Err(self_certified_did_unsupported());
             }
             IdentityProviderConfig::None => CoreIdentityProviderConfig::None,
-        }
+        })
     }
 }
 
@@ -366,6 +422,12 @@ impl From<CoreIdentityProviderConfig> for IdentityProviderConfig {
             CoreIdentityProviderConfig::Spire(config) => IdentityProviderConfig::Spire {
                 config: config.into(),
             },
+            #[cfg(feature = "insecure-self-certified-did")]
+            CoreIdentityProviderConfig::InsecureSelfCertifiedDid(config) => {
+                IdentityProviderConfig::InsecureSelfCertifiedDid {
+                    config: config.into(),
+                }
+            }
             CoreIdentityProviderConfig::None => IdentityProviderConfig::None,
         }
     }
@@ -381,13 +443,38 @@ pub enum IdentityVerifierConfig {
     /// SPIRE-based identity verifier. Present on every platform to keep the uniffi
     /// layout stable; rejected with an error on Windows.
     Spire { config: SpireConfig },
+    /// Accepts any JWT whose iss/sub is a did:key:z... Ed25519 identifier,
+    /// with no JWKS, allow-list, or live authority. Contract: key consistency
+    /// only; admission is the application's job. The decoding key always comes
+    /// from the token itself. Present in every build to keep the uniffi layout
+    /// stable; rejected with an error unless the `insecure-self-certified-did`
+    /// feature is enabled.
+    ///
+    /// The application must:
+    /// - Require the holder DID in the caller's credential presentation (e.g.
+    ///   OID4VP) to equal the peer's `PEER_SUBJECT_KEY` metadata value, so a
+    ///   presentation cannot be replayed over another caller's session.
+    /// - Bind the presentation to a callee-supplied nonce and an `aud` naming
+    ///   the callee.
+    /// - Run no RPC or message handler before admission succeeds.
+    /// - Apply rate and resource limits to callers not yet admitted, since
+    ///   any key holder can open a session.
+    /// - Set the verifier's `audience` to name this deployment. It is the only
+    ///   claim that scopes a token to it; if unset, any token that carries an
+    ///   `aud` is rejected, and one without `aud` minted for any deployment
+    ///   using this mode is accepted.
+    InsecureSelfCertifiedDid {
+        config: SelfCertifiedDidVerifierAuth,
+    },
     /// No identity verifier configured
     None,
 }
 
-impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
-    fn from(config: IdentityVerifierConfig) -> Self {
-        match config {
+impl TryFrom<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
+    type Error = SlimError;
+
+    fn try_from(config: IdentityVerifierConfig) -> Result<Self, Self::Error> {
+        Ok(match config {
             IdentityVerifierConfig::SharedSecret { id, data } => {
                 CoreIdentityVerifierConfig::SharedSecret { id, data }
             }
@@ -399,11 +486,17 @@ impl From<IdentityVerifierConfig> for CoreIdentityVerifierConfig {
                 CoreIdentityVerifierConfig::Spire(config.into())
             }
             #[cfg(target_family = "windows")]
-            IdentityVerifierConfig::Spire { .. } => {
-                panic!("SPIRE is not supported on Windows");
+            IdentityVerifierConfig::Spire { .. } => return Err(spire_unsupported()),
+            #[cfg(feature = "insecure-self-certified-did")]
+            IdentityVerifierConfig::InsecureSelfCertifiedDid { config } => {
+                CoreIdentityVerifierConfig::InsecureSelfCertifiedDid(config.into())
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityVerifierConfig::InsecureSelfCertifiedDid { .. } => {
+                return Err(self_certified_did_unsupported());
             }
             IdentityVerifierConfig::None => CoreIdentityVerifierConfig::None,
-        }
+        })
     }
 }
 
@@ -420,6 +513,12 @@ impl From<CoreIdentityVerifierConfig> for IdentityVerifierConfig {
             CoreIdentityVerifierConfig::Spire(config) => IdentityVerifierConfig::Spire {
                 config: config.into(),
             },
+            #[cfg(feature = "insecure-self-certified-did")]
+            CoreIdentityVerifierConfig::InsecureSelfCertifiedDid(config) => {
+                IdentityVerifierConfig::InsecureSelfCertifiedDid {
+                    config: config.into(),
+                }
+            }
             CoreIdentityVerifierConfig::None => IdentityVerifierConfig::None,
         }
     }
@@ -442,6 +541,16 @@ impl TryFrom<IdentityProviderConfig> for AuthProvider {
                 let core_config: JwtAuthConfig = config.into();
                 let provider = core_config.get_provider()?;
                 Ok(AuthProvider::jwt_signer(provider))
+            }
+            #[cfg(feature = "insecure-self-certified-did")]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { config } => {
+                let core_config: JwtAuthConfig = config.into();
+                let provider = core_config.get_self_certified_did_provider()?;
+                Ok(AuthProvider::jwt_signer(provider))
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityProviderConfig::InsecureSelfCertifiedDid { .. } => {
+                Err(self_certified_did_unsupported())
             }
             #[cfg(not(target_family = "windows"))]
             IdentityProviderConfig::Spire { config } => {
@@ -505,6 +614,16 @@ impl TryFrom<IdentityVerifierConfig> for AuthVerifier {
             }
             #[cfg(target_family = "windows")]
             IdentityVerifierConfig::Spire { .. } => Err(spire_unsupported()),
+            #[cfg(feature = "insecure-self-certified-did")]
+            IdentityVerifierConfig::InsecureSelfCertifiedDid { config } => {
+                let core_config: SelfCertifiedDidVerifierConfig = config.into();
+                let verifier = core_config.get_verifier()?;
+                Ok(AuthVerifier::jwt_verifier(verifier))
+            }
+            #[cfg(not(feature = "insecure-self-certified-did"))]
+            IdentityVerifierConfig::InsecureSelfCertifiedDid { .. } => {
+                Err(self_certified_did_unsupported())
+            }
             IdentityVerifierConfig::None => Err(SlimError::InvalidArgument {
                 message: "Cannot create AuthVerifier from None variant".to_string(),
             }),
@@ -709,7 +828,7 @@ mod tests {
             data: "secret-data".to_string(),
         };
 
-        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let core_config: CoreIdentityProviderConfig = config.clone().try_into().unwrap();
         let back: IdentityProviderConfig = core_config.into();
         assert_eq!(back, config);
     }
@@ -723,7 +842,7 @@ mod tests {
             },
         };
 
-        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let core_config: CoreIdentityProviderConfig = config.clone().try_into().unwrap();
         let back: IdentityProviderConfig = core_config.into();
         assert_eq!(back, config);
     }
@@ -740,7 +859,7 @@ mod tests {
             },
         };
 
-        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let core_config: CoreIdentityProviderConfig = config.clone().try_into().unwrap();
         let back: IdentityProviderConfig = core_config.into();
         assert_eq!(back, config);
     }
@@ -748,7 +867,7 @@ mod tests {
     #[test]
     fn test_identity_provider_config_none() {
         let config = IdentityProviderConfig::None;
-        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let core_config: CoreIdentityProviderConfig = config.clone().try_into().unwrap();
         let back: IdentityProviderConfig = core_config.into();
         assert_eq!(back, config);
     }
@@ -761,7 +880,7 @@ mod tests {
             data: "verifier-secret".to_string(),
         };
 
-        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let core_config: CoreIdentityVerifierConfig = config.clone().try_into().unwrap();
         let back: IdentityVerifierConfig = core_config.into();
         assert_eq!(back, config);
     }
@@ -778,7 +897,21 @@ mod tests {
             },
         };
 
-        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let core_config: CoreIdentityVerifierConfig = config.clone().try_into().unwrap();
+        let back: IdentityVerifierConfig = core_config.into();
+        assert_eq!(back, config);
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[test]
+    fn test_identity_verifier_config_insecure_self_certified_did() {
+        let config = IdentityVerifierConfig::InsecureSelfCertifiedDid {
+            config: SelfCertifiedDidVerifierAuth {
+                audience: Some(vec!["verifier".to_string()]),
+            },
+        };
+
+        let core_config: CoreIdentityVerifierConfig = config.clone().try_into().unwrap();
         let back: IdentityVerifierConfig = core_config.into();
         assert_eq!(back, config);
     }
@@ -786,7 +919,7 @@ mod tests {
     #[test]
     fn test_identity_verifier_config_none() {
         let config = IdentityVerifierConfig::None;
-        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let core_config: CoreIdentityVerifierConfig = config.clone().try_into().unwrap();
         let back: IdentityVerifierConfig = core_config.into();
         assert_eq!(back, config);
     }
@@ -835,6 +968,50 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "insecure-self-certified-did")]
+    #[test]
+    fn test_identity_verifier_to_auth_verifier_insecure_self_certified_did() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let config = IdentityVerifierConfig::InsecureSelfCertifiedDid {
+            config: SelfCertifiedDidVerifierAuth { audience: None },
+        };
+
+        let result: Result<AuthVerifier, SlimError> = config.try_into();
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[cfg(not(feature = "insecure-self-certified-did"))]
+    #[test]
+    fn test_insecure_self_certified_did_rejected_without_feature() {
+        let provider_config = IdentityProviderConfig::InsecureSelfCertifiedDid {
+            config: ClientJwtAuth {
+                key: JwtKeyType::Autoresolve,
+                audience: None,
+                issuer: None,
+                subject: None,
+                duration: Duration::from_secs(600),
+            },
+        };
+        let verifier_config = IdentityVerifierConfig::InsecureSelfCertifiedDid {
+            config: SelfCertifiedDidVerifierAuth { audience: None },
+        };
+        let provider: Result<AuthProvider, SlimError> = provider_config.clone().try_into();
+        let verifier: Result<AuthVerifier, SlimError> = verifier_config.clone().try_into();
+        let core_provider = CoreIdentityProviderConfig::try_from(provider_config);
+        let core_verifier = CoreIdentityVerifierConfig::try_from(verifier_config);
+        for err in [
+            provider.err().unwrap(),
+            verifier.err().unwrap(),
+            core_provider.err().unwrap(),
+            core_verifier.err().unwrap(),
+        ] {
+            assert!(
+                matches!(&err, SlimError::InvalidArgument { message } if message.contains("insecure-self-certified-did")),
+                "{err:?}"
+            );
+        }
+    }
+
     // Test invalid shared secret (too short)
     #[test]
     fn test_identity_provider_invalid_shared_secret() {
@@ -879,7 +1056,7 @@ mod tests {
             config: spire_config.clone(),
         };
 
-        let core_config: CoreIdentityProviderConfig = config.clone().into();
+        let core_config: CoreIdentityProviderConfig = config.clone().try_into().unwrap();
         let back: IdentityProviderConfig = core_config.into();
 
         if let IdentityProviderConfig::Spire {
@@ -908,7 +1085,7 @@ mod tests {
             config: spire_config.clone(),
         };
 
-        let core_config: CoreIdentityVerifierConfig = config.clone().into();
+        let core_config: CoreIdentityVerifierConfig = config.clone().try_into().unwrap();
         let back: IdentityVerifierConfig = core_config.into();
 
         if let IdentityVerifierConfig::Spire {

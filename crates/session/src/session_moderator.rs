@@ -486,16 +486,31 @@ where
             },
         );
 
+        // The identity must land first: a session record is only restorable with
+        // the identity (MLS key) its group was built with. The MLS layer's
+        // provider holds the group leaf's key; the settings clone may not.
+        let identity_provider = self
+            .mls_state
+            .as_ref()
+            .map_or(&self.common.settings.identity_provider, |m| {
+                m.common.mls.identity_provider()
+            });
+        if persistence::persist_app_identity(kv, identity_provider)
+            == persistence::AppIdentity::Failed
+        {
+            tracing::error!(
+                session_id = self.common.settings.id,
+                "skipping moderator session record: app identity not persisted"
+            );
+            return;
+        }
+
         if let Err(e) = record
             .to_bytes()
             .and_then(|bytes| Ok(kv.put(&persistence::session_key(record.session_id), &bytes)?))
         {
             tracing::error!(error = %e, session_id = self.common.settings.id, "failed to persist moderator session state");
         }
-
-        // Save the app identity (now carrying the MLS-installed keypair) so a
-        // restart restores the exact identity this session was built with.
-        persistence::persist_app_identity(kv, &self.common.settings.identity_provider);
     }
 
     #[maybe_async::maybe_async]

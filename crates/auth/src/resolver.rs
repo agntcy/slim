@@ -43,6 +43,10 @@ pub(crate) fn require_https(url: &str) -> Result<Url, AuthError> {
 pub(crate) struct KeyOwner {
     kid: Option<String>,
     did: Option<String>,
+    /// Set only by [`Self::self_certified`]: the key, derived from the token's
+    /// own `iss`, that `sub` and the `pubkey` claim must be bound to. A `did`
+    /// alone does not imply this: trust-list Ed25519 keys carry one too.
+    self_certified_key: Option<[u8; 32]>,
 }
 
 impl KeyOwner {
@@ -60,7 +64,25 @@ impl KeyOwner {
         KeyOwner {
             kid: jwk.common.key_id.clone(),
             did,
+            self_certified_key: None,
         }
+    }
+
+    /// The owner of `public_key`, derived from its own `did:key`, with no JWKS `kid`.
+    pub(crate) fn self_certified(did: String, public_key: [u8; 32]) -> Self {
+        KeyOwner {
+            kid: None,
+            did: Some(did),
+            self_certified_key: Some(public_key),
+        }
+    }
+
+    pub(crate) fn self_certified_key(&self) -> Option<&[u8; 32]> {
+        self.self_certified_key.as_ref()
+    }
+
+    pub(crate) fn is_self_certified(&self) -> bool {
+        self.self_certified_key.is_some()
     }
 
     /// Whether `sub` names this key's owner.
@@ -150,9 +172,13 @@ impl JwksCache {
 /// ```
 #[derive(Debug)]
 pub struct KeyResolver {
-    client: ReqwestClient,
+    /// `None` for [`Self::with_self_certified_did`], which never fetches.
+    client: Option<ReqwestClient>,
     jwks_cache: RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
+    /// Set only by [`Self::with_self_certified_did`]: every token's decoding
+    /// key is derived from its own `iss` claim instead of looked up anywhere.
+    self_certified_did: bool,
 }
 
 impl Default for KeyResolver {
@@ -173,10 +199,33 @@ impl KeyResolver {
             .expect("Failed to create reqwest client");
 
         Self {
-            client,
+            client: Some(client),
             jwks_cache: RwLock::new(HashMap::new()),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
+            self_certified_did: false,
         }
+    }
+
+    /// A resolver that trusts no JWKS and contacts no server: it derives each
+    /// token's decoding key from the token's own `iss` claim, which must be a
+    /// `did:key:z...` Ed25519 identifier equal to `sub`. This makes no
+    /// admission decision -- it only confirms the token is self-consistent
+    /// with the identity it asserts -- so it requires the
+    /// `insecure-self-certified-did` feature to construct.
+    #[cfg(feature = "insecure-self-certified-did")]
+    pub fn with_self_certified_did() -> Self {
+        Self {
+            client: None,
+            jwks_cache: RwLock::new(HashMap::new()),
+            default_jwks_ttl: Duration::from_secs(3600),
+            self_certified_did: true,
+        }
+    }
+
+    fn client(&self) -> Result<&ReqwestClient, AuthError> {
+        self.client
+            .as_ref()
+            .ok_or_else(|| AuthError::SelfCertifiedDid("resolver has no HTTP client".into()))
     }
 
     pub fn with_jwks(jwks: JwkSet) -> Self {
@@ -197,9 +246,10 @@ impl KeyResolver {
             .expect("Failed to create reqwest client");
 
         Self {
-            client,
+            client: Some(client),
             jwks_cache: RwLock::new(cache),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
+            self_certified_did: false,
         }
     }
 
@@ -248,12 +298,27 @@ impl KeyResolver {
         Ok(candidates.into_iter().map(Candidate::into_key).collect())
     }
 
+    /// A candidate derived from `issuer` itself, when it's a `did:key:z...`
+    /// Ed25519 identifier: no lookup, since the identifier *is* the key.
+    fn self_certified_candidate(issuer: &str) -> Result<Candidate, AuthError> {
+        let public_key = crate::did_key::ed25519_public_key_from_did_key(issuer)?;
+        Ok(Candidate {
+            key: DecodingKey::from_ed_der(&public_key),
+            algorithm: Algorithm::EdDSA,
+            owner: Some(KeyOwner::self_certified(issuer.to_string(), public_key)),
+        })
+    }
+
     /// [`Self::resolve_keys`], with the owner of each static trust-list key.
     pub(crate) async fn resolve_candidates(
         &self,
         issuer: &str,
         token_header: &Header,
     ) -> Result<Vec<Candidate>, AuthError> {
+        if self.self_certified_did {
+            return Ok(vec![Self::self_certified_candidate(issuer)?]);
+        }
+
         // Check if we have a static JWKS entry
         if let Some(cache_entry) = self.jwks_cache.read().get(Self::STATIC_JWKS_ENTRY) {
             // If we have a static JWKS, use it directly
@@ -384,6 +449,10 @@ impl KeyResolver {
         issuer: &str,
         token_header: &Header,
     ) -> Result<Vec<Candidate>, AuthError> {
+        if self.self_certified_did {
+            return Ok(vec![Self::self_certified_candidate(issuer)?]);
+        }
+
         // Check if we have a cached JWKS that's still valid
         let cache = self.jwks_cache.read();
 
@@ -449,7 +518,11 @@ impl KeyResolver {
         openid_config_url.set_path(&openid_path);
 
         // Try to fetch the OpenID configuration
-        let openid_config_response = self.client.get(openid_config_url.to_string()).send().await;
+        let openid_config_response = self
+            .client()?
+            .get(openid_config_url.to_string())
+            .send()
+            .await;
 
         // If we successfully got the OpenID configuration, validate and extract the jwks_uri
         if let Ok(response) = openid_config_response
@@ -490,7 +563,7 @@ impl KeyResolver {
     /// Fetch JWKS from the specified URI
     async fn fetch_jwks_from_uri(&self, uri: &str) -> Result<JwkSet, AuthError> {
         // Send the GET request using reqwest
-        let response = self.client.get(uri).send().await?;
+        let response = self.client()?.get(uri).send().await?;
 
         // Check the response status
         if response.status() != StatusCode::OK {
@@ -588,5 +661,63 @@ mod tests {
             fetched_jwks.keys[0].common.key_id.as_deref(),
             Some("test-key")
         );
+    }
+
+    #[cfg(feature = "insecure-self-certified-did")]
+    mod self_certified_did {
+        use jsonwebtoken::{EncodingKey, Validation, decode, encode};
+
+        use super::*;
+
+        use crate::did_key::fresh_identity;
+
+        #[test]
+        fn cached_candidates_derives_a_key_that_verifies_the_signer() {
+            let (pem, did, _) = fresh_identity();
+            let header = Header::new(Algorithm::EdDSA);
+            let token = encode(
+                &header,
+                &json!({"iss": did, "sub": did, "exp": u64::MAX}),
+                &EncodingKey::from_ed_pem(pem.as_bytes()).unwrap(),
+            )
+            .unwrap();
+
+            let resolver = KeyResolver::with_self_certified_did();
+            let candidates = resolver.cached_candidates(&did, &header).unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].algorithm, Algorithm::EdDSA);
+            assert!(candidates[0].owner.as_ref().unwrap().owns(&did));
+
+            let mut validation = Validation::new(Algorithm::EdDSA);
+            validation.set_audience(&[] as &[&str]);
+            validation.required_spec_claims.clear();
+            decode::<serde_json::Value>(&token, &candidates[0].key, &validation).unwrap();
+        }
+
+        #[tokio::test]
+        async fn resolve_candidates_derives_the_same_key() {
+            let (_, did, _) = fresh_identity();
+            let header = Header::new(Algorithm::EdDSA);
+            let resolver = KeyResolver::with_self_certified_did();
+            let candidates = resolver.resolve_candidates(&did, &header).await.unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].algorithm, Algorithm::EdDSA);
+        }
+
+        #[test]
+        fn has_no_http_client() {
+            assert!(KeyResolver::with_self_certified_did().client.is_none());
+            assert!(KeyResolver::new().client.is_some());
+        }
+
+        #[test]
+        fn rejects_an_issuer_that_is_not_a_did_key() {
+            let resolver = KeyResolver::with_self_certified_did();
+            let header = Header::new(Algorithm::EdDSA);
+            assert!(matches!(
+                resolver.cached_candidates("not-a-did-key", &header),
+                Err(AuthError::InvalidDidKey(_))
+            ));
+        }
     }
 }

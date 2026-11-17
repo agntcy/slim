@@ -25,6 +25,30 @@ use crate::{
     UniffiRequestStream,
 };
 
+/// A foreign streaming handler's responses. The handler runs in its own task;
+/// dropping this, when the call is cancelled or its deadline passes, stops it.
+struct HandlerResponses<S> {
+    responses: S,
+    handler: tokio::task::JoinHandle<()>,
+}
+
+impl<S: futures::Stream + Unpin> futures::Stream for HandlerResponses<S> {
+    type Item = S::Item;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<S::Item>> {
+        std::pin::Pin::new(&mut self.get_mut().responses).poll_next(cx)
+    }
+}
+
+impl<S> Drop for HandlerResponses<S> {
+    fn drop(&mut self) {
+        self.handler.abort();
+    }
+}
+
 // ── Channel: FFI constructors ───────────────────────────────────────────────
 
 #[uniffi::export]
@@ -138,7 +162,7 @@ impl Channel {
     ) -> Result<Arc<ResponseStreamReader>, RpcError> {
         let channel = self.clone();
         let (tx, rx) = unbounded_channel();
-        self.runtime.spawn(async move {
+        let task = self.runtime.spawn(async move {
             let stream = channel.unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
@@ -153,7 +177,7 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(ResponseStreamReader::new(rx)))
+        Ok(Arc::new(ResponseStreamReader::new(rx, task.abort_handle())))
     }
 
     pub fn call_stream_unary(
@@ -223,7 +247,7 @@ impl Channel {
     ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         let channel = self.clone();
         let (tx, rx) = unbounded_channel();
-        self.runtime.spawn(async move {
+        let task = self.runtime.spawn(async move {
             let stream = channel.multicast_unary::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
@@ -238,7 +262,10 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(MulticastResponseReader::new(rx)))
+        Ok(Arc::new(MulticastResponseReader::new(
+            rx,
+            task.abort_handle(),
+        )))
     }
 
     /// Broadcast one request to all GROUP members and stream their responses
@@ -277,7 +304,7 @@ impl Channel {
     ) -> Result<Arc<MulticastResponseReader>, RpcError> {
         let channel = self.clone();
         let (tx, rx) = unbounded_channel();
-        self.runtime.spawn(async move {
+        let task = self.runtime.spawn(async move {
             let stream = channel.multicast_unary_stream::<Vec<u8>, Vec<u8>>(
                 &service_name,
                 &method_name,
@@ -292,7 +319,10 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(MulticastResponseReader::new(rx)))
+        Ok(Arc::new(MulticastResponseReader::new(
+            rx,
+            task.abort_handle(),
+        )))
     }
 
     /// Broadcast a request stream to all GROUP members and collect their
@@ -486,12 +516,10 @@ impl Server {
                         })
                     };
 
-                    // Detach the task - it will run independently
-                    drop(handler_task);
-
-                    // Convert the receiver to a stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-                    Ok(stream)
+                    Ok(HandlerResponses {
+                        responses: tokio_stream::wrappers::UnboundedReceiverStream::new(rx),
+                        handler: handler_task,
+                    })
                 }
             },
         );
@@ -543,12 +571,10 @@ impl Server {
                         })
                     };
 
-                    // Detach the task - it will run independently
-                    drop(handler_task);
-
-                    // Convert the receiver to a stream
-                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-                    Ok(stream)
+                    Ok(HandlerResponses {
+                        responses: tokio_stream::wrappers::UnboundedReceiverStream::new(rx),
+                        handler: handler_task,
+                    })
                 }
             },
         );
