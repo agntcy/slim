@@ -796,10 +796,10 @@ impl TokenProvider for SignerJwt {
         Ok(self.signature_keys.clone())
     }
 
-    fn mls_signature_keys_installed(&self) -> bool {
+    fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
         // Keys are generated at construction for the MLS ciphersuite, so they are
         // always present; rotations replace them via `set_signature_keys`.
-        !self.signature_keys.0.is_empty()
+        Ok(!self.signature_keys.0.is_empty())
     }
 
     async fn set_signature_keys(
@@ -816,11 +816,11 @@ impl TokenProvider for SignerJwt {
         Ok(())
     }
 
-    fn export_identity(&self) -> Option<ExportedIdentity> {
+    fn export_identity(&self) -> Result<Option<ExportedIdentity>, AuthError> {
         // The JWT signing key is supplied by app config and re-established at
         // construction, so it is not persisted; only the MLS keypair is (always
         // present, since keys are generated at construction).
-        Some(ExportedIdentity {
+        Ok(Some(ExportedIdentity {
             // Informational: the subject/id comes from the app config, not the
             // snapshot; it is not adopted on restore.
             id: self.get_id().unwrap_or_default(),
@@ -833,11 +833,11 @@ impl TokenProvider for SignerJwt {
                 self.signature_keys.0.clone()
             },
             signature_public_key: self.signature_keys.1.clone(),
-        })
+        }))
     }
 
-    fn holds_long_term_signing_key(&self) -> bool {
-        self.did_bound
+    fn holds_long_term_signing_key(&self) -> Result<bool, AuthError> {
+        Ok(self.did_bound)
     }
 
     fn with_restored_identity(mut self, identity: ExportedIdentity) -> Result<Self, AuthError> {
@@ -1844,9 +1844,11 @@ mod tests {
         fn did_bound_signer_holds_a_long_term_key() {
             initialize_crypto_provider();
             let (signer, _) = did_bound_signer();
-            assert!(signer.holds_long_term_signing_key());
+            assert!(signer.holds_long_term_signing_key().unwrap());
             assert!(
-                crate::auth_provider::AuthProvider::JwtSigner(signer).holds_long_term_signing_key()
+                crate::auth_provider::AuthProvider::JwtSigner(signer)
+                    .holds_long_term_signing_key()
+                    .unwrap()
             );
         }
 
@@ -1854,7 +1856,7 @@ mod tests {
         fn did_bound_signer_does_not_export_its_secret() {
             initialize_crypto_provider();
             let (signer, did) = did_bound_signer();
-            let snapshot = signer.export_identity().unwrap();
+            let snapshot = signer.export_identity().unwrap().unwrap();
             assert!(snapshot.signature_secret_key.is_empty());
             assert_eq!(
                 snapshot.signature_public_key,
@@ -1867,7 +1869,7 @@ mod tests {
             initialize_crypto_provider();
             let (signer, _) = did_bound_signer();
             let before = signer.get_signature_keys().unwrap();
-            let snapshot = signer.export_identity().unwrap();
+            let snapshot = signer.export_identity().unwrap().unwrap();
 
             let restored = signer.with_restored_identity(snapshot).unwrap();
             assert_eq!(restored.get_signature_keys().unwrap(), before);
@@ -1876,7 +1878,7 @@ mod tests {
         #[test]
         fn did_bound_signer_rejects_another_dids_snapshot() {
             initialize_crypto_provider();
-            let snapshot = did_bound_signer().0.export_identity().unwrap();
+            let snapshot = did_bound_signer().0.export_identity().unwrap().unwrap();
 
             let result = did_bound_signer().0.with_restored_identity(snapshot);
             assert!(

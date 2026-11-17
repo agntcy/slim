@@ -252,9 +252,12 @@ pub trait TokenProvider {
     /// whether to generate a fresh key pair via its own crypto provider (first
     /// use) or reuse the already-installed one — the latter lets an app and all
     /// sessions cloned from it share a single signing identity. Defaults to
-    /// `false`.
-    fn mls_signature_keys_installed(&self) -> bool {
-        false
+    /// `Ok(false)`.
+    ///
+    /// An error is reported and never read as "not installed", which would replace the keys
+    /// every session shares.
+    fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
+        Ok(false)
     }
 
     /// Replace the MLS signature key pair with externally-generated keys.
@@ -272,14 +275,17 @@ pub trait TokenProvider {
     /// Export the provider's persistable identity (stable id, credential, MLS
     /// keypair), or `None` if this provider does not support full-identity
     /// persistence. Used to save an app's identity so it can be restored
-    /// verbatim after a restart.
-    fn export_identity(&self) -> Option<ExportedIdentity> {
-        None
+    /// verbatim after a restart. `Err` means the identity could not be read: session state
+    /// that depends on it must not be saved either.
+    fn export_identity(&self) -> Result<Option<ExportedIdentity>, AuthError> {
+        Ok(None)
     }
 
     /// Whether the MLS signing key is a long-term key that persisted group state would expose.
-    fn holds_long_term_signing_key(&self) -> bool {
-        false
+    /// An error is reported, not read as either answer: opening a persistent store then
+    /// assumes `true`, and restoring a persisted MLS group fails.
+    fn holds_long_term_signing_key(&self) -> Result<bool, AuthError> {
+        Ok(false)
     }
 
     /// Rebuild this provider from a previously [`export_identity`]-ed identity,

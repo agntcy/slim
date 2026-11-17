@@ -267,7 +267,7 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    fn mls_signature_keys_installed(&self) -> bool {
+    fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
         match self {
             #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.mls_signature_keys_installed(),
@@ -299,7 +299,7 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    fn export_identity(&self) -> Option<ExportedIdentity> {
+    fn export_identity(&self) -> Result<Option<ExportedIdentity>, AuthError> {
         match self {
             #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.export_identity(),
@@ -311,7 +311,7 @@ impl TokenProvider for AuthProvider {
         }
     }
 
-    fn holds_long_term_signing_key(&self) -> bool {
+    fn holds_long_term_signing_key(&self) -> Result<bool, AuthError> {
         match self {
             #[cfg(not(target_arch = "wasm32"))]
             AuthProvider::JwtSigner(signer) => signer.holds_long_term_signing_key(),
@@ -671,6 +671,7 @@ mod tests {
 
         let exported = original
             .export_identity()
+            .unwrap()
             .expect("SharedSecret-backed AuthProvider exports its identity");
         assert_eq!(exported.id, original.get_id().unwrap());
 
@@ -691,7 +692,7 @@ mod tests {
     #[tokio::test]
     async fn test_auth_provider_regular_providers_hold_no_long_term_key() {
         let shared = AuthProvider::shared_secret_from_str("app", TEST_SECRET).unwrap();
-        assert!(!shared.holds_long_term_signing_key());
+        assert!(!shared.holds_long_term_signing_key().unwrap());
 
         let signer = JwtBuilder::new()
             .issuer("iss")
@@ -704,7 +705,11 @@ mod tests {
             })
             .build()
             .unwrap();
-        assert!(!AuthProvider::JwtSigner(signer).holds_long_term_signing_key());
+        assert!(
+            !AuthProvider::JwtSigner(signer)
+                .holds_long_term_signing_key()
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -734,6 +739,7 @@ mod tests {
         // (it comes from app config).
         let exported = provider
             .export_identity()
+            .unwrap()
             .expect("JwtSigner exports its MLS keypair");
         assert!(exported.credential.is_empty());
         assert_eq!(exported.signature_secret_key, sk);

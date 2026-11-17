@@ -135,8 +135,9 @@ pub enum SessionMessage {
     /// to start to the close procedures of the session
     StartDrain { grace_period: Duration },
     /// message from session controller to session layer
-    /// to notify that the session can be removed safely
-    DeleteSession { session_id: u32 },
+    /// to notify that the session can be removed safely. `generation` is the controller's:
+    /// the session layer ignores the message if another controller owns the id by now.
+    DeleteSession { session_id: u32, generation: u64 },
     /// Query the participants list from the handler
     GetParticipantsList {
         tx: tokio::sync::oneshot::Sender<Vec<(ProtoName, ParticipantState)>>,
