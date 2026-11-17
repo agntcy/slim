@@ -28,6 +28,10 @@ pub enum AuthError {
     InvalidDidKey(String),
     #[error("self-certified did: {0}")]
     SelfCertifiedDid(String),
+    /// A persisted identity was rejected because it does not belong to this provider.
+    /// The session layer turns persistence off when it sees this on restore.
+    #[error("persisted identity does not match: {0}")]
+    IdentityMismatch(String),
     #[error("missing decoding key or autoresolve is disabled")]
     JwtMissingDecodingKeyOrKeyResolver,
     #[error("missing 'iss' in JWT claims")]
@@ -185,6 +189,10 @@ pub enum AuthError {
     // Operational
     #[error("operation would block on async I/O; call async variant")]
     WouldBlockOn,
+
+    // Custom (application-supplied) providers and verifiers
+    #[error("custom auth error: {0}")]
+    Custom(String),
 
     // MLS
     #[error("MLS is not supported by this provider")]

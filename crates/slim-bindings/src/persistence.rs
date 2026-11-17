@@ -14,7 +14,6 @@
 use std::sync::Arc;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_datapath::api::ProtoName as SlimName;
 use slim_service::Service as SlimService;
 
@@ -23,7 +22,7 @@ use crate::errors::SlimError;
 use crate::get_runtime;
 use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 use crate::name::Name;
-use crate::service::Service;
+use crate::service::{Service, create_app_from_identity};
 
 /// Where and how a session's MLS/state is persisted at rest.
 ///
@@ -58,6 +57,93 @@ impl From<PersistenceConfig> for slim_persistence::PersistenceConfig {
 
 #[uniffi::export]
 impl Service {
+    /// Create an app whose identity is provided by objects (foreign-language
+    /// implementations), with restorable MLS/session
+    /// state persisted under `persistence.path` (async).
+    ///
+    /// Persistence uses the provider's `export_identity` / `restore_identity`
+    /// hooks; a provider whose `export_identity` returns `None` persists no identity, and
+    /// one whose `export_identity` fails stops its session records from being updated.
+    /// Restore the app's sessions after a restart with [`App::restore_sessions`].
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use slim_bindings::*;
+    /// # async fn demo(
+    /// #     service: Arc<Service>,
+    /// #     name: Arc<Name>,
+    /// #     provider: Arc<dyn IdentityProvider>,
+    /// #     verifier: Arc<dyn IdentityVerifier>,
+    /// # ) -> Result<(), SlimError> {
+    /// let app = service
+    ///     .create_app_with_custom_identity_and_persistence_async(
+    ///         name,
+    ///         provider,
+    ///         verifier,
+    ///         Direction::Bidirectional,
+    ///         PersistenceConfig {
+    ///             path: "/var/lib/myapp/slim".into(),
+    ///             passphrase: Some("a-strong-passphrase".into()),
+    ///         },
+    ///     )
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn create_app_with_custom_identity_and_persistence_async(
+        &self,
+        name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: Direction,
+        persistence: PersistenceConfig,
+    ) -> Result<Arc<App>, SlimError> {
+        let slim_name: SlimName = name.as_ref().into();
+        let (provider, verifier) =
+            crate::custom_identity::into_core(identity_provider, identity_verifier);
+        let service = self.inner.clone();
+        let persistence_cfg: slim_persistence::PersistenceConfig = persistence.into();
+        let handle = get_runtime().spawn(async move {
+            create_app_from_identity(
+                slim_name,
+                provider,
+                verifier,
+                service,
+                direction,
+                Some(persistence_cfg),
+            )
+            .await
+        });
+        handle
+            .await
+            .map_err(|e| SlimError::InternalError {
+                message: format!(
+                    "create_app_with_custom_identity_and_persistence task failed: {e}"
+                ),
+            })?
+            .map(Arc::new)
+    }
+
+    /// Blocking wrapper around
+    /// [`Service::create_app_with_custom_identity_and_persistence_async`].
+    pub fn create_app_with_custom_identity_and_persistence(
+        &self,
+        name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: Direction,
+        persistence: PersistenceConfig,
+    ) -> Result<Arc<App>, SlimError> {
+        get_runtime().block_on(self.create_app_with_custom_identity_and_persistence_async(
+            name,
+            identity_provider,
+            identity_verifier,
+            direction,
+            persistence,
+        ))
+    }
+
     /// Create an app with restorable MLS/session state persisted under
     /// `persistence.path` (async).
     ///
@@ -116,9 +202,8 @@ impl Service {
     }
 }
 
-/// Provider-based app creation with persistence. Deliberately separate from
-/// `create_app_async_internal` so this stays additive; the only difference is
-/// calling `create_app_with_direction_and_persistence`.
+/// Provider-based app creation with persistence. Converts the configs and funnels
+/// through the shared `create_app_from_identity`.
 async fn create_app_with_persistence_internal(
     base_name: SlimName,
     identity_provider_config: IdentityProviderConfig,
@@ -127,24 +212,16 @@ async fn create_app_with_persistence_internal(
     direction: Direction,
     persistence: slim_persistence::PersistenceConfig,
 ) -> Result<App, SlimError> {
-    let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
-    let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
+    let identity_provider: AuthProvider = identity_provider_config.try_into()?;
+    let identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
 
-    identity_provider.initialize().await?;
-    identity_verifier.initialize().await?;
-    let _identity_token = identity_provider.get_token()?;
-
-    let (app, rx) = service.create_app_with_direction_and_persistence(
-        &base_name,
+    create_app_from_identity(
+        base_name,
         identity_provider,
         identity_verifier,
-        direction.into(),
-        Some(persistence),
-    )?;
-
-    Ok(App::from_parts(
-        Arc::new(app),
-        Arc::new(tokio::sync::RwLock::new(rx)),
         service,
-    ))
+        direction,
+        Some(persistence),
+    )
+    .await
 }

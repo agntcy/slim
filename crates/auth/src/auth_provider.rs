@@ -69,6 +69,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::erased::{ErasedProvider, ErasedVerifier, ProviderHandle, VerifierHandle};
 use crate::errors::AuthError;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::jwt::{SignerJwt, StaticTokenProvider, VerifierJwt};
@@ -123,6 +124,9 @@ pub enum AuthProvider {
     /// SPIRE-based identity manager providing SPIFFE JWT SVID tokens
     #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     Spire(crate::spire::SpireIdentityManager),
+
+    /// Application-supplied provider, built with [`AuthProvider::custom`]
+    Custom(Arc<dyn ErasedProvider>),
 }
 
 /// Unified enum for all authentication token verifiers
@@ -174,6 +178,9 @@ pub enum AuthVerifier {
     /// SPIRE-based token verifier using SPIRE Workload API bundles
     #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
     Spire(crate::spire::SpireIdentityManager),
+
+    /// Application-supplied verifier, built with [`AuthVerifier::custom`]
+    Custom(Arc<dyn ErasedVerifier>),
 }
 
 impl std::fmt::Debug for AuthProvider {
@@ -194,6 +201,7 @@ impl std::fmt::Debug for AuthProvider {
                 .debug_tuple("Spire")
                 .field(&"<SpireIdentityManager>")
                 .finish(),
+            AuthProvider::Custom(_) => f.debug_tuple("Custom").field(&"<custom>").finish(),
         }
     }
 }
@@ -214,6 +222,7 @@ impl std::fmt::Debug for AuthVerifier {
             AuthVerifier::SharedSecret(secret) => {
                 f.debug_tuple("SharedSecret").field(secret).finish()
             }
+            AuthVerifier::Custom(_) => f.debug_tuple("Custom").field(&"<custom>").finish(),
         }
     }
 }
@@ -228,6 +237,7 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => TokenProvider::initialize(secret).await,
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.initialize().await,
+            AuthProvider::Custom(custom) => custom.init().await,
         }
     }
 
@@ -240,6 +250,7 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_token(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_token(),
+            AuthProvider::Custom(custom) => custom.token(),
         }
     }
 
@@ -252,6 +263,7 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_id(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_id(),
+            AuthProvider::Custom(custom) => custom.id(),
         }
     }
 
@@ -264,6 +276,7 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.get_signature_keys(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.get_signature_keys(),
+            AuthProvider::Custom(custom) => custom.keys(),
         }
     }
 
@@ -276,6 +289,7 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.mls_signature_keys_installed(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.mls_signature_keys_installed(),
+            AuthProvider::Custom(custom) => custom.keys_installed(),
         }
     }
 
@@ -296,6 +310,7 @@ impl TokenProvider for AuthProvider {
             }
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.set_signature_keys(private_key, public_key).await,
+            AuthProvider::Custom(custom) => custom.set_keys(private_key, public_key).await,
         }
     }
 
@@ -308,6 +323,7 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.export_identity(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.export_identity(),
+            AuthProvider::Custom(custom) => custom.export(),
         }
     }
 
@@ -320,6 +336,7 @@ impl TokenProvider for AuthProvider {
             AuthProvider::SharedSecret(secret) => secret.holds_long_term_signing_key(),
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthProvider::Spire(spire) => spire.holds_long_term_signing_key(),
+            AuthProvider::Custom(custom) => custom.long_term_key(),
         }
     }
 
@@ -340,6 +357,10 @@ impl TokenProvider for AuthProvider {
             AuthProvider::Spire(spire) => {
                 AuthProvider::Spire(spire.with_restored_identity(identity)?)
             }
+            AuthProvider::Custom(custom) => {
+                custom.restore(identity)?;
+                AuthProvider::Custom(custom)
+            }
         })
     }
 }
@@ -356,6 +377,7 @@ macro_rules! dispatch_verifier {
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire($v) => $call,
             AuthVerifier::SharedSecret($v) => $call,
+            AuthVerifier::Custom($v) => $call,
         }
     };
 }
@@ -368,6 +390,7 @@ impl Verifier for AuthVerifier {
             AuthVerifier::SharedSecret(secret) => Verifier::initialize(secret).await,
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.initialize().await,
+            AuthVerifier::Custom(custom) => Verifier::initialize(custom).await,
         }
     }
 
@@ -378,6 +401,7 @@ impl Verifier for AuthVerifier {
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.verify(token).await,
             AuthVerifier::SharedSecret(secret) => secret.verify(token).await,
+            AuthVerifier::Custom(custom) => Verifier::verify(custom, token).await,
         }
     }
 
@@ -388,6 +412,7 @@ impl Verifier for AuthVerifier {
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.try_verify(token),
             AuthVerifier::SharedSecret(secret) => secret.try_verify(token),
+            AuthVerifier::Custom(custom) => custom.try_verify(token),
         }
     }
 
@@ -401,6 +426,7 @@ impl Verifier for AuthVerifier {
             #[cfg(all(not(target_family = "windows"), not(target_arch = "wasm32")))]
             AuthVerifier::Spire(spire) => spire.get_claims(token).await,
             AuthVerifier::SharedSecret(secret) => secret.get_claims(token).await,
+            AuthVerifier::Custom(custom) => custom.get_claims(token).await,
         }
     }
 
@@ -430,6 +456,51 @@ impl Verifier for AuthVerifier {
 
 /// Convenience constructors and utility methods for [`AuthProvider`]
 impl AuthProvider {
+    /// Wrap any [`TokenProvider`] as an `AuthProvider`, for an identity mechanism the enum
+    /// has no variant for (for instance one implemented by a foreign-language binding).
+    ///
+    /// The provider is cloned to apply the changes the trait asks for through `&mut self`
+    /// (`initialize`, `set_signature_keys`, `with_restored_identity`), and the changed clone
+    /// replaces the original, so cloning it must be cheap. Reads (`get_token`,
+    /// `get_signature_keys`, ...) take no lock. Writers are serialized and each change runs
+    /// once; `with_restored_identity` is synchronous and fails while a write is in progress.
+    /// Clones of the resulting `AuthProvider` share one underlying provider and one set of
+    /// keys.
+    ///
+    /// ```rust
+    /// use slim_auth::auth_provider::AuthProvider;
+    /// use slim_auth::errors::AuthError;
+    /// use slim_auth::traits::TokenProvider;
+    ///
+    /// #[derive(Clone)]
+    /// struct StaticProvider;
+    ///
+    /// impl TokenProvider for StaticProvider {
+    ///     async fn initialize(&mut self) -> Result<(), AuthError> {
+    ///         Ok(())
+    ///     }
+    ///     fn get_token(&self) -> Result<String, AuthError> {
+    ///         Ok("a-token".into())
+    ///     }
+    ///     fn get_id(&self) -> Result<String, AuthError> {
+    ///         Ok("alice".into())
+    ///     }
+    ///     async fn set_signature_keys(&mut self, _: Vec<u8>, _: Vec<u8>) -> Result<(), AuthError> {
+    ///         Err(AuthError::MlsNotSupported)
+    ///     }
+    /// }
+    ///
+    /// let provider = AuthProvider::custom(StaticProvider);
+    /// assert_eq!(provider.get_token()?, "a-token");
+    /// # Ok::<(), AuthError>(())
+    /// ```
+    pub fn custom<T>(provider: T) -> Self
+    where
+        T: TokenProvider + Clone + Send + Sync + 'static,
+    {
+        AuthProvider::Custom(Arc::new(ProviderHandle::new(provider)))
+    }
+
     /// Create a new JWT signer provider
     #[cfg(not(target_arch = "wasm32"))]
     pub fn jwt_signer(signer: SignerJwt) -> Self {
@@ -464,6 +535,16 @@ impl AuthProvider {
 
 /// Convenience constructors and utility methods for [`AuthVerifier`]
 impl AuthVerifier {
+    /// Wrap any [`Verifier`] as an `AuthVerifier`. Same contract as [`AuthProvider::custom`]:
+    /// the verifier is cloned to run `initialize` and the clone replaces the original, so
+    /// cloning must be cheap. `initialize` runs once at a time. Reads take no lock.
+    pub fn custom<V>(verifier: V) -> Self
+    where
+        V: Verifier + Clone + Send + Sync + 'static,
+    {
+        AuthVerifier::Custom(Arc::new(VerifierHandle::new(verifier)))
+    }
+
     /// Create a new JWT verifier
     #[cfg(not(target_arch = "wasm32"))]
     pub fn jwt_verifier(verifier: VerifierJwt) -> Self {
