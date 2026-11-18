@@ -483,13 +483,13 @@ async fn run_session_demux(
                 tracing::trace!(%rpc_id_str, src = %msg.source, "Skipping server response for active stream");
                 continue;
             }
-            // Take what is needed from rpc_id_str (it borrows msg.metadata)
-            // before msg is moved into the queue.
+            // Copy what is needed from `rpc_id_str`, which borrows `msg.metadata`,
+            // before `msg` moves into the queue.
             let rpc_id = rpc_id.clone();
             let is_terminal = msg.is_eos();
             // A handler that falls too far behind fails with RESOURCE_EXHAUSTED once
-            // it has read what is queued. Waiting for it here would stall every other
-            // call on the session, and a cancel with them.
+            // it has read what is queued. Waiting for it here would stall every
+            // other call on the session, including cancels.
             let overflowed = matches!(tx.push(msg), Pushed::Overflowed);
             if overflowed {
                 tracing::warn!(%rpc_id, "Handler fell too far behind its request stream");

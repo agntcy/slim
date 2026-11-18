@@ -165,9 +165,9 @@ impl ResponseDispatcher {
     /// Returns `true` on delivery to an active RPC caller, `false` if
     /// no caller is registered for this rpc-id (message is dropped).
     ///
-    /// A caller that has fallen too far behind is unregistered: it reads what
-    /// is queued and then fails with `RESOURCE_EXHAUSTED`. Waiting for it
-    /// here would stall every other call on the session, and a cancel with them.
+    /// A caller that has fallen too far behind is unregistered. It reads what
+    /// is queued and then fails with `RESOURCE_EXHAUSTED`. Waiting for it here
+    /// would stall every other call on the session, including cancels.
     fn dispatch(&self, msg: ReceivedMessage, rpc_id: &str) -> bool {
         let pushed = match self.pending.read().get(rpc_id) {
             Some(tx) => tx.push(msg),
@@ -1475,7 +1475,7 @@ mod tests {
         assert!(!dispatcher.dispatch(message(), "rpc-slow"));
         assert!(!dispatcher.dispatch(message(), "rpc-slow"));
 
-        // The caller still reads what was queued, then sees the queue overflowed.
+        // The caller still reads what was queued, then sees that the queue overflowed.
         for _ in 0..crate::CALL_QUEUE_LEN {
             assert!(rx.recv().await.is_some());
         }

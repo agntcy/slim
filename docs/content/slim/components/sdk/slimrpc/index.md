@@ -81,9 +81,13 @@ Letting a response reader or a stream-stream handler go without calling `cancel(
 
 ### Slow Consumers
 
-One task reads all the messages of a session, so it never waits for a slow reader: that would stall every other call on the session, and cancels with them. Instead, a call holds up to 1024 messages that its consumer has not read yet, either the responses a caller has not read or the requests a handler has not read. A consumer that falls further behind has its call fail with `RESOURCE_EXHAUSTED`, once it has read what was queued. A caller's response stream returns the error and the channel cancels the call. A handler's request stream returns it, and the handler should fail the call with it: a handler that stops reading at the first error and replies normally has taken a truncated request stream for a complete one.
+A session carries many RPC calls, so its messages are read into one queue per call. This stops a slow handler or a slow caller from blocking the other calls on the session, and their cancels. The queues hold the requests a handler receives and the responses a caller receives.
 
-The limit counts messages, not bytes, and a message that ends the call does not count. The response readers of the language wrappers move the responses into a queue of their own, which is not bounded, so a slow reader there is not limited. A wrapper's request stream reads the call's queue directly, so a slow handler is.
+Each queue holds up to 1024 messages. If a handler or a caller falls further behind than that, its call fails with `RESOURCE_EXHAUSTED` once it has read what was queued. A caller's response stream returns the error, and the channel cancels the call. A handler's request stream returns the error, and the handler should return it. A handler that stops reading at the first error and replies normally treats a truncated request stream as a complete one.
+
+The limit counts messages, not bytes. The message that ends a call does not count towards it.
+
+In the language bindings, the response readers copy the responses into a queue of their own, which is not bounded, so a slow reader there does not fail. A binding's request stream reads from the call's queue directly, so a slow handler is subject to the limit.
 
 ## Multicast RPC
 

@@ -3282,8 +3282,8 @@ async fn test_a_caller_that_falls_behind_its_responses_fails_and_stops_the_handl
             "the server never flooded"
         );
 
-        // It reads what was queued, then the call fails. The first response was read
-        // before the queue began to fill, so one more may have been queued behind it.
+        // It reads what was queued, then the call fails. The count is the limit or
+        // one less, depending on how many responses were queued when the first was read.
         // The handler never stops, so without the limit this would read forever.
         let (received, error) =
             tokio::time::timeout(Duration::from_secs(30), collect_stream_until_error(stream))

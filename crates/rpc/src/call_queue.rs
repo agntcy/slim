@@ -3,12 +3,12 @@
 
 //! The queue of incoming messages of one call.
 //!
-//! A session carries many calls, and one task reads all of its messages and
-//! hands each to the call it belongs to. That task must never wait on one
-//! call's consumer: the others would stall, and so would a cancel. So a call's
-//! queue is bounded, and when its consumer falls too far behind, that call
-//! fails with `RESOURCE_EXHAUSTED` instead of growing without limit or losing
-//! messages.
+//! A session carries many calls. One task reads all of its messages and hands
+//! each to the call it belongs to. That task must never wait for the consumer
+//! of one call, or the other calls would stall, and so would cancels. So each
+//! call's queue is bounded. When a consumer falls too far behind, its call
+//! fails with `RESOURCE_EXHAUSTED`. The queue neither grows without limit nor
+//! loses messages.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,17 +18,16 @@ use tokio::sync::mpsc::{self, error::TrySendError};
 
 use crate::{ReceivedMessage, RpcCode, RpcError, STATUS_CODE_KEY};
 
-/// How many messages a call may have queued, unread by its consumer, before the
-/// call fails. It applies to the requests a handler has not yet read and to
-/// the responses a caller has not yet read. The message that ends the call, an
-/// EOS or an error, does not count: a consumer that is only one message behind
-/// its end is not a slow one.
+/// How many unread messages a call may have queued before it fails. It applies
+/// to the requests a handler has not read yet and to the responses a caller has
+/// not read yet. The message that ends the call, an EOS or an error, does not
+/// count, because a consumer that is only that one message behind is not slow.
 pub const CALL_QUEUE_LEN: usize = 1024;
 
 /// Slots kept back for the message that ends the call.
 const RESERVED: usize = 1;
 
-/// What became of a message offered to a [`CallQueueTx`].
+/// The outcome of offering a message to a [`CallQueueTx`].
 pub(crate) enum Pushed {
     Queued,
     /// The queue is full. The message was not queued, and the consumer fails
@@ -48,8 +47,8 @@ impl CallQueueTx {
     /// Queue `msg` unless the queue is full. After [`Pushed::Overflowed`] the
     /// caller must drop this sender, which ends the queue for the consumer.
     pub(crate) fn push(&self, msg: ReceivedMessage) -> Pushed {
-        // Only this sender takes slots, so the room can only grow between this
-        // check and the send.
+        // Only this sender takes slots, so the free room can only grow between
+        // the check and the send.
         if self.tx.capacity() <= RESERVED && !ends_call(&msg) {
             self.overflowed.store(true, Ordering::Release);
             return Pushed::Overflowed;
@@ -104,8 +103,8 @@ fn call_queue_of(len: usize) -> (CallQueueTx, CallQueueRx) {
     )
 }
 
-/// Whether `msg` is the last one its sender sends for the call: an EOS, or an
-/// error.
+/// Whether `msg` is the last message its sender sends for the call, which is
+/// an EOS or an error.
 fn ends_call(msg: &ReceivedMessage) -> bool {
     msg.is_eos()
         || RpcCode::from_metadata_str(msg.metadata.get(STATUS_CODE_KEY).map(String::as_str))
@@ -182,7 +181,7 @@ mod tests {
     async fn test_a_data_message_with_an_ok_status_counts_against_the_limit() {
         let (tx, _rx) = call_queue_of(1);
         assert!(matches!(tx.push(message(1)), Pushed::Queued));
-        // Unlike an EOS it has a payload, so it is data.
+        // It has a payload, unlike an EOS, so it is data.
         assert!(matches!(
             tx.push(ending(RpcCode::Ok, vec![2])),
             Pushed::Overflowed
