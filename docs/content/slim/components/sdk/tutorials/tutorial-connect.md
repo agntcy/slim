@@ -14,11 +14,12 @@ The SLIM service is the global runtime that manages connections and application 
 === "Rust"
 
     ```rust
+    use slim_config::component::ComponentBuilder;
     use slim_service::Service;
 
-    // Build the service — the ID "slim/0" identifies this instance
-    let service = Service::builder().build("slim/0")?;
-    service.run().await?;
+    // Build the service — the ID "slim-0" identifies this instance
+    // (lowercase letters, digits and '-' only)
+    let service = Service::builder().build("slim-0".to_string())?;
     ```
 
 === "Python"
@@ -63,7 +64,7 @@ The SLIM service is the global runtime that manages connections and application 
 === "Go"
 
     ```go
-    import slim "github.com/agntcy/slim-bindings-go"
+    import slim "github.com/agntcy/slim-bindings-go/v3"
 
     func main() {
         // Initialise the global SLIM service with defaults
@@ -77,7 +78,7 @@ The SLIM service is the global runtime that manages connections and application 
     import io.agntcy.slim.bindings.*;
 
     public class Main {
-        public static void main(String[] args) {
+        public static void main(String[] args) throws Exception {
             // Initialise the global SLIM service with defaults
             SlimBindings.initializeWithDefaults();
 
@@ -128,10 +129,10 @@ The SLIM service is the global runtime that manages connections and application 
 === "React Native"
 
     ```tsx
-    import slimBindings from '@agntcy/slim-bindings-react-native';
+    import slimBindings, { waitForJSIBindings } from '@agntcy/slim-bindings-react-native';
 
     // Wait for JSI native module, then initialise (call once per app lifecycle)
-    await slimBindings.waitForJSIBindings(5000);
+    await waitForJSIBindings(5000);
     slimBindings.initializeWithDefaults();
 
     // Obtain a reference to the global service
@@ -145,13 +146,15 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 === "Rust"
 
     ```rust
-    use slim_service::config::ClientConfig;
+    use slim_config::client::ClientConfig;
+    use slim_config::tls::client::TlsClientConfig;
 
-    // Build a client config pointing at your SLIM node
-    let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
+    // Build a client config pointing at your SLIM node (plain text, no TLS)
+    let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357")
+        .with_tls_setting(TlsClientConfig::insecure());
 
     // Connect — returns a connection ID used in later calls
-    let conn_id = service.connect(client_config).await?;
+    let conn_id = service.connect(&client_config).await?;
     println!("Connected, conn_id={conn_id}");
     ```
 
@@ -248,16 +251,18 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 === "Rust"
 
     ```rust
+    use slim_config::client::ClientConfig;
+    use slim_config::component::ComponentBuilder;
+    use slim_config::tls::client::TlsClientConfig;
     use slim_service::Service;
-    use slim_service::config::ClientConfig;
 
     #[tokio::main]
     async fn main() -> anyhow::Result<()> {
-        let service = Service::builder().build("slim/0")?;
-        service.run().await?;
+        let service = Service::builder().build("slim-0".to_string())?;
 
-        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357");
-        let conn_id = service.connect(client_config).await?;
+        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357")
+            .with_tls_setting(TlsClientConfig::insecure());
+        let conn_id = service.connect(&client_config).await?;
         println!("Connected, conn_id={conn_id}");
         // service and conn_id are passed to create_app in the next tutorial
 
@@ -295,7 +300,7 @@ With the service initialised, connect to a SLIM node. The connection returns a `
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v3"
     )
 
     func main() {
@@ -318,7 +323,7 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     import io.agntcy.slim.bindings.*;
 
     public class Main {
-        public static void main(String[] args) {
+        public static void main(String[] args) throws Exception {
             SlimBindings.initializeWithDefaults();
             Service service = SlimBindings.getGlobalService();
 
@@ -386,9 +391,9 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 === "React Native"
 
     ```tsx
-    import slimBindings from '@agntcy/slim-bindings-react-native';
+    import slimBindings, { waitForJSIBindings } from '@agntcy/slim-bindings-react-native';
 
-    await slimBindings.waitForJSIBindings(5000);
+    await waitForJSIBindings(5000);
     slimBindings.initializeWithDefaults();
     const service = slimBindings.getGlobalService();
 

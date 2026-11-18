@@ -1,16 +1,19 @@
 === "Rust"
 
     ```rust
-    use slim_service::Service;
-    use slim_service::config::ClientConfig;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_config::client::ClientConfig;
+    use slim_config::component::ComponentBuilder;
+    use slim_config::tls::client::TlsClientConfig;
     use slim_datapath::api::ProtoName;
+    use slim_service::Service;
 
     #[tokio::main]
     async fn main() -> anyhow::Result<()> {
-        let service = Service::builder().build("slim/0")?;
-        service.run().await?;
-        let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
+        let service = Service::builder().build("slim-0".to_string())?;
+        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357")
+            .with_tls_setting(TlsClientConfig::insecure());
+        let conn_id = service.connect(&client_config).await?;
 
         let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
         let provider = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
@@ -60,7 +63,7 @@
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v3"
     )
 
     func main() {
@@ -98,7 +101,7 @@
     import io.agntcy.slim.bindings.*;
 
     public class Main {
-        public static void main(String[] args) {
+        public static void main(String[] args) throws Exception {
             SlimBindings.initializeWithDefaults();
             Service service = SlimBindings.getGlobalService();
 
@@ -119,8 +122,9 @@
 
     ```kotlin
     import io.agntcy.slim.bindings.*
+    import kotlinx.coroutines.runBlocking
 
-    fun main() {
+    fun main() = runBlocking {
         initializeWithDefaults()
         val service = getGlobalService()
 
@@ -180,9 +184,9 @@
 === "React Native"
 
     ```tsx
-    import slimBindings from '@agntcy/slim-bindings-react-native';
+    import slimBindings, { waitForJSIBindings } from '@agntcy/slim-bindings-react-native';
 
-    await slimBindings.waitForJSIBindings(5000);
+    await waitForJSIBindings(5000);
     slimBindings.initializeWithDefaults();
     const service = slimBindings.getGlobalService();
 

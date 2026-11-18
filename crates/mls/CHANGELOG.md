@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/agntcy/slim/compare/slim-mls-v0.5.1...slim-mls-v0.6.0) - 2026-11-18
+
+### Added
+
+- *(auth)* opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358))
+
+### Other
+
+- *(auth,session)* [**breaking**] fallible identity queries, initialize sessions before they run ([#2392](https://github.com/agntcy/slim/pull/2392))
+- *(auth,session)* [**breaking**] ask the verifier for the key a control message is signed with ([#2390](https://github.com/agntcy/slim/pull/2390))
+- *(auth,mls)* let verifiers define how a token binds the MLS key ([#2369](https://github.com/agntcy/slim/pull/2369))
+- *(fuzz)* ignore lib-name imports in cargo-machete ([#2387](https://github.com/agntcy/slim/pull/2387))
+
 ## [0.5.1](https://github.com/agntcy/slim/compare/slim-mls-v0.5.0...slim-mls-v0.5.1) - 2026-10-20
 
 ### Other

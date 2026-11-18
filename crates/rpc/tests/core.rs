@@ -2950,3 +2950,281 @@ async fn test_a_pinned_channel_requires_and_reports_its_peer() {
 
     env.shutdown().await;
 }
+
+/// One name serves SlimRPC and plain sessions when the app routes each new
+/// session with `is_slimrpc_session`.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_slimrpc_and_plain_sessions_share_a_name() {
+    use slim_datapath::api::ProtoSessionType;
+    use slim_session::notification::Notification;
+    use slim_session::session_config::SessionConfig;
+
+    let id = ID::new_with_name(Kind::new("slim").unwrap(), "test-session-marker").unwrap();
+    let service = Arc::new(Service::new(id));
+
+    let secret = SharedSecret::new("server", TEST_VALID_SECRET).unwrap();
+    let (server_app, mut notifications) = service
+        .create_app(
+            &Name::from_strings(["org", "ns", "server"]),
+            AuthProvider::shared_secret(secret.clone()),
+            AuthVerifier::shared_secret(secret),
+        )
+        .unwrap();
+    let server_app = Arc::new(server_app);
+    let server_name = server_app.app_name().clone();
+
+    // SlimRPC sessions go to the server, the others to `plain_rx`.
+    let (rpc_tx, rpc_rx) = tokio::sync::mpsc::channel(8);
+    let (plain_tx, mut plain_rx) = tokio::sync::mpsc::channel(8);
+    tokio::spawn(async move {
+        while let Some(notification) = notifications.recv().await {
+            match notification {
+                Ok(Notification::NewSession(session))
+                    if !slim_rpc::is_slimrpc_session(&session) =>
+                {
+                    let _ = plain_tx.send(session).await;
+                }
+                other => {
+                    if rpc_tx.send(other).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    let server = Arc::new(Server::new(server_app.clone(), server_name.clone(), rpc_rx));
+    server.register_unary_unary(
+        "TestService",
+        "Echo",
+        |request: TestRequest, _ctx: Context| async move {
+            Ok(TestResponse {
+                result: request.message,
+                count: request.value,
+            })
+        },
+    );
+    let serving = server.clone();
+    tokio::spawn(async move { serving.serve().await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let secret = SharedSecret::new("client", TEST_VALID_SECRET).unwrap();
+    let (client_app, _) = service
+        .create_app(
+            &Name::from_strings(["org", "ns", "client"]),
+            AuthProvider::shared_secret(secret.clone()),
+            AuthVerifier::shared_secret(secret),
+        )
+        .unwrap();
+    let client_app = Arc::new(client_app);
+
+    let channel =
+        Channel::new_with_members(client_app.clone(), vec![server_name.clone()], false, None)
+            .expect("single non-empty member list is always valid");
+    let response: TestResponse = channel
+        .unary(
+            "TestService",
+            "Echo",
+            TestRequest {
+                message: "routed".to_string(),
+                value: 7,
+            },
+            Some(Duration::from_secs(5)),
+            None,
+        )
+        .await
+        .expect("a SlimRPC session reaches the server");
+    assert_eq!(response.result, "routed");
+
+    let (_plain, established) = client_app
+        .create_session(
+            SessionConfig {
+                session_type: ProtoSessionType::PointToPoint,
+                initiator: true,
+                ..Default::default()
+            },
+            server_name,
+            None,
+        )
+        .await
+        .unwrap();
+    established.await.unwrap();
+    let plain = tokio::time::timeout(Duration::from_secs(5), plain_rx.recv())
+        .await
+        .expect("the plain session reaches the app")
+        .unwrap();
+    assert!(!slim_rpc::is_slimrpc_session(&plain));
+
+    server.shutdown().await;
+    service.shutdown().await.unwrap();
+}
+
+/// Sets a flag when dropped, to see that a handler's future or stream was.
+struct SetOnDrop(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for SetOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+async fn wait_until(flag: &std::sync::atomic::AtomicBool) -> bool {
+    for _ in 0..100 {
+        if flag.load(std::sync::atomic::Ordering::SeqCst) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_dropping_a_streaming_call_stops_its_handler() {
+    let mut env = TestEnv::new("test-cancel-stream").await;
+
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stopped.clone();
+    env.server.register_unary_stream(
+        "TestService",
+        "Forever",
+        move |_request: TestRequest, _ctx: Context| {
+            let flag = flag.clone();
+            async move {
+                let guard = SetOnDrop(flag);
+                Ok(async_stream::stream! {
+                    let _guard = guard;
+                    for i in 0.. {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        yield Ok(TestResponse { result: String::new(), count: i });
+                    }
+                })
+            }
+        },
+    );
+    env.start_server().await;
+
+    {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Forever",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        stream.next().await.expect("a response").expect("ok");
+        // The caller walks away with the call still running.
+    }
+
+    assert!(
+        wait_until(&stopped).await,
+        "the handler kept running after its caller dropped the call"
+    );
+    assert!(logs_contain("Call cancelled by its caller"));
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_dropping_a_unary_call_stops_its_handler() {
+    let mut env = TestEnv::new("test-cancel-unary").await;
+
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = stopped.clone();
+    env.server.register_unary_unary(
+        "TestService",
+        "Hang",
+        move |_request: TestRequest, _ctx: Context| {
+            let flag = flag.clone();
+            async move {
+                let _guard = SetOnDrop(flag);
+                std::future::pending::<()>().await;
+                Ok(TestResponse::default())
+            }
+        },
+    );
+    env.start_server().await;
+
+    // The caller gives up after 200 ms, which drops the call.
+    let outcome = tokio::time::timeout(
+        Duration::from_millis(200),
+        env.channel.unary::<TestRequest, TestResponse>(
+            "TestService",
+            "Hang",
+            TestRequest::default(),
+            None,
+            None,
+        ),
+    )
+    .await;
+    assert!(outcome.is_err(), "the handler never answers");
+
+    assert!(
+        wait_until(&stopped).await,
+        "the handler kept running after its caller dropped the call"
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_a_finished_call_sends_no_cancel() {
+    let mut env = TestEnv::new("test-no-cancel-when-done").await;
+
+    env.server.register_unary_unary(
+        "TestService",
+        "Echo",
+        |request: TestRequest, _ctx: Context| async move {
+            Ok(TestResponse {
+                result: request.message,
+                count: 0,
+            })
+        },
+    );
+    env.server.register_unary_stream(
+        "TestService",
+        "Three",
+        |_request: TestRequest, _ctx: Context| async move {
+            Ok(futures::stream::iter((0..3).map(|count| {
+                Ok(TestResponse {
+                    result: String::new(),
+                    count,
+                })
+            })))
+        },
+    );
+    env.start_server().await;
+
+    let _: TestResponse = env
+        .channel
+        .unary("TestService", "Echo", TestRequest::default(), None, None)
+        .await
+        .unwrap();
+    {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Three",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        let mut received = 0;
+        while let Some(item) = stream.next().await {
+            item.unwrap();
+            received += 1;
+        }
+        assert_eq!(received, 3);
+    }
+
+    // A cancel would arrive, and be logged, within moments.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!logs_contain("Call cancelled by its caller"));
+    assert!(!logs_contain("Ignoring cancel"));
+
+    env.shutdown().await;
+}

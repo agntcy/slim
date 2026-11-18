@@ -23,11 +23,10 @@ use std::time::Duration;
 use async_stream::stream;
 use display_error_chain::ErrorChainExt;
 use futures::StreamExt;
-use futures::future::join_all;
 use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
-use slim_session::session_config::MlsSettings;
+use slim_session::session_config::{MlsSettings, SessionConfig};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -124,9 +123,11 @@ impl<T> Response<T> {
 }
 
 use super::{
-    Context, METHOD_KEY, Metadata, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY, ReceivedMessage, RpcCode,
-    RpcError, SERVICE_KEY, STATUS_CODE_KEY, calculate_timeout_duration,
+    Context, METHOD_KEY, Metadata, RPC_DIR_CANCEL, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY,
+    ReceivedMessage, RpcCode, RpcError, SERVICE_KEY, SESSION_MARKER_KEY, SESSION_MARKER_VALUE,
+    STATUS_CODE_KEY, calculate_timeout_duration,
     codec::{Decoder, Encoder},
+    rpc_session::InFlightSends,
     send_eos,
     session_wrapper::{SessionRx, SessionTx, new_session},
 };
@@ -199,6 +200,57 @@ impl Drop for DispatcherGuard {
     }
 }
 
+// ── CancelOnDrop ──────────────────────────────────────────────────────────────
+
+/// Cancels a call that is dropped before the server has finished it: stops
+/// sending its requests and tells the server, which stops the call's handler.
+/// Disarmed once every server has ended the call.
+struct CancelOnDrop {
+    session_tx: SessionTx,
+    rpc_id: String,
+    runtime: tokio::runtime::Handle,
+    send_task: tokio::task::AbortHandle,
+    armed: bool,
+}
+
+impl CancelOnDrop {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.send_task.abort();
+        let session_tx = self.session_tx.clone();
+        let rpc_id = std::mem::take(&mut self.rpc_id);
+        self.runtime.spawn(async move {
+            let metadata = HashMap::from([
+                (RPC_ID_KEY.to_string(), rpc_id.clone()),
+                (RPC_DIR_KEY.to_string(), RPC_DIR_CANCEL.to_string()),
+            ]);
+            let sent = session_tx
+                .publish(
+                    session_tx.destination(),
+                    Vec::new(),
+                    Some("msg".to_string()),
+                    Some(metadata),
+                )
+                .await;
+            let result = match sent {
+                Ok(handle) => handle.await.map_err(|e| e.to_string()),
+                Err(e) => Err(e.to_string()),
+            };
+            if let Err(error) = result {
+                tracing::debug!(%rpc_id, %error, "Failed to send cancel");
+            }
+        });
+    }
+}
+
 // ── Dispatcher task ───────────────────────────────────────────────────────────
 
 /// Reads every message from `session_rx` and routes it by `rpc-id`.
@@ -247,6 +299,28 @@ impl ChannelSession {
 
 fn generate_rpc_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+/// The configuration of the sessions a channel opens. They use MLS and check
+/// every received message's headers against the ones the sender bound to it,
+/// as the SLIM bindings do. The other side takes the MLS settings from the
+/// join request. The join request also carries [`SESSION_MARKER_KEY`], so the
+/// other side can tell a SlimRPC session from a plain one.
+fn session_config(session_type: ProtoSessionType) -> SessionConfig {
+    SessionConfig {
+        session_type,
+        max_retries: Some(10),
+        interval: Some(Duration::from_secs(1)),
+        initiator: true,
+        metadata: HashMap::from([(
+            SESSION_MARKER_KEY.to_string(),
+            SESSION_MARKER_VALUE.to_string(),
+        )]),
+        mls_settings: Some(MlsSettings {
+            header_integrity_validation_percent: 100,
+            max_seen_control_message_ids_size: None,
+        }),
+    }
 }
 
 async fn send_invite(
@@ -493,14 +567,7 @@ impl Channel {
         let handle = runtime.spawn(async move {
             tracing::debug!(remote = %remote, ?session_type, "Creating persistent session");
 
-            let slim_config = slim_session::session_config::SessionConfig {
-                session_type,
-                max_retries: Some(10),
-                interval: Some(Duration::from_secs(1)),
-                initiator: true,
-                metadata: HashMap::new(),
-                mls_settings: Some(MlsSettings::default()),
-            };
+            let slim_config = session_config(session_type);
 
             let created = match pin {
                 Some(subject) => {
@@ -540,7 +607,15 @@ impl Channel {
         Req: Encoder,
     {
         let mut request_stream = std::pin::pin!(request_stream);
-        let mut handles = vec![];
+        let sending_failed = |e: SessionError| {
+            RpcError::internal(format!(
+                "Failed to complete sending {}-{}: {}",
+                service_name,
+                method_name,
+                ErrorChainExt::chain(&e)
+            ))
+        };
+        let mut in_flight = InFlightSends::default();
         let mut first = true;
         while let Some(request) = request_stream.next().await {
             let request_bytes = request.encode()?;
@@ -558,7 +633,7 @@ impl Channel {
                     Some(msg_meta),
                 )
                 .await?;
-            handles.push(handle);
+            in_flight.push(handle).await.map_err(sending_failed)?;
         }
         // The client EOS always carries RPC_DIR_KEY so the server can distinguish
         // it from an echoed server EOS.  When the request stream was empty we also
@@ -568,19 +643,11 @@ impl Channel {
             eos_meta.insert(SERVICE_KEY.to_string(), service_name.to_string());
             eos_meta.insert(METHOD_KEY.to_string(), method_name.to_string());
         }
-        handles.push(send_eos(session, session.destination(), rpc_id, Some(eos_meta)).await?);
-
-        // Wait for all (data + EOS) acks in a single batch.
-        for result in join_all(handles).await {
-            result.map_err(|e| {
-                RpcError::internal(format!(
-                    "Failed to complete sending {}-{}: {}",
-                    service_name,
-                    method_name,
-                    ErrorChainExt::chain(&e)
-                ))
-            })?;
-        }
+        in_flight
+            .push(send_eos(session, session.destination(), rpc_id, Some(eos_meta)).await?)
+            .await
+            .map_err(sending_failed)?;
+        in_flight.finish().await.map_err(sending_failed)?;
 
         // When the stream was empty `first` is still true: the EOS must carry
         // service + method so the server can dispatch without a preceding data frame.
@@ -611,6 +678,32 @@ impl Channel {
         request_stream: impl Stream<Item = Req> + Send + 'static,
         timeout: Option<Duration>,
         metadata: Option<Metadata>,
+    ) -> impl Stream<Item = Result<Response<Res>, RpcError>>
+    where
+        Req: Encoder + Send + 'static,
+        Res: Decoder + Send + 'static,
+    {
+        self.call(
+            service_name,
+            method_name,
+            request_stream,
+            timeout,
+            metadata,
+            false,
+        )
+    }
+
+    /// [`Self::responses_from_stream_input`]. Dropping the stream before every
+    /// server has ended the call cancels it. With `single_response`, the
+    /// caller takes only the first response, which ends a P2P call.
+    fn call<Req, Res>(
+        &self,
+        service_name: &str,
+        method_name: &str,
+        request_stream: impl Stream<Item = Req> + Send + 'static,
+        timeout: Option<Duration>,
+        metadata: Option<Metadata>,
+        single_response: bool,
     ) -> impl Stream<Item = Result<Response<Res>, RpcError>>
     where
         Req: Encoder + Send + 'static,
@@ -651,8 +744,16 @@ impl Channel {
                     )
                     .await
             });
+            let mut cancel = CancelOnDrop {
+                session_tx: session_tx.clone(),
+                rpc_id: rpc_id.clone(),
+                runtime: channel.runtime.clone(),
+                send_task: send_handle.abort_handle(),
+                armed: true,
+            };
             let mut members = members;
             let num_members = members.len();
+            let single_response = single_response && num_members == 1;
             let mut num_completed = 0usize;
             let mut send_completed = false;
 
@@ -675,6 +776,8 @@ impl Channel {
                 let received = match received_opt {
                     Err(e) => { yield Err(e); break; }
                     Ok(None) => {
+                        // The session closed: there is nothing left to cancel.
+                        cancel.disarm();
                         if num_completed < num_members {
                             if channel.is_group {
                                 yield Err(RpcError::multicast_session_closed(
@@ -700,7 +803,7 @@ impl Channel {
                         members.insert(source, true);
                         num_completed += 1;
                     }
-                    if num_completed >= num_members { break; }
+                    if num_completed >= num_members { cancel.disarm(); break; }
                     continue;
                 }
                 let code = RpcCode::from_metadata_str(
@@ -713,6 +816,8 @@ impl Channel {
                         num_completed += 1;
                     }
                     let err = RpcError::new(code, msg_text);
+                    // A server that sent an error has ended its side of the call.
+                    if num_completed >= num_members { cancel.disarm(); }
                     yield Err(if channel.is_group { err.with_origin(source.to_string()) } else { err });
                     if num_completed >= num_members { break; }
                     continue;
@@ -742,6 +847,9 @@ impl Channel {
                     Some(sub) => Some(PeerIdentity::new(sub.clone(), None)),
                     None => joined,
                 };
+                // The caller drops the stream after this response, before the
+                // server's EOS arrives; the server has already finished.
+                if single_response { cancel.disarm(); }
                 yield Ok(Response { source: full_source, identity, message: response });
             }
         }
@@ -764,12 +872,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let stream = self.responses_from_stream_input(
+        let stream = self.call(
             service_name,
             method_name,
             futures::stream::once(std::future::ready(request)),
             timeout,
             metadata,
+            true,
         );
         futures::pin_mut!(stream);
         stream
@@ -817,12 +926,13 @@ impl Channel {
         Req: Encoder + Send + 'static,
         Res: Decoder + Send + 'static,
     {
-        let stream = self.responses_from_stream_input(
+        let stream = self.call(
             service_name,
             method_name,
             request_stream,
             timeout,
             metadata,
+            true,
         );
         futures::pin_mut!(stream);
         stream
@@ -1248,6 +1358,16 @@ mod tests {
         assert_eq!(RpcCode::try_from(0), Ok(RpcCode::Ok));
         assert_eq!(RpcCode::try_from(13), Ok(RpcCode::Internal));
         assert!(RpcCode::try_from(999).is_err());
+    }
+
+    #[test]
+    fn test_sessions_check_every_message_header() {
+        for session_type in [ProtoSessionType::PointToPoint, ProtoSessionType::Multicast] {
+            let mls = session_config(session_type)
+                .mls_settings
+                .expect("session without MLS");
+            assert_eq!(mls.header_integrity_validation_percent, 100);
+        }
     }
 
     #[test]

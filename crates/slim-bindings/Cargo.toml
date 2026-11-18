@@ -13,8 +13,12 @@ name = "slim_bindings"
 default = []
 # Browser-safe UniFFI surface. When absent the crate builds in native (desktop/mobile) mode.
 web = []
+# Forwarded to agntcy-slim-config's feature of the same name; see there for
+# why this is off by default.
+insecure-self-certified-did = ["agntcy-slim-config/insecure-self-certified-did"]
 
 [dependencies]
+async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
@@ -55,6 +59,7 @@ agntcy-slim-version = { workspace = true }
 uniffi = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
+base64 = { workspace = true }
 cfg-if = { workspace = true }
 clap = { workspace = true }
 test-fork = { workspace = true }

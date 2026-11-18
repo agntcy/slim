@@ -21,7 +21,9 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
 
     ```kotlin
     dependencies {
-        implementation("io.agntcy.slim:slim-bindings-kotlin:1.0.0")
+        implementation("io.agntcy.slim:slim-bindings-kotlin:3.3.9")
+        // the async APIs are suspend functions; runBlocking/launch come from here
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     }
     ```
 
@@ -29,7 +31,8 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
 
     ```groovy
     dependencies {
-        implementation 'io.agntcy.slim:slim-bindings-kotlin:1.0.0'
+        implementation 'io.agntcy.slim:slim-bindings-kotlin:3.3.9'
+        implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1'
     }
     ```
 
@@ -39,7 +42,12 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
     <dependency>
       <groupId>io.agntcy.slim</groupId>
       <artifactId>slim-bindings-kotlin</artifactId>
-      <version>1.0.0</version>
+      <version>3.3.9</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jetbrains.kotlinx</groupId>
+      <artifactId>kotlinx-coroutines-core</artifactId>
+      <version>1.8.1</version>
     </dependency>
     ```
 
@@ -98,15 +106,22 @@ val clientConfig = newInsecureClientConfig("http://127.0.0.1:46357").apply {
             issuerUrl = "https://auth.example.com",
             clientId = "my-client",
             clientSecret = "s3cr3t",
+            audience = null,
+            refreshToken = null,
+            refreshTokenFile = null,
+            accessTokenFile = null,
             scope = "openid profile",
             timeout = Duration.ofSeconds(30),
+            jwksTtl = null,
+            claimCacheTtl = null,
+            policy = null,
         )
     )
 }
 val connId = service.connectAsync(clientConfig)
 ```
 
-For the refresh-token flow, set `refreshToken` (or `refreshTokenFile`, which is rewritten in place as tokens rotate) instead of `clientSecret`.
+`OidcConfig` declares no default arguments, so every field must be passed; use `null` for the ones you don't need. For the refresh-token flow, set `refreshToken` (or `refreshTokenFile`, which is rewritten in place as tokens rotate) instead of `clientSecret`.
 
 ### OIDC (server verification)
 
@@ -115,7 +130,14 @@ val serverConfig = newInsecureServerConfig("127.0.0.1:46357").apply {
     auth = ServerAuthenticationConfig.Oidc(
         OidcConfig(
             issuerUrl = "https://auth.example.com",
+            clientId = null,
+            clientSecret = null,
             audience = "slim",
+            refreshToken = null,
+            refreshTokenFile = null,
+            accessTokenFile = null,
+            scope = null,
+            timeout = null,
             jwksTtl = Duration.ofHours(1),
             claimCacheTtl = Duration.ofMinutes(1),
             policy = OidcPolicyConfig.Cel(""""admin" in claims.groups"""),

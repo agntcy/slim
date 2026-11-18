@@ -49,6 +49,14 @@ Work through the tutorials to learn the fundamentals step by step:
 1. [Connecting to SLIM](./tutorials/tutorial-connect.md) — Configure and connect your application to a SLIM node
 2. [Creating an App](./tutorials/tutorial-app.md) — Register an application identity and set up message handlers
 3. [Creating a Session](./tutorials/tutorial-session.md) — Establish point-to-point and group sessions
+4. [Receiving a Session](./tutorials/tutorial-receive.md) — Accept incoming sessions and reply to messages
+5. [Session Persistence and Restore](./tutorials/tutorial-persistence.md) — Persist session state and restore it after a restart
+
+For Protobuf RPC over SLIM, continue with the SLIMRPC tutorials:
+
+1. [Serving a SLIMRPC Server](./tutorials/slimrpc/tutorial-serve.md) — Implement and serve a Protobuf service
+2. [Using a SLIMRPC Server](./tutorials/slimrpc/tutorial-client.md) — Call a service from a client
+3. [Multicast SLIMRPC](./tutorials/slimrpc/tutorial-multicast.md) — Call a group of servers at once
 
 ## What to Read Next
 

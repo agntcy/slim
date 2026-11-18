@@ -92,19 +92,10 @@ where
         };
 
         let claims_json: Value = verifier.get_claims(&identity).await?;
-        let identity_claims = slim_auth::identity_claims::IdentityClaims::from_json(&claims_json)?;
-        let pubkey = identity_claims.public_key;
+        // The verifier says where the signer's key is: a claim, a DPoP confirmation, ...
+        let pubkey_bytes = verifier.get_public_key(&identity).await?;
 
         use base64::Engine as _;
-        let pubkey_bytes_res = base64::engine::general_purpose::STANDARD.decode(&pubkey);
-        if let Err(ref e) = pubkey_bytes_res {
-            tracing::error!(
-                "verify_identity: base64 decode of pubkey failed with: {:?}",
-                e
-            );
-        }
-        let pubkey_bytes = pubkey_bytes_res
-            .map_err(|_| SessionError::Auth(slim_auth::errors::AuthError::TokenMalformed))?;
 
         let aad = crate::mls_state::build_aad(msg);
         let verify_res = slim_auth::utils::verify_header_aad(&aad, sig, &pubkey_bytes);
@@ -254,6 +245,9 @@ pub struct SessionController {
     /// session id
     pub(crate) id: u32,
 
+    /// tells this controller apart from any other that had the same id
+    generation: u64,
+
     /// local name
     pub(crate) source: ProtoName,
 
@@ -307,6 +301,8 @@ impl SessionController {
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
         M: crate::subscription_manager::SubscriptionOps,
     {
+        let generation = settings.generation;
+
         // Spawn the processing loop
         let cancellation_token = CancellationToken::new();
 
@@ -337,6 +333,7 @@ impl SessionController {
 
         Self {
             id,
+            generation,
             source,
             destination,
             config,
@@ -609,11 +606,6 @@ impl SessionController {
         // Start with an effectively-infinite timeout (updated on graceful shutdown).
         let mut shutdown_deadline = std::pin::pin!(crate::runtime::infinite_sleep());
 
-        // Init the inner components
-        if let Err(e) = inner.init().await {
-            tracing::error!(error = %e.chain(), "error during initialization of session");
-        }
-
         // Seen control-message ids per remote sender (E2E replay protection).
         let mut seen_control_message_ids: LruCache<ProtoName, LruCache<u32, ()>> =
             LruCache::new(NonZeroUsize::new(MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE).unwrap());
@@ -786,6 +778,7 @@ impl SessionController {
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
                 session_id: settings.id,
+                generation: settings.generation,
             }))
             .await;
     }
@@ -793,6 +786,11 @@ impl SessionController {
     /// getters
     pub fn id(&self) -> u32 {
         self.id
+    }
+
+    /// See [`SessionSettings::generation`].
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn source(&self) -> &ProtoName {
@@ -1631,7 +1629,7 @@ mod tests {
             self
         }
 
-        fn build(
+        async fn build(
             self,
         ) -> (
             SessionController,
@@ -1665,6 +1663,7 @@ mod tests {
                 .ready()
                 .expect("failed to validate builder")
                 .build()
+                .await
                 .expect("failed to build controller");
 
             (controller, rx_slim, rx_app)
@@ -2113,7 +2112,8 @@ mod tests {
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_mls_enabled(true)
             .with_metadata(metadata)
-            .build();
+            .build()
+            .await;
 
         assert_eq!(controller.id(), 42);
         assert_eq!(
@@ -2139,7 +2139,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_basic() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello World".to_vec();
@@ -2163,7 +2163,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello to specific connection".to_vec();
@@ -2189,7 +2190,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello with metadata".to_vec();
@@ -2216,7 +2218,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2235,7 +2238,8 @@ mod tests {
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_initiator(false)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "new_participant"]);
 
@@ -2247,7 +2251,8 @@ mod tests {
     async fn test_invite_participant_p2p_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::PointToPoint)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2261,7 +2266,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2280,7 +2286,8 @@ mod tests {
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_initiator(false)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2292,7 +2299,8 @@ mod tests {
     async fn test_remove_participant_p2p_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::PointToPoint)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2341,7 +2349,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_controller_drop_cancels_processing() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
@@ -2356,7 +2364,8 @@ mod tests {
     async fn test_close_success() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_graceful_shutdown_timeout(std::time::Duration::from_secs(2))
-            .build();
+            .build()
+            .await;
 
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
@@ -2374,7 +2383,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_already_closed() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         // Leave once - should succeed
         let handle = controller.close();
@@ -2397,7 +2406,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_cancels_token_immediately() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let token = controller.cancellation_token.clone();
 
@@ -2417,7 +2426,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_on_message_direction_north() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let test_message = Message::builder()
             .source(controller.dst().clone())
@@ -2441,7 +2450,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let target = ProtoName::from_strings(["org", "ns", "target"]);
         let discovery_msg = controller
@@ -2501,6 +2511,7 @@ mod tests {
             .ready()
             .expect("failed to validate builder")
             .build()
+            .await
             .unwrap();
 
         // create a SessionParticipant
@@ -2533,6 +2544,7 @@ mod tests {
             .ready()
             .expect("failed to validate builder")
             .build()
+            .await
             .unwrap();
 
         let completion_handle = moderator
@@ -2991,6 +3003,7 @@ mod tests {
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let settings = SessionSettings {
             id: 999,
+            generation: 0,
             source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
             destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
             control: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
@@ -3343,6 +3356,119 @@ mod tests {
         );
     }
 
+    /// A shared-secret verifier that keeps the signer's key out of the claims and hands it
+    /// out through `get_public_key` only, as a verifier with a did:key-like scheme would. With
+    /// `Some(key)` it returns that key instead of the signer's.
+    #[derive(Clone)]
+    struct KeyNotInClaims(SharedSecret, Option<Vec<u8>>);
+
+    impl KeyNotInClaims {
+        fn without_pubkey(mut claims: Value) -> Value {
+            if let Some(map) = claims.as_object_mut() {
+                map.remove("pubkey");
+                if let Some(custom) = map.get_mut("custom_claims").and_then(Value::as_object_mut) {
+                    custom.remove("pubkey");
+                }
+            }
+            claims
+        }
+    }
+
+    impl slim_auth::traits::Verifier for KeyNotInClaims {
+        async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        async fn verify(
+            &self,
+            token: impl AsRef<str> + Send,
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            self.0.verify(token).await
+        }
+        fn try_verify(&self, token: impl AsRef<str>) -> Result<(), slim_auth::errors::AuthError> {
+            self.0.try_verify(token)
+        }
+        async fn get_claims<C>(
+            &self,
+            token: impl AsRef<str> + Send,
+        ) -> Result<C, slim_auth::errors::AuthError>
+        where
+            C: serde::de::DeserializeOwned + Send,
+        {
+            let claims: Value = self.0.get_claims(token).await?;
+            Ok(serde_json::from_value(Self::without_pubkey(claims))?)
+        }
+        fn try_get_claims<C>(
+            &self,
+            token: impl AsRef<str>,
+        ) -> Result<C, slim_auth::errors::AuthError>
+        where
+            C: serde::de::DeserializeOwned + Send,
+        {
+            let claims: Value = self.0.try_get_claims(token)?;
+            Ok(serde_json::from_value(Self::without_pubkey(claims))?)
+        }
+        async fn get_public_key(
+            &self,
+            token: impl AsRef<str> + Send,
+        ) -> Result<Vec<u8>, slim_auth::errors::AuthError> {
+            match &self.1 {
+                Some(key) => Ok(key.clone()),
+                None => self.0.get_public_key(token).await,
+            }
+        }
+        fn try_get_subject(
+            &self,
+            token: impl AsRef<str>,
+        ) -> Result<String, slim_auth::errors::AuthError> {
+            self.0.try_get_subject(token)
+        }
+        fn try_verify_key_binding(
+            &self,
+            token: impl AsRef<str>,
+            public_key: &[u8],
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            self.0.try_verify_key_binding(token, public_key)
+        }
+    }
+
+    /// The signature on a control message is checked with the key the verifier returns,
+    /// not with a `pubkey` claim the session layer would read itself.
+    #[tokio::test]
+    async fn the_signers_key_comes_from_the_verifier_not_from_a_claim() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let mut msg = join_request(&peer, None);
+        sign_outbound_control_message(&mut msg, &peer).unwrap();
+
+        let verifier = KeyNotInClaims(peer.clone(), None);
+        let claims: Value = slim_auth::traits::Verifier::get_claims(
+            &verifier,
+            msg.get_slim_header().get_identity(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            claims.get("pubkey").is_none(),
+            "the test verifier hides the claim"
+        );
+
+        assert!(verify_identity(&msg, &verifier, true).await.is_ok());
+    }
+
+    /// It is the key the verifier returns that counts: another key than the signer's fails
+    /// the signature check, though the token itself is valid.
+    #[tokio::test]
+    async fn a_key_other_than_the_signers_fails_verification() {
+        let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
+        let other = SharedSecret::new("other", SHARED_SECRET).unwrap();
+        let mut msg = join_request(&peer, None);
+        sign_outbound_control_message(&mut msg, &peer).unwrap();
+
+        let other_key = other.get_signature_keys().unwrap().1;
+        assert_ne!(other_key, peer.get_signature_keys().unwrap().1);
+        let verifier = KeyNotInClaims(peer.clone(), Some(other_key));
+        assert!(verify_identity(&msg, &verifier, true).await.is_err());
+    }
+
     #[tokio::test]
     async fn a_control_messages_payload_and_metadata_are_signed() {
         let peer = SharedSecret::new("peer", SHARED_SECRET).unwrap();
@@ -3520,6 +3646,7 @@ mod tests {
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         SessionSettings {
             id: 1,
+            generation: 0,
             source: ProtoName::from_strings(["org", "ns", "test"]).with_id(1),
             destination: ProtoName::from_strings(["org", "ns", "test"]).with_id(2),
             control: ProtoName::from_strings(["org", "ns", "test"]).with_id(2),

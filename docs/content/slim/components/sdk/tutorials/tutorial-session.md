@@ -30,7 +30,10 @@ A point-to-point session connects your application to a single remote instance. 
         session_type: ProtoSessionType::PointToPoint,
         max_retries: Some(5),
         interval: Some(Duration::from_secs(5)),
-        mls_settings: Some(MlsSettings::default()),
+        mls_settings: Some(MlsSettings {
+            header_integrity_validation_percent: 100,
+            ..Default::default()
+        }),
         initiator: true,
         metadata: HashMap::new(),
     };
@@ -80,13 +83,18 @@ A point-to-point session connects your application to a single remote instance. 
     import (
         "fmt"
         "log"
+        "time"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v3"
     )
 
     func runClient(app *slim.App, remoteName *slim.Name) *slim.Session {
+        maxRetries := uint32(5)
+        interval := 5 * time.Second
         config := slim.SessionConfig{
             SessionType: slim.SessionTypePointToPoint,
+            MaxRetries:  &maxRetries,
+            Interval:    &interval,
             MlsSettings: &slim.MlsSettings{
                 HeaderIntegrityValidationPercent: 100,
             },
@@ -111,7 +119,7 @@ A point-to-point session connects your application to a single remote instance. 
     import java.time.Duration;
     import java.util.Map;
 
-    Session runClient(App app, Name remoteName) {
+    Session runClient(App app, Name remoteName) throws Exception {
         SessionConfig sessionConfig = new SessionConfig(
             SessionType.POINT_TO_POINT,
             5,                       // maxRetries
@@ -232,7 +240,10 @@ A group session enables many-to-many communication on a named channel. Every mes
         session_type: ProtoSessionType::Multicast,
         max_retries: Some(5),
         interval: Some(Duration::from_secs(5)),
-        mls_settings: Some(MlsSettings::default()),
+        mls_settings: Some(MlsSettings {
+            header_integrity_validation_percent: 100,
+            ..Default::default()
+        }),
         initiator: true,
         metadata: HashMap::new(),
     };
@@ -275,8 +286,12 @@ A group session enables many-to-many communication on a named channel. Every mes
 
     ```go
     func createGroupSession(app *slim.App, channelName *slim.Name) *slim.Session {
+        maxRetries := uint32(5)
+        interval := 5 * time.Second
         config := slim.SessionConfig{
             SessionType: slim.SessionTypeGroup,
+            MaxRetries:  &maxRetries,
+            Interval:    &interval,
             MlsSettings: &slim.MlsSettings{
                 HeaderIntegrityValidationPercent: 100,
             },
@@ -297,7 +312,7 @@ A group session enables many-to-many communication on a named channel. Every mes
 === "Java"
 
     ```java
-    Session createGroupSession(App app, Name channelName) {
+    Session createGroupSession(App app, Name channelName) throws Exception {
         SessionConfig sessionConfig = new SessionConfig(
             SessionType.GROUP,
             5,                       // maxRetries
@@ -410,7 +425,7 @@ routing is required when `default_gateway` is set to `off`.
     let participant_name = ProtoName::from_strings(["myorg", "default", "participant"]);
 
     // Invite — performs discovery + MLS key exchange
-    session.invite_participant(&participant_name).await?;
+    session.invite_participant(&participant_name).await?.await?;
     println!("Invited participant to the group");
     ```
 
@@ -440,7 +455,7 @@ routing is required when `default_gateway` is set to `off`.
 === "Java"
 
     ```java
-    void inviteParticipant(Session session, Name participantName) {
+    void inviteParticipant(Session session, Name participantName) throws Exception {
         // Invite the participant — this performs discovery + MLS key exchange
         session.inviteAndWait(participantName);
 
@@ -560,7 +575,9 @@ After sending, call `get_message_async` to wait for an inbound message on the sa
     // Messages arrive via spawn_receiver on the session context
     ctx.spawn_receiver(|mut msg_rx, _| async move {
         if let Some(Ok(msg)) = msg_rx.recv().await {
-            println!("Received: {}", String::from_utf8_lossy(msg.payload()));
+            if let Some(payload) = msg.get_payload().and_then(|c| c.as_application_payload().ok()) {
+                println!("Received: {}", String::from_utf8_lossy(&payload.blob));
+            }
         }
     });
     ```
@@ -636,8 +653,10 @@ In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends 
 === "Rust"
 
     ```rust
-    // Use the source context from a received message to send directly to that participant
-    session.publish_to(msg.source(), b"private reply".to_vec(), None, None).await?;
+    // Reply to the sender of a received message, on the connection it arrived on
+    session
+        .publish_to(&msg.get_source(), msg.get_incoming_conn(), b"private reply".to_vec(), None, None)
+        .await?;
     ```
 
 === "Python"
@@ -711,7 +730,7 @@ Always call `close` when you are finished with a session. This notifies the remo
 
     ```rust
     // Close the session and wait for the operation to complete
-    session.close().await?.await?;
+    session.close()?.await?;
     ```
 
 === "Python"
@@ -749,7 +768,8 @@ Always call `close` when you are finished with a session. This notifies the remo
 === ".NET"
 
     ```csharp
-    await session.CloseAndWaitAsync();
+    // Closing goes through the app that owns the session
+    await app.DeleteSessionAsync(session);
     ```
 
 === "React Native"
@@ -769,7 +789,7 @@ By default, if `max_retries` and `interval` are omitted (or set to `null`/`nil`)
 
 When `max_retries` and `interval` are set, the session layer requests an acknowledgement for each message. If no ack arrives within `interval`, the message is resent. This repeats up to `max_retries` times before the session reports a delivery failure to your application.
 
-The code examples in this tutorial use `max_retries=5` and a 5-second interval. Set both to `null`/`nil`/`0` for unreliable (fire-and-forget) delivery.
+The code examples in this tutorial use `max_retries=5` and a 5-second interval. Leave both unset (`None`/`null`/`nil`) for unreliable (fire-and-forget) delivery; setting `max_retries` to `0` still requests acknowledgements, it just never retransmits. The .NET `SlimSessionConfig` always sets both (defaults: 5 retries, 1-second `RetryInterval`), so .NET sessions are always reliable.
 
 ### End-to-End Encryption
 

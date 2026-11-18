@@ -44,7 +44,7 @@ impl PeerIdentity {
 
     /// From a verified token's claims.
     pub(crate) fn from_claims(claims: &Value) -> Option<Self> {
-        let subject = IdentityClaims::from_json(claims).ok()?.subject;
+        let subject = IdentityClaims::subject_from_json(claims).ok()?;
         let issuer = claims
             .get("iss")
             .and_then(Value::as_str)

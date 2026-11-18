@@ -9,12 +9,12 @@ This page covers running the Channel Manager as a container and on Kubernetes: w
 The release image is published to the GitHub registry and runs the binary directly:
 
 ```bash
-docker pull ghcr.io/agntcy/slim/channel-manager:2.0.0
+docker pull ghcr.io/agntcy/slim/channel-manager:3.4.6
 docker run --rm \
   -v "$PWD/config.yaml:/config.yaml:ro" \
   -p 10356:10356 \
   -e CM_PASSPHRASE \
-  ghcr.io/agntcy/slim/channel-manager:2.0.0 --config-file /config.yaml
+  ghcr.io/agntcy/slim/channel-manager:3.4.6 --config-file /config.yaml
 ```
 
 The image is built `FROM gcr.io/distroless/base-nossl-debian12:nonroot`, so it has no shell and runs as a non-root user. Its entrypoint is `/channel-manager`, and the only argument it needs is `--config-file`. A `channel-manager-debug` image built on `debian:bookworm-slim` carries a shell and debug symbols, for when something has to be inspected in place.

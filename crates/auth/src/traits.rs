@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
+use crate::identity_claims::IdentityClaims;
 use crate::metadata::MetadataMap;
 
 /// Standard JWT Claims structure that includes the registered claims
@@ -84,6 +85,97 @@ pub trait Verifier {
     fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
+
+    /// Verifies the token and returns the subject it identifies, without async context.
+    ///
+    /// Required rather than defaulted, so a verifier that wraps another (or binds
+    /// keys differently, e.g. DPoP) cannot silently lose an override. Verifiers
+    /// whose tokens carry the subject as a plain claim can call
+    /// [`subject_from_claims`].
+    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError>;
+
+    /// Verifies the token and checks that it is bound to `public_key` (e.g. the
+    /// MLS signature public key), without async context. Fails with
+    /// [`AuthError::PublicKeyMismatch`] if the token is bound to a different key.
+    ///
+    /// Required for the same reason as [`Verifier::try_get_subject`]. Verifiers
+    /// whose tokens carry the base64-encoded key in a `pubkey` claim can call
+    /// [`verify_pubkey_claim_binding`]; others (e.g. DPoP `cnf`/`jkt`
+    /// confirmation) check their own binding.
+    ///
+    /// Only MLS calls this method. A verifier for a scheme that has no MLS support returns
+    /// [`AuthError::MlsNotSupported`] from it.
+    fn try_verify_key_binding(
+        &self,
+        token: impl AsRef<str>,
+        public_key: &[u8],
+    ) -> Result<(), AuthError>;
+
+    /// Verifies the token and returns the public key its holder signs control messages
+    /// with, as raw bytes in the encoding of the MLS signature keys. The session layer
+    /// checks the signature of a control message with this key.
+    ///
+    /// Required for the same reason as [`Verifier::try_get_subject`]. Verifiers whose
+    /// tokens carry the base64-encoded key in a `pubkey` claim can call
+    /// [`public_key_from_claims`]; others take the key from wherever their scheme
+    /// puts it, as long as it can be recovered from the token alone (a did:key
+    /// identifier holds the key, for instance; a thumbprint such as a DPoP `jkt` does
+    /// not, since it is a hash of the key).
+    ///
+    /// The encoding picks the signature algorithm: 32 bytes for Ed25519, 33 or 65 bytes
+    /// for a SEC1-encoded P-256 key.
+    ///
+    /// Unlike [`Verifier::try_verify_key_binding`], this is not specific to MLS: the session
+    /// layer checks the signature of the discovery and join requests that open every
+    /// session, MLS or not. A verifier that cannot return a key therefore cannot be used
+    /// for sessions.
+    async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError>;
+}
+
+/// The subject of a verified token whose subject is a plain claim: `sub`, falling
+/// back to `id` when `sub` is missing (for `SharedSecret` compatibility).
+pub fn subject_from_claims<V: Verifier + ?Sized>(
+    verifier: &V,
+    token: impl AsRef<str>,
+) -> Result<String, AuthError> {
+    let claims: serde_json::Value = verifier.try_get_claims(token)?;
+    IdentityClaims::subject_from_json(&claims)
+}
+
+/// The public key of a verified token that carries it, base64-encoded, in its `pubkey`
+/// claim (top level or under `custom_claims`).
+pub async fn public_key_from_claims<V: Verifier + Sync + ?Sized>(
+    verifier: &V,
+    token: impl AsRef<str> + Send,
+) -> Result<Vec<u8>, AuthError> {
+    use base64::Engine as _;
+
+    let claims: serde_json::Value = verifier.get_claims(token).await?;
+    let encoded = IdentityClaims::public_key_from_json(&claims)?;
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| AuthError::TokenMalformed)
+}
+
+/// Check that a verified token carries `public_key`, base64-encoded, in its
+/// `pubkey` claim (top level or under `custom_claims`).
+pub fn verify_pubkey_claim_binding<V: Verifier + ?Sized>(
+    verifier: &V,
+    token: impl AsRef<str>,
+    public_key: &[u8],
+) -> Result<(), AuthError> {
+    let claims: serde_json::Value = verifier.try_get_claims(token)?;
+    let subject = IdentityClaims::subject_from_json(&claims)?;
+    let found = IdentityClaims::public_key_from_json(&claims)?;
+    let expected = IdentityClaims::encode_public_key(public_key);
+    if found != expected {
+        return Err(AuthError::PublicKeyMismatch {
+            subject,
+            expected,
+            found,
+        });
+    }
+    Ok(())
 }
 
 /// Trait for signing JWT claims
@@ -160,9 +252,12 @@ pub trait TokenProvider {
     /// whether to generate a fresh key pair via its own crypto provider (first
     /// use) or reuse the already-installed one — the latter lets an app and all
     /// sessions cloned from it share a single signing identity. Defaults to
-    /// `false`.
-    fn mls_signature_keys_installed(&self) -> bool {
-        false
+    /// `Ok(false)`.
+    ///
+    /// An error is reported and never read as "not installed", which would replace the keys
+    /// every session shares.
+    fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
+        Ok(false)
     }
 
     /// Replace the MLS signature key pair with externally-generated keys.
@@ -180,9 +275,17 @@ pub trait TokenProvider {
     /// Export the provider's persistable identity (stable id, credential, MLS
     /// keypair), or `None` if this provider does not support full-identity
     /// persistence. Used to save an app's identity so it can be restored
-    /// verbatim after a restart.
-    fn export_identity(&self) -> Option<ExportedIdentity> {
-        None
+    /// verbatim after a restart. `Err` means the identity could not be read: session state
+    /// that depends on it must not be saved either.
+    fn export_identity(&self) -> Result<Option<ExportedIdentity>, AuthError> {
+        Ok(None)
+    }
+
+    /// Whether the MLS signing key is a long-term key that persisted group state would expose.
+    /// An error is reported, not read as either answer: opening a persistent store then
+    /// assumes `true`, and restoring a persisted MLS group fails.
+    fn holds_long_term_signing_key(&self) -> Result<bool, AuthError> {
+        Ok(false)
     }
 
     /// Rebuild this provider from a previously [`export_identity`]-ed identity,
@@ -202,6 +305,222 @@ pub trait TokenProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    /// Verifier whose "verified" claims are fixed, to exercise the default
+    /// subject and key-binding methods.
+    struct FixedClaims(serde_json::Value);
+
+    impl Verifier for FixedClaims {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        async fn verify(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        async fn get_claims<Claims>(
+            &self,
+            _token: impl AsRef<str> + Send,
+        ) -> Result<Claims, AuthError>
+        where
+            Claims: DeserializeOwned + Send,
+        {
+            Ok(serde_json::from_value(self.0.clone())?)
+        }
+
+        fn try_get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
+        where
+            Claims: DeserializeOwned + Send,
+        {
+            Ok(serde_json::from_value(self.0.clone())?)
+        }
+
+        async fn get_public_key(
+            &self,
+            token: impl AsRef<str> + Send,
+        ) -> Result<Vec<u8>, AuthError> {
+            public_key_from_claims(self, token).await
+        }
+
+        fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+            subject_from_claims(self, token)
+        }
+
+        fn try_verify_key_binding(
+            &self,
+            token: impl AsRef<str>,
+            public_key: &[u8],
+        ) -> Result<(), AuthError> {
+            verify_pubkey_claim_binding(self, token, public_key)
+        }
+    }
+
+    /// Verifier that binds keys its own way, ignoring the `pubkey` claim.
+    struct CnfBound;
+
+    impl Verifier for CnfBound {
+        async fn initialize(&mut self) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        async fn verify(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
+            Ok(())
+        }
+
+        async fn get_claims<Claims>(
+            &self,
+            _token: impl AsRef<str> + Send,
+        ) -> Result<Claims, AuthError>
+        where
+            Claims: DeserializeOwned + Send,
+        {
+            Err(AuthError::TokenInvalid)
+        }
+
+        fn try_get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
+        where
+            Claims: DeserializeOwned + Send,
+        {
+            Err(AuthError::TokenInvalid)
+        }
+
+        async fn get_public_key(
+            &self,
+            _token: impl AsRef<str> + Send,
+        ) -> Result<Vec<u8>, AuthError> {
+            // The key is not in a claim: this scheme knows it from the `cnf` binding.
+            Ok(b"bound".to_vec())
+        }
+
+        fn try_get_subject(&self, _token: impl AsRef<str>) -> Result<String, AuthError> {
+            Ok("dpop-sub".to_string())
+        }
+
+        fn try_verify_key_binding(
+            &self,
+            _token: impl AsRef<str>,
+            public_key: &[u8],
+        ) -> Result<(), AuthError> {
+            if public_key == b"bound" {
+                Ok(())
+            } else {
+                Err(AuthError::TokenInvalid)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn public_key_from_claims_decodes_the_pubkey_claim() {
+        let key = b"the-key";
+        let top = FixedClaims(json!({ "pubkey": IdentityClaims::encode_public_key(key) }));
+        assert_eq!(public_key_from_claims(&top, "t").await.unwrap(), key);
+
+        let nested = FixedClaims(json!({
+            "custom_claims": { "pubkey": IdentityClaims::encode_public_key(key) },
+        }));
+        assert_eq!(public_key_from_claims(&nested, "t").await.unwrap(), key);
+    }
+
+    #[tokio::test]
+    async fn public_key_from_claims_rejects_a_missing_or_malformed_key() {
+        let missing = FixedClaims(json!({ "sub": "alice" }));
+        assert!(matches!(
+            public_key_from_claims(&missing, "t").await,
+            Err(AuthError::PublicKeyNotFound)
+        ));
+
+        let malformed = FixedClaims(json!({ "pubkey": "not base64!" }));
+        assert!(matches!(
+            public_key_from_claims(&malformed, "t").await,
+            Err(AuthError::TokenMalformed)
+        ));
+    }
+
+    /// A verifier does not have to keep the key in a claim.
+    #[tokio::test]
+    async fn a_verifier_can_supply_the_key_without_a_claim() {
+        assert_eq!(CnfBound.get_public_key("t").await.unwrap(), b"bound");
+    }
+
+    #[test]
+    fn pubkey_claim_binding_accepts_the_matching_pubkey_claim() {
+        let key = b"the-key";
+        let v = FixedClaims(json!({
+            "sub": "alice",
+            "pubkey": IdentityClaims::encode_public_key(key),
+        }));
+        assert!(v.try_verify_key_binding("t", key).is_ok());
+    }
+
+    #[test]
+    fn pubkey_claim_binding_reads_pubkey_from_custom_claims() {
+        let key = b"the-key";
+        let v = FixedClaims(json!({
+            "sub": "alice",
+            "custom_claims": { "pubkey": IdentityClaims::encode_public_key(key) },
+        }));
+        assert!(v.try_verify_key_binding("t", key).is_ok());
+    }
+
+    #[test]
+    fn pubkey_claim_binding_rejects_a_different_key_and_names_the_subject() {
+        let v = FixedClaims(json!({
+            "sub": "alice",
+            "pubkey": IdentityClaims::encode_public_key(b"the-key"),
+        }));
+        match v.try_verify_key_binding("t", b"other-key") {
+            Err(AuthError::PublicKeyMismatch { subject, .. }) => assert_eq!(subject, "alice"),
+            other => panic!("expected PublicKeyMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pubkey_claim_binding_rejects_a_token_without_pubkey() {
+        let v = FixedClaims(json!({ "sub": "alice" }));
+        assert!(matches!(
+            v.try_verify_key_binding("t", b"k"),
+            Err(AuthError::PublicKeyNotFound)
+        ));
+    }
+
+    #[test]
+    fn claims_subject_reads_sub_and_falls_back_to_id() {
+        let v = FixedClaims(json!({ "sub": "alice", "id": "other" }));
+        assert_eq!(v.try_get_subject("t").unwrap(), "alice");
+
+        let v = FixedClaims(json!({ "id": "legacy-id" }));
+        assert_eq!(v.try_get_subject("t").unwrap(), "legacy-id");
+
+        let v = FixedClaims(json!({}));
+        assert!(matches!(
+            v.try_get_subject("t"),
+            Err(AuthError::SubjectNotFound)
+        ));
+    }
+
+    #[test]
+    fn claims_subject_does_not_need_a_pubkey_claim() {
+        let v = FixedClaims(json!({ "sub": "alice" }));
+        assert_eq!(v.try_get_subject("t").unwrap(), "alice");
+    }
+
+    #[test]
+    fn verifiers_can_override_subject_and_key_binding() {
+        let v = CnfBound;
+        assert_eq!(v.try_get_subject("t").unwrap(), "dpop-sub");
+        assert!(v.try_verify_key_binding("t", b"bound").is_ok());
+        assert!(v.try_verify_key_binding("t", b"other").is_err());
+    }
 
     /// Minimal provider that implements only the required methods, leaving the
     /// MLS signature-key methods to their default `MlsNotSupported` impls.

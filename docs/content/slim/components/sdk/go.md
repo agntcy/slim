@@ -1,13 +1,13 @@
 # Go SDK
 
-The SLIM Go SDK (`github.com/agntcy/slim-bindings-go`) provides an idiomatic Go API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-go](https://github.com/NordSecurity/uniffi-bindgen-go), with native libraries loaded through CGO.
+The SLIM Go SDK (`github.com/agntcy/slim-bindings-go/v3`) provides an idiomatic Go API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-go](https://github.com/NordSecurity/uniffi-bindgen-go), with native libraries loaded through CGO.
 
 ## Requirements
 
 | | |
 |---|---|
 | **Runtime** | Go 1.23 or higher |
-| **Package** | [`github.com/agntcy/slim-bindings-go`](https://github.com/agntcy/slim-bindings-go) |
+| **Package** | [`github.com/agntcy/slim-bindings-go/v3`](https://github.com/agntcy/slim-bindings-go) |
 | **Build tools** | C compiler (GCC or Clang) for CGO |
 | **Examples** | [go/examples](https://github.com/agntcy/slim-bindings/tree/main/go/examples) in slim-bindings |
 
@@ -19,16 +19,22 @@ Go's module system requires source hosting rather than a package registry, so th
 ## Installation
 
 ```bash
-go get github.com/agntcy/slim-bindings-go
+go get github.com/agntcy/slim-bindings-go/v3
 ```
 
 Then run the setup tool to install the native libraries:
 
 ```bash
-go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+go run github.com/agntcy/slim-bindings-go/v3/cmd/slim-bindings-setup
 ```
 
-Setup is one-time per machine. The tool downloads or copies the native library for your OS and architecture.
+The tool downloads the native library for your OS and architecture from the matching GitHub release and caches it under `$GOPATH/.cgo-cache/slim-bindings/<version>`. Run it again whenever you upgrade to a new binding version.
+
+Import the package under the `slim` alias used throughout these docs:
+
+```go
+import slim "github.com/agntcy/slim-bindings-go/v3"
+```
 
 ## Getting Started
 

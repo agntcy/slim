@@ -66,7 +66,7 @@ Stay up to date with announcements, tutorials, and technical deep dives from the
 
 - :fontawesome-brands-github:{ .lg .middle } **[agntcy/slim-bindings-go](https://github.com/agntcy/slim-bindings-go)**
 
-    Go language bindings — `go get github.com/agntcy/slim-bindings-go`.
+    Go language bindings — `go get github.com/agntcy/slim-bindings-go/v3`.
 
 - :fontawesome-brands-github:{ .lg .middle } **[agntcy/slim-mcp-python](https://github.com/agntcy/slim-mcp-python)**
 

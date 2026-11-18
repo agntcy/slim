@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.6...slim-rpc-v3.5.0) - 2026-11-18
+
+### Added
+
+- *(auth,bindings)* custom identity providers and verifiers implemented in foreign languages ([#2389](https://github.com/agntcy/slim/pull/2389))
+- *(rpc)* stop a call's handler when its caller drops it ([#2379](https://github.com/agntcy/slim/pull/2379))
+- *(rpc)* mark SLIMRPC sessions ([#2378](https://github.com/agntcy/slim/pull/2378))
+
+### Fixed
+
+- *(rpc)* bound unconfirmed sends in streams ([#2377](https://github.com/agntcy/slim/pull/2377))
+- *(rpc)* don't panic on a malformed slimrpc-timeout ([#2376](https://github.com/agntcy/slim/pull/2376))
+- *(rpc)* check message headers in MLS sessions ([#2355](https://github.com/agntcy/slim/pull/2355))
+
+### Other
+
+- update and fix bindings documentation ([#2346](https://github.com/agntcy/slim/pull/2346))
+
 ## [3.4.5](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.4...slim-rpc-v3.4.5) - 2026-10-18
 
 ### Fixed

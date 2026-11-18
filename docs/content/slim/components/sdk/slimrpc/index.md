@@ -31,7 +31,7 @@ For example, a server with SLIM name `myorg/default/my-service` handles every me
 
 The SLIMRPC channel maintains **one persistent SLIM session** to the remote server. All concurrent RPC calls share that session — there is no per-method session negotiation.
 
-```
+```text
 Client                               Server
   │                                     │
   │── session establishment ───────────►│
@@ -60,6 +60,25 @@ This allows many concurrent RPC calls — unary or streaming — to share a sing
 
 The channel creates the SLIM session on the first RPC call and reuses it for all subsequent calls. If the session dies, the channel recreates it transparently on the next call.
 
+### Session Marker
+
+Each session a channel opens carries `slimrpc-session=1` in its metadata. A server takes every session on its name, so an app that also accepts plain sessions on that name reads its own session notifications and passes only the marked ones to the server. In Rust, `is_slimrpc_session` checks a new session for the marker.
+
+### Cancellation
+
+A caller cancels a call by giving up on its response. The channel then sends a message with the call's `rpc-id` and `slimrpc-dir=cancel`, and the server stops that call's handler. Only the peer that made a call can cancel it. A server from a release without cancellation drops the message, and its handler runs until it finishes or reaches the call's deadline.
+
+In Rust, giving up means:
+
+- **Unary-unary and stream-unary:** abandoning the call while it waits for its response, for example when a timeout around it fires.
+- **Unary-stream and stream-stream:** dropping the response stream before the server has ended it.
+
+In the other languages, call `cancel()` on the object the call returns: the response reader of a unary-stream call, the request writer of a stream-unary call, or the handler of a stream-stream call, and the same for multicast calls. Responses already received can still be read. After them, the next read returns a `Cancelled` error, and sending fails. A unary-unary call has no such object; set a deadline instead.
+
+Ending the request stream is not a cancel. It only tells the server that no more requests are coming (`close_send` on a stream-stream call). The server keeps running the call, and its responses can still be received. Dropping a whole channel closes its session, which stops every handler running on it.
+
+Letting a response reader or a stream-stream handler go without calling `cancel()` also cancels the call, but not until the next response arrives, and the language's garbage collector decides when the object goes. A request writer that is let go only ends its requests.
+
 ## Multicast RPC
 
 A group channel fans out a single RPC call to multiple servers simultaneously. Create the channel with `Channel.new_group_with_connection` (or the language-specific equivalent), passing a list of server names. Responses arrive as an async stream of `(context, response)` pairs, one per server.
@@ -68,15 +87,15 @@ This is useful for broadcasting configuration, querying multiple services, or sc
 
 ## Verified Peers
 
-A readable name doesn't say who answers: any app trusted by your verifier can subscribe under it. To know, or require, the identity of the peers you call (in Rust today):
+A readable name doesn't say who answers: any app trusted by your verifier can subscribe under it. To know, or require, the identity of the peers you call:
 
-- **See who answered.** `Channel::peer_identity()` returns the verified identity of a point-to-point channel's server. The `multicast_*_verified` methods yield each response with its sender's full name, id included, and the identity that member was verified as.
-- **See who called.** In a handler, `ctx.peer_subject()` is the verified identity of the peer that sent the request: with MLS, the member that sent it, also in a group.
-- **Require an identity.** `Channel::new_pinned` and `Channel::new_group_pinned` take the `sub` each peer must be verified as, its DID for a `did:key` identity. A peer verified as anyone else is never admitted, and the call fails.
+- **See who answered** (Rust only today). `Channel::peer_identity()` returns the verified identity of a point-to-point channel's server. The `multicast_*_verified` methods yield each response with its sender's full name, id included, and the identity that member was verified as.
+- **See who called.** In a handler, `ctx.peer_subject()` is the verified identity of the peer that sent the request: with MLS, the member that sent it, also in a group. `ctx.peer_issuer()` is its issuer (`iss`), when known. Both are available on the handler context in Rust, Python, Java, Kotlin, and Node.js (as `peerSubject()` / `peerIssuer()` in Java, Kotlin, and Node.js). In Go, generated handlers read them from their `context.Context` with `slim_rpc.PeerSubjectFromContext(ctx)` / `slim_rpc.PeerIssuerFromContext(ctx)`, which return `("", false)` when unknown; in .NET, `SlimRpcContext` has `PeerSubject` / `PeerIssuer`, `null` when unknown.
+- **Require an identity** (Rust only today). `Channel::new_pinned` and `Channel::new_group_pinned` take the `sub` each peer must be verified as, its DID for a `did:key` identity. A peer verified as anyone else is never admitted, and the call fails.
 
 ## Supported Languages
 
-SLIMRPC code generation is supported for Python, Go, Java, Kotlin, and .NET (C#). See the [Compiler](./compiler.md) page for installation and usage. For .NET runtime details and the `Agntcy.Slim.SlimRpc` namespace, see the [.NET SDK guide](../dotnet.md).
+SLIMRPC code generation is supported for Python, Go, Java, Kotlin, .NET (C#), and Node.js / TypeScript. See the [Compiler](./compiler.md) page for installation and usage. For .NET runtime details and the `Agntcy.Slim.SlimRpc` namespace, see the [.NET SDK guide](../dotnet.md).
 
 ## Tutorials
 

@@ -336,6 +336,7 @@ impl From<ClientConfig> for CoreClientConfig {
             rate_limit: config.rate_limit,
             tls_setting: config.tls.into(),
             keepalive: config.keepalive.map(Into::into),
+            tcp_nodelay: core_defaults.tcp_nodelay,
             proxy: config.proxy.map(Into::into).unwrap_or(core_defaults.proxy),
             connect_timeout: config
                 .connect_timeout

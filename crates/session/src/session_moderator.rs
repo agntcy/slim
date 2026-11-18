@@ -153,9 +153,7 @@ where
                 )
                 .with_enforce_pqc(self.common.settings.enforce_pqc);
                 let mut mls_state =
-                    MlsState::new(mls, mls_settings.header_integrity_validation_percent)
-                        .await
-                        .expect("failed to create MLS state");
+                    MlsState::new(mls, mls_settings.header_integrity_validation_percent).await?;
                 mls_state.identity_binding = self.common.settings.identity_binding;
                 Some(MlsModeratorState::new(mls_state))
             } else {
@@ -486,16 +484,31 @@ where
             },
         );
 
+        // The identity must land first: a session record is only restorable with
+        // the identity (MLS key) its group was built with. The MLS layer's
+        // provider holds the group leaf's key; the settings clone may not.
+        let identity_provider = self
+            .mls_state
+            .as_ref()
+            .map_or(&self.common.settings.identity_provider, |m| {
+                m.common.mls.identity_provider()
+            });
+        if persistence::persist_app_identity(kv, identity_provider)
+            == persistence::AppIdentity::Failed
+        {
+            tracing::error!(
+                session_id = self.common.settings.id,
+                "skipping moderator session record: app identity not persisted"
+            );
+            return;
+        }
+
         if let Err(e) = record
             .to_bytes()
             .and_then(|bytes| Ok(kv.put(&persistence::session_key(record.session_id), &bytes)?))
         {
             tracing::error!(error = %e, session_id = self.common.settings.id, "failed to persist moderator session state");
         }
-
-        // Save the app identity (now carrying the MLS-installed keypair) so a
-        // restart restores the exact identity this session was built with.
-        persistence::persist_app_identity(kv, &self.common.settings.identity_provider);
     }
 
     #[maybe_async::maybe_async]
@@ -2026,10 +2039,10 @@ where
             let control = self.common.settings.control.clone();
 
             // Restore the control sender's group name so heartbeats resume after
-            // a restart, matching what `on_join_request` does for a fresh join.
-            // Without it a restored session that then sits idle emits no
-            // heartbeats. For multicast the heartbeat/control traffic uses the
-            // control name.
+            // a restart, matching what `on_discovery_reply` does for a fresh
+            // session. Without it a restored session that then sits idle emits
+            // no heartbeats. For multicast the heartbeat/control traffic uses
+            // the control name.
             self.common.sender.set_group_name(control.clone());
 
             self.common
@@ -2038,26 +2051,32 @@ where
             self.common.add_subscription(control.clone(), conn).await?;
             self.common.add_route(destination, conn).await?;
             self.common.add_route(control, conn).await?;
+        } else {
+            // In point-to-point sessions the group name is the destination,
+            // which the persisted record holds with the peer's id.
+            self.common
+                .sender
+                .set_group_name(self.common.settings.destination.clone());
+        }
 
-            // For each participant (skipping ourselves): re-add its route AND
-            // re-register it with the session sender. The restored roster alone
-            // does not repopulate the sender's endpoint list, so without this the
-            // moderator has no endpoints to fan out to and every publish is
-            // buffered ("no remote endpoint connected to the session").
-            let mut local_no_id = self.common.settings.source.clone();
-            local_no_id.reset_id();
-            let participants: Vec<Participant> = self
-                .group_list
-                .iter()
-                .filter(|(name, _)| **name != local_no_id)
-                .map(|(_, p)| p.clone())
-                .collect();
-            for p in &participants {
-                if let Ok(pname) = p.get_name() {
-                    self.common.add_route(pname, conn).await?;
-                }
-                self.add_endpoint(p).await?;
+        // For each participant (skipping ourselves): re-add its route AND
+        // re-register it with the session sender. The restored roster alone
+        // does not repopulate the sender's endpoint list, so without this the
+        // moderator has no endpoints to send to and every publish is buffered
+        // ("no remote endpoint connected to the session").
+        let mut local_no_id = self.common.settings.source.clone();
+        local_no_id.reset_id();
+        let participants: Vec<Participant> = self
+            .group_list
+            .iter()
+            .filter(|(name, _)| **name != local_no_id)
+            .map(|(_, p)| p.clone())
+            .collect();
+        for p in &participants {
+            if let Ok(pname) = p.get_name() {
+                self.common.add_route(pname, conn).await?;
             }
+            self.add_endpoint(p).await?;
         }
 
         Ok(())
@@ -2176,6 +2195,7 @@ mod tests {
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: participant.clone(),
             control: participant.clone(),
@@ -2277,6 +2297,7 @@ mod tests {
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: first.clone(),
             control: first.clone(),
@@ -2451,6 +2472,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source,
             destination,
             control,
@@ -2778,6 +2800,7 @@ mod tests {
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: readable.clone(),
             control: readable.clone(),
@@ -3038,6 +3061,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: destination.clone(),
             control: destination.clone(),
@@ -3123,6 +3147,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: destination.clone(),
             control,
@@ -3276,6 +3301,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: destination.clone(),
             control: control.clone(),
@@ -4084,6 +4110,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source,
             destination: destination.clone(),
             control,
@@ -4325,6 +4352,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source,
             destination: destination.clone(),
             control,

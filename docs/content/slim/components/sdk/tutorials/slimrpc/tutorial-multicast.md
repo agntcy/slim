@@ -15,30 +15,26 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 === "Rust"
 
     ```rust
-    use slim_rpc::Channel;
-    use slim_datapath::api::ProtoName;
+    use std::sync::Arc;
 
-    // server_names is a Vec<ProtoName> of all servers to fan out to
+    use slim_datapath::api::ProtoName;
+    use slim_rpc::Channel;
+
+    // All servers to fan out to
     let server_names = vec![
-        ProtoName::from_strings(["myorg", "default", "server-1"]),
-        ProtoName::from_strings(["myorg", "default", "server-2"]),
+        Arc::new(ProtoName::from_strings(["myorg", "default", "server-1"])),
+        Arc::new(ProtoName::from_strings(["myorg", "default", "server-2"])),
     ];
 
     // A group channel fans out every call to all members
-    let channel = Channel::new_with_members_internal(
-        app.clone(),
-        server_names,
-        true, // group = true for multicast
-        Some(conn_id),
-        tokio::runtime::Handle::current(),
-    )?;
+    let channel = Channel::new_group_with_connection(app.clone(), server_names, Some(conn_id))?;
     ```
 
 === "Python"
 
     ```python
     import slim_bindings
-    from types.example_pb2_slimrpc import TestGroupStub
+    from example_service.example_pb2_slimrpc import TestGroupStub
 
     # server_names is a list of slim_bindings.Name objects
     server_names = [
@@ -54,8 +50,8 @@ A group channel wraps a SLIM group session that spans all the servers you want t
 
     ```go
     import (
-        slim "github.com/agntcy/slim-bindings-go"
-        slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
+        slim "github.com/agntcy/slim-bindings-go/v3"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v3/slim_rpc"
     )
 
     server1, _ := slim.NameFromString("myorg/default/server-1")
@@ -143,6 +139,7 @@ Each response item carries both the response payload and the context identifying
 
     ```rust
     use example_service::{ExampleRequest, ExampleResponse};
+    use futures::StreamExt;
 
     let request = ExampleRequest {
         example_string: "world".to_string(),
@@ -150,13 +147,18 @@ Each response item carries both the response payload and the context identifying
     };
 
     // Responses arrive as a stream — one per server, in arrival order
-    let mut stream = channel
-        .multicast_unary("example_service.Test", "ExampleUnaryUnary", request, None, None)
-        .await?;
+    let stream = channel.multicast_unary::<_, ExampleResponse>(
+        "example_service.Test",
+        "ExampleUnaryUnary",
+        request,
+        None,
+        None,
+    );
+    futures::pin_mut!(stream);
 
     while let Some(item) = stream.next().await {
-        let (source, response): (ProtoName, ExampleResponse) = item?;
-        println!("Response from {source:?}: {}", response.example_string);
+        let item = item?;
+        println!("Response from {}: {}", item.context.source, item.message.example_string);
     }
     ```
 
@@ -164,7 +166,7 @@ Each response item carries both the response payload and the context identifying
 
     ```python
     from datetime import timedelta
-    from types.example_pb2 import ExampleRequest
+    from example_service.example_pb2 import ExampleRequest
 
     request = ExampleRequest(example_string="world", example_integer=42)
 
@@ -192,7 +194,12 @@ Each response item carries both the response payload and the context identifying
 
     for {
         item, err := stream.Recv()
-        if item == nil || err != nil {
+        if err != nil {
+            // One member failed; the others' responses keep coming
+            log.Printf("Error from server: %v", err)
+            continue
+        }
+        if item == nil { // end of stream
             break
         }
         fmt.Printf("Response from %s: %s\n", item.Context.Source, item.Value.ExampleString)

@@ -298,28 +298,13 @@ mod tests {
         }
     }
 
-    // RFC 8032 section 7.1, test 1.
-    const ED25519_SEED: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
-    const ED25519_PUBLIC: &str = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-
-    fn hex(s: &str) -> Vec<u8> {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
-    }
+    use crate::auth::jwt::test_key::{self, hex};
 
     /// A `jwt` identity for the RFC 8032 key, trusting that same key.
     fn jwt_config() -> AuthConfig {
         use base64::Engine;
-        let mut der = hex("302e020100300506032b657004220420");
-        der.extend_from_slice(&hex(ED25519_SEED));
-        let pem = slim_auth::utils::bytes_to_pem(
-            &der,
-            "-----BEGIN PRIVATE KEY-----\n",
-            "\n-----END PRIVATE KEY-----\n",
-        );
-        let x = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hex(ED25519_PUBLIC));
+        let pem = test_key::pem();
+        let x = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hex(test_key::PUBLIC));
         let jwks = serde_json::json!({"keys": [{
             "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "use": "sig", "x": x,
         }]});
@@ -330,7 +315,7 @@ mod tests {
     }
 
     fn expected_did_key() -> String {
-        slim_auth::did_key::ed25519_did_key(&hex(ED25519_PUBLIC))
+        slim_auth::did_key::ed25519_did_key(&hex(test_key::PUBLIC))
     }
 
     #[test]

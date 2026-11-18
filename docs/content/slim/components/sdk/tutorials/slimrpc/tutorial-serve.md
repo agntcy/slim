@@ -45,17 +45,23 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
 
     In Rust, SLIMRPC handlers are registered as closures directly on the server — no SLIMRPC compiler or generated stub files are needed.
 
-    You still generate the protobuf message types from your `.proto` file. Add `prost` to your `Cargo.toml` and a `build.rs`:
+    You still generate the protobuf message types from your `.proto` file. Add `prost` and the SLIM crates to your `Cargo.toml`, and a `build.rs` (`prost-build` needs `protoc` on your `PATH`):
 
     ```toml
     # Cargo.toml
     [dependencies]
-    prost = "0.13"
-    agntcy-slim = "2.2.0"
+    agntcy-slim-rpc = "3.4.6"
+    agntcy-slim-service = "0.13.15"
+    agntcy-slim-auth = "0.17.10"
+    agntcy-slim-config = "0.17.10"
+    agntcy-slim-datapath = "0.19.15"
+    anyhow = "1"
+    futures = "0.3"
+    prost = "0.14"
     tokio = { version = "1", features = ["full"] }
 
     [build-dependencies]
-    prost-build = "0.13"
+    prost-build = "0.14"
     ```
 
     ```rust
@@ -65,7 +71,36 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
     }
     ```
 
-    This generates Rust structs for `ExampleRequest` and `ExampleResponse`. Handler registration is shown in Step 4.
+    This generates Rust structs for `ExampleRequest` and `ExampleResponse`. SLIMRPC serializes messages through its own `Encoder` / `Decoder` traits, so implement them for every message you send or receive:
+
+    ```rust
+    mod example_service {
+        include!(concat!(env!("OUT_DIR"), "/example_service.rs"));
+    }
+
+    use example_service::{ExampleRequest, ExampleResponse};
+    use prost::Message;
+    use slim_rpc::{Decoder, Encoder, RpcError};
+
+    macro_rules! impl_slimrpc_codec {
+        ($($msg:ty),*) => {$(
+            impl Encoder for $msg {
+                fn encode(self) -> Result<Vec<u8>, RpcError> {
+                    Ok(self.encode_to_vec())
+                }
+            }
+            impl Decoder for $msg {
+                fn decode(buf: impl Into<Vec<u8>>) -> Result<Self, RpcError> {
+                    <$msg as Message>::decode(buf.into().as_slice())
+                        .map_err(|e| RpcError::invalid_argument(e.to_string()))
+                }
+            }
+        )*};
+    }
+    impl_slimrpc_codec!(ExampleRequest, ExampleResponse);
+    ```
+
+    Handler registration is shown in Step 4.
 
 === "Python"
 
@@ -78,14 +113,14 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
       - proto_file: example.proto
     plugins:
       - local: protoc-gen-slimrpc-python
-        out: types
+        out: example_service
       - remote: buf.build/protocolbuffers/python:v29.3
-        out: types
+        out: example_service
       - remote: buf.build/protocolbuffers/pyi:v31.1
-        out: types
+        out: example_service
     ```
 
-    This generates `types/example_pb2.py` (protobuf types) and `types/example_pb2_slimrpc.py` (SLIMRPC stubs).
+    This generates `example_service/example_pb2.py` (protobuf types) and `example_service/example_pb2_slimrpc.py` (SLIMRPC stubs). Don't name the output directory `types`: a top-level `types` package shadows Python's standard-library `types` module.
 
 === "Go"
 
@@ -190,25 +225,24 @@ Implement each RPC method defined in your proto. Extend the generated base class
 
 === "Rust"
 
-    In Rust, service logic is written as async closures passed to the server at registration time (Step 4). Each handler receives a typed request and returns a typed response — no base class to extend.
+    In Rust, service logic is written as async closures passed to the server at registration time (Step 4). Each handler receives a typed request (or a stream of them) and returns a typed response (or a stream of them) — no base class to extend.
 
     ```rust
-    // include! the prost-generated types at the top of your file:
-    // mod example_service { include!(concat!(env!("OUT_DIR"), "/example_service.rs")); }
     use example_service::{ExampleRequest, ExampleResponse};
+    use slim_rpc::{Context, DecodedStream};
 
     // Handlers are closures — shown registered in Step 4 below.
     // ExampleUnaryUnary:
-    //   |req: ExampleRequest, _ctx| async move { Ok(ExampleResponse { ... }) }
+    //   |req: ExampleRequest, _ctx: Context| async move { Ok(ExampleResponse { ... }) }
     //
-    // ExampleUnaryStream:
-    //   |req: ExampleRequest, _ctx| async move { Ok(vec![ExampleResponse { ... }]) }
+    // ExampleUnaryStream: return a Stream of Result<ExampleResponse, RpcError>
+    //   |req: ExampleRequest, _ctx: Context| async move { Ok(futures::stream::iter(...)) }
     //
-    // ExampleStreamUnary:
-    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(ExampleResponse { ... }) }
+    // ExampleStreamUnary: consume a stream of Result<ExampleRequest, RpcError>
+    //   |reqs: DecodedStream<ExampleRequest>, _ctx: Context| async move { Ok(ExampleResponse { ... }) }
     //
     // ExampleStreamStream:
-    //   |reqs: Vec<ExampleRequest>, _ctx| async move { Ok(reqs.into_iter().map(|r| ...).collect()) }
+    //   |reqs: DecodedStream<ExampleRequest>, _ctx: Context| async move { Ok(reqs.map(|r| ...)) }
     ```
 
 === "Python"
@@ -216,8 +250,8 @@ Implement each RPC method defined in your proto. Extend the generated base class
     ```python
     import asyncio
     from typing import AsyncIterable
-    from types.example_pb2 import ExampleRequest, ExampleResponse
-    from types.example_pb2_slimrpc import TestServicer, add_TestServicer_to_server
+    from example_service.example_pb2 import ExampleRequest, ExampleResponse
+    from example_service.example_pb2_slimrpc import TestServicer, add_TestServicer_to_server
 
     class TestService(TestServicer):
         async def ExampleUnaryUnary(
@@ -264,10 +298,9 @@ Implement each RPC method defined in your proto. Extend the generated base class
     import (
         "context"
         "fmt"
-        "io"
 
         pb "example/types"
-        slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v3/slim_rpc"
     )
 
     type TestServiceImpl struct {
@@ -303,12 +336,12 @@ Implement each RPC method defined in your proto. Extend the generated base class
     ) (*pb.ExampleResponse, error) {
         count := int64(0)
         for {
-            _, err := stream.Recv()
-            if err == io.EOF {
-                break
-            }
+            req, err := stream.Recv()
             if err != nil {
                 return nil, err
+            }
+            if req == nil { // end of stream
+                break
             }
             count++
         }
@@ -324,11 +357,11 @@ Implement each RPC method defined in your proto. Extend the generated base class
     ) error {
         for {
             req, err := stream.Recv()
-            if err == io.EOF {
-                break
-            }
             if err != nil {
                 return err
+            }
+            if req == nil { // end of stream
+                break
             }
             if err := stream.Send(&pb.ExampleResponse{
                 ExampleString:  "echo: " + req.ExampleString,
@@ -597,23 +630,40 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === "Rust"
 
     ```rust
-    use slim_rpc::Server;
-    use example_service::{ExampleRequest, ExampleResponse};
+    use std::sync::Arc;
 
-    // app, conn_id, and rx (notification receiver) come from the prerequisite tutorials
+    use example_service::{ExampleRequest, ExampleResponse};
+    use futures::{StreamExt, stream};
+    use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
+    use slim_auth::shared_secret::SharedSecret;
+    use slim_datapath::api::ProtoName;
+    use slim_rpc::{Context, DecodedStream, RpcError, Server};
+
+    // service and conn_id come from the prerequisite tutorials. The server needs an
+    // app built with the AuthProvider / AuthVerifier wrappers, and the notification
+    // receiver that create_app returns.
+    let local_name = ProtoName::from_strings(["myorg", "default", "my-service"]);
+    let secret = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
+    let (app, rx) = service.create_app(
+        &local_name,
+        AuthProvider::shared_secret(secret.clone()),
+        AuthVerifier::shared_secret(secret),
+    )?;
+
+    // The server subscribes to local_name itself when it starts serving
     let server = Server::new_with_connection_and_runtime(
-        app,
-        local_name,
+        Arc::new(app),
+        local_name.clone(),
         Some(conn_id),
         rx,
         None,
     );
 
     // Register each RPC method as a typed async closure
-    server.register_unary_unary_internal(
+    server.register_unary_unary(
         "example_service.Test",
         "ExampleUnaryUnary",
-        |req: ExampleRequest, _ctx| async move {
+        |req: ExampleRequest, _ctx: Context| async move {
             Ok(ExampleResponse {
                 example_string: format!("hello {}", req.example_string),
                 example_integer: req.example_integer + 1,
@@ -621,25 +671,29 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
         },
     );
 
-    server.register_unary_stream_internal(
+    server.register_unary_stream(
         "example_service.Test",
         "ExampleUnaryStream",
-        |req: ExampleRequest, _ctx| async move {
-            let responses = (0..5)
-                .map(|i| ExampleResponse {
+        |req: ExampleRequest, _ctx: Context| async move {
+            let responses = (0..5).map(move |i| {
+                Ok::<_, RpcError>(ExampleResponse {
                     example_string: format!("hello {} {i}", req.example_string),
                     example_integer: req.example_integer + i,
                 })
-                .collect::<Vec<_>>();
-            Ok(responses)
+            });
+            Ok(stream::iter(responses))
         },
     );
 
-    server.register_stream_unary_internal(
+    server.register_stream_unary(
         "example_service.Test",
         "ExampleStreamUnary",
-        |reqs: Vec<ExampleRequest>, _ctx| async move {
-            let count = reqs.len() as i64;
+        |mut reqs: DecodedStream<ExampleRequest>, _ctx: Context| async move {
+            let mut count = 0;
+            while let Some(req) = reqs.next().await {
+                req?;
+                count += 1;
+            }
             Ok(ExampleResponse {
                 example_string: format!("received {count} requests"),
                 example_integer: count,
@@ -647,18 +701,16 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
         },
     );
 
-    server.register_stream_stream_internal(
+    server.register_stream_stream(
         "example_service.Test",
         "ExampleStreamStream",
-        |reqs: Vec<ExampleRequest>, _ctx| async move {
-            let responses = reqs
-                .into_iter()
-                .map(|req| ExampleResponse {
+        |reqs: DecodedStream<ExampleRequest>, _ctx: Context| async move {
+            Ok(reqs.map(|req| {
+                req.map(|req| ExampleResponse {
                     example_string: format!("echo: {}", req.example_string),
                     example_integer: req.example_integer,
                 })
-                .collect::<Vec<_>>();
-            Ok(responses)
+            }))
         },
     );
 
@@ -670,7 +722,7 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 
     ```python
     import slim_bindings
-    from types.example_pb2_slimrpc import add_TestServicer_to_server
+    from example_service.example_pb2_slimrpc import add_TestServicer_to_server
 
     # app and conn_id come from the prerequisite tutorials
     rpc_server = slim_bindings.Server.new_with_connection(app, local_name, conn_id)
@@ -683,7 +735,7 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === "Go"
 
     ```go
-    import slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
+    import slim_rpc "github.com/agntcy/slim-bindings-go/v3/slim_rpc"
 
     // app and connId come from the prerequisite tutorials
     server := slim_rpc.ServerNewWithConnection(app, localName, &connId)

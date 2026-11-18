@@ -178,6 +178,7 @@ impl From<ServerConfig> for CoreServerConfig {
                 .keepalive
                 .map(Into::into)
                 .unwrap_or(core_defaults.keepalive),
+            tcp_nodelay: core_defaults.tcp_nodelay,
             auth: config.auth.map(Into::into).unwrap_or(core_defaults.auth),
             metadata: config
                 .metadata

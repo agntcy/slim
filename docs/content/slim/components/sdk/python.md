@@ -91,8 +91,15 @@ oidc = slim_bindings.OidcConfig(
     issuer_url="https://auth.example.com",
     client_id="my-client",
     client_secret="s3cr3t",
+    audience=None,
+    refresh_token=None,
+    refresh_token_file=None,
+    access_token_file=None,
     scope="openid profile",
     timeout=datetime.timedelta(seconds=30),
+    jwks_ttl=None,
+    claim_cache_ttl=None,
+    policy=None,
 )
 
 base = slim_bindings.new_insecure_client_config("http://127.0.0.1:46357")
@@ -102,14 +109,21 @@ client_config = slim_bindings.ClientConfig(
 conn_id = await service.connect_async(client_config)
 ```
 
-For the refresh-token flow, set `refresh_token` (or `refresh_token_file`, which is rewritten in place as tokens rotate) instead of `client_secret`.
+`OidcConfig` takes keyword arguments only and defines no defaults, so every field must be passed; use `None` for the ones you don't need. For the refresh-token flow, set `refresh_token` (or `refresh_token_file`, which is rewritten in place as tokens rotate) instead of `client_secret`.
 
 ### OIDC (server verification)
 
 ```python
 oidc = slim_bindings.OidcConfig(
     issuer_url="https://auth.example.com",
+    client_id=None,
+    client_secret=None,
     audience="slim",
+    refresh_token=None,
+    refresh_token_file=None,
+    access_token_file=None,
+    scope=None,
+    timeout=None,
     jwks_ttl=datetime.timedelta(hours=1),
     claim_cache_ttl=datetime.timedelta(minutes=1),
     policy=slim_bindings.OidcPolicyConfig.CEL(
@@ -173,7 +187,7 @@ task examples:p2p:no-mls:bob   # Sender (in another terminal)
 
 ```bash
 task examples:rpc:server
-task examples:rpc:client
+task python:examples:rpc:client
 ```
 
 ## Platform Support
@@ -196,8 +210,8 @@ To build the Python SDK from the slim-bindings repository:
 git clone https://github.com/agntcy/slim-bindings
 cd slim-bindings/python
 
-# Build and install in development mode
-task build
+# Build the bindings and install them in development mode
+task python:bindings:build
 ```
 
 To create distributable wheels:

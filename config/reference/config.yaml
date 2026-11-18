@@ -207,6 +207,10 @@ services:
             # Default: 20s
             timeout: 20s
 
+          # Set TCP_NODELAY on accepted connections, disabling Nagle's algorithm.
+          # Default: true
+          tcp_nodelay: true
+
             # Authenticator configuration.
             # This is not currently implemented, but its purpose is to specify an
             # authenticator that can authenticate the messages before they are processed.
@@ -267,6 +271,10 @@ services:
             # Whether to permit keepalive without an active stream
             # Default: false
             permit_without_stream: false
+
+          # Set TCP_NODELAY on the connection, disabling Nagle's algorithm.
+          # Default: true
+          tcp_nodelay: true
 
           # The timeout for the connection with the server
           # Default is None
@@ -485,6 +493,10 @@ services:
             # Default: 20s
             timeout: 20s
 
+          # Set TCP_NODELAY on accepted connections, disabling Nagle's algorithm.
+          # Default: true
+          tcp_nodelay: true
+
             # Authenticator configuration.
             # This is not currently implemented, but its purpose is to specify an
             # authenticator that can authenticate the messages before they are processed.
@@ -537,6 +549,10 @@ services:
             # Whether to permit keepalive without an active stream
             # Default: false
             permit_without_stream: false
+
+          # Set TCP_NODELAY on the connection, disabling Nagle's algorithm.
+          # Default: true
+          tcp_nodelay: true
 
           # The timeout for the connection with the server
           # Default is None

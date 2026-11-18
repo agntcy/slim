@@ -28,8 +28,8 @@ The Channel Manager is available as a pre-built container image, or can be built
 ### Docker
 
 ```bash
-docker pull ghcr.io/agntcy/slim/channel-manager:2.0.0
-docker run --rm -v ./config.yaml:/config.yaml ghcr.io/agntcy/slim/channel-manager:2.0.0 --config-file /config.yaml
+docker pull ghcr.io/agntcy/slim/channel-manager:3.4.6
+docker run --rm -v ./config.yaml:/config.yaml ghcr.io/agntcy/slim/channel-manager:3.4.6 --config-file /config.yaml
 ```
 
 The image is distroless and runs as a non-root user, with `/channel-manager` as its entrypoint. For containers and Kubernetes beyond this one command — bind addresses, secrets, volumes and the Helm chart — see the [Deployment Guide](./deploy.md). The steps below run the binary directly.
@@ -716,7 +716,7 @@ An endpoint is a SLIM application that connects outbound — no inbound ports �
 
     ```go
     import (
-        slim_rpc "github.com/agntcy/slim-bindings-go/slim_rpc"
+        slim_rpc "github.com/agntcy/slim-bindings-go/v3/slim_rpc"
         pb "example.com/gen/channel-manager/v1"
         "google.golang.org/protobuf/proto"
     )

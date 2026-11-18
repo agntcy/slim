@@ -19,29 +19,38 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
 === "Rust"
 
     ```rust
-    use slim_service::Service;
-    use slim_service::config::ClientConfig;
     use slim_auth::shared_secret::SharedSecret;
+    use slim_config::client::ClientConfig;
+    use slim_config::component::ComponentBuilder;
+    use slim_config::tls::client::TlsClientConfig;
     use slim_datapath::api::ProtoName;
-    use slim_persistence::PersistenceConfig;
+    use slim_persistence::{MlsEncryptionKey, PersistenceConfig};
+    use slim_service::Service;
     use slim_session::Direction;
 
     #[tokio::main]
     async fn main() -> anyhow::Result<()> {
-        let service = Service::builder().build("slim/0")?;
-        service.run().await?;
-        let conn_id = service.connect(ClientConfig::with_endpoint("http://127.0.0.1:46357")).await?;
+        let service = Service::builder().build("slim-0".to_string())?;
+        let client_config = ClientConfig::with_endpoint("http://127.0.0.1:46357")
+            .with_tls_setting(TlsClientConfig::insecure());
+        let conn_id = service.connect(&client_config).await?;
 
         let name = ProtoName::from_strings(["myorg", "default", "my-service"]);
         let provider = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
         let verifier = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
+
+        // Encrypt the store with a passphrase (keep it secret and stable across restarts)
+        let persistence = PersistenceConfig::with_key(
+            "./slim-state",
+            MlsEncryptionKey::Passphrase("change-me-in-production".to_string()),
+        );
 
         let (app, _rx) = service.create_app_with_direction_and_persistence(
             &name,
             provider,
             verifier,
             Direction::Bidirectional,
-            Some(PersistenceConfig::new("./slim-state")),
+            Some(persistence),
         )?;
         app.subscribe(&name, Some(conn_id)).await?;
         println!("App ready with persistence: myorg/default/my-service");
@@ -89,6 +98,8 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         await app.subscribe_async(local_name, conn_id)
         print(f"App ready with persistence: {local_name}")
         return app, conn_id
+
+    asyncio.run(main())
     ```
 
 === "Go"
@@ -98,7 +109,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
         "fmt"
         "log"
 
-        slim "github.com/agntcy/slim-bindings-go"
+        slim "github.com/agntcy/slim-bindings-go/v3"
     )
 
     func main() {
@@ -249,30 +260,36 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
 
 === ".NET"
 
+    !!! note "Generated API"
+        Persistence is not part of the idiomatic `Slim*` wrapper yet. The examples below use the generated `uniffi.slim_bindings` types, which ship as public types in the `Agntcy.Slim` package.
+
     ```csharp
-    using Agntcy.Slim;
+    using uniffi.slim_bindings;
 
-    Slim.Initialize();
+    SlimBindingsMethods.InitializeWithDefaults();
+    var service = SlimBindingsMethods.GetGlobalService();
 
-    var connId = Slim.Connect("http://127.0.0.1:46357");
+    var connId = await service.ConnectAsync(
+        SlimBindingsMethods.NewInsecureClientConfig("http://127.0.0.1:46357"));
 
-    using var localName = SlimName.Parse("myorg/default/my-service");
-    using var service = Slim.GetGlobalService();
+    var localName = new Name("myorg", "default", "my-service");
 
-    var persistence = new SlimPersistenceConfig(
-        path: "./slim-state",
-        passphrase: "change-me-in-production"
+    var persistence = new PersistenceConfig(
+        Path: "./slim-state",
+        Passphrase: "change-me-in-production"
     );
-    var provider = SlimIdentityProviderConfig.SharedSecret(localName.ToString(), "change-me-before-going-to-production");
-    var verifier = SlimIdentityVerifierConfig.SharedSecret(localName.ToString(), "change-me-before-going-to-production");
+    var provider = new IdentityProviderConfig.SharedSecret(
+        "myorg/default/my-service", "change-me-before-going-to-production");
+    var verifier = new IdentityVerifierConfig.SharedSecret(
+        "myorg/default/my-service", "change-me-before-going-to-production");
 
     var app = await service.CreateAppWithPersistenceAsync(
         localName, provider, verifier,
-        SlimDirection.Bidirectional, persistence
+        Direction.Bidirectional, persistence
     );
-    app.Subscribe(app.Name, connId);
+    await app.SubscribeAsync(localName, connId);
 
-    Console.WriteLine($"App ready with persistence: {localName}");
+    Console.WriteLine("App ready with persistence: myorg/default/my-service");
     ```
 
 ## Step 2: Use the Session Normally
@@ -286,13 +303,17 @@ On the next startup, create a new app using the **same name, secret, store path,
 === "Rust"
 
     ```rust
-    // After restart — same name, secret, and store path as before
+    // After restart — same name, secret, store path, and passphrase as before
+    let persistence = PersistenceConfig::with_key(
+        "./slim-state",
+        MlsEncryptionKey::Passphrase("change-me-in-production".to_string()),
+    );
     let (app, _rx) = service.create_app_with_direction_and_persistence(
         &name,
         provider,
         verifier,
         Direction::Bidirectional,
-        Some(PersistenceConfig::new("./slim-state")),
+        Some(persistence),
     )?;
     app.subscribe(&name, Some(conn_id)).await?;
 
@@ -301,8 +322,10 @@ On the next startup, create a new app using the **same name, secret, store path,
     println!("Restored {} session(s)", sessions.len());
 
     // Each restored session is immediately usable
-    for session in &sessions {
-        session.publish(&channel_name, b"back online".to_vec(), None, None).await?;
+    for ctx in &sessions {
+        if let Some(session) = ctx.session_arc() {
+            session.publish(session.dst(), b"back online".to_vec(), None, None).await?;
+        }
     }
     ```
 
@@ -426,18 +449,19 @@ On the next startup, create a new app using the **same name, secret, store path,
     // After restart — same name, secret, path, and passphrase as before
     var app = await service.CreateAppWithPersistenceAsync(
         localName, provider, verifier,
-        SlimDirection.Bidirectional, persistence
+        Direction.Bidirectional, persistence
     );
-    app.Subscribe(app.Name, connId);
+    await app.SubscribeAsync(localName, connId);
 
     // Restore all previously active sessions
     var sessions = await app.RestoreSessionsAsync(connId);
-    Console.WriteLine($"Restored {sessions.Count} session(s)");
+    Console.WriteLine($"Restored {sessions.Length} session(s)");
 
     // Each restored session is immediately usable
     foreach (var session in sessions)
     {
-        await session.PublishAsync("back online");
+        await session.PublishAndWaitAsync(
+            System.Text.Encoding.UTF8.GetBytes("back online"), null, null);
     }
     ```
 
@@ -449,7 +473,7 @@ On the next startup, create a new app using the **same name, secret, store path,
 - **`CloseMode::Hard`** — Terminate the session permanently. The session is removed from the store and cannot be restored with `rejoin`.
 
 !!! note "Group sessions only"
-    `close_with_mode` and `rejoin` are only valid for group sessions. Calling either on a point-to-point session returns an error.
+    `CloseMode::Soft` and `rejoin` are only valid for group sessions; calling either on a point-to-point session returns an error. `CloseMode::Hard` works for both session types.
 
 ### Close
 
@@ -515,7 +539,8 @@ Use `CloseMode::Soft` to pause participation while keeping the session alive in 
 
     ```csharp
     // Soft close: go offline, stay on the roster, keep session in the store
-    await session.CloseWithModeAndWaitAsync(SlimCloseMode.Soft);
+    // session is a uniffi.slim_bindings.Session (e.g. one returned by RestoreSessionsAsync)
+    await session.CloseWithModeAndWaitAsync(CloseMode.Soft);
     Console.WriteLine("Offline — other members will stop expecting acks from us");
     ```
 
@@ -579,6 +604,7 @@ Use `CloseMode::Soft` to pause participation while keeping the session alive in 
 
     ```csharp
     // Broadcast ONLINE and wait for acknowledgements
+    // session is a uniffi.slim_bindings.Session (e.g. one returned by RestoreSessionsAsync)
     await session.RejoinAndWaitAsync();
     Console.WriteLine("Back online — MLS re-key complete");
     ```

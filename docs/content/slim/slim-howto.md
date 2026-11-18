@@ -27,7 +27,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "macOS (Apple Silicon)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-arm64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v3.4.6/slimctl-darwin-arm64.tar.gz
     tar -xzf slimctl-darwin-arm64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
@@ -41,7 +41,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "macOS (Intel)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-darwin-amd64.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v3.4.6/slimctl-darwin-amd64.tar.gz
     tar -xzf slimctl-darwin-amd64.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
@@ -55,7 +55,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "Linux (AMD64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-amd64-gnu.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v3.4.6/slimctl-linux-amd64-gnu.tar.gz
     tar -xzf slimctl-linux-amd64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
@@ -63,14 +63,14 @@ By the end of this guide you will have a SLIM node running locally and an applic
 === "Linux (ARM64)"
 
     ```bash
-    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-linux-arm64-gnu.tar.gz
+    curl -LO https://github.com/agntcy/slim/releases/download/slimctl-v3.4.6/slimctl-linux-arm64-gnu.tar.gz
     tar -xzf slimctl-linux-arm64-gnu.tar.gz
     sudo mv slimctl /usr/local/bin/
     ```
 
 === "Windows"
 
-    Download the binary from the [GitHub releases page](https://github.com/agntcy/slim/releases/download/slimctl-v2.0.0/slimctl-windows-amd64.zip) and add it to your `PATH`. See [CLI Installation](./components/cli/install.md) for full Windows instructions.
+    Download the binary from the [GitHub releases page](https://github.com/agntcy/slim/releases/download/slimctl-v3.4.6/slimctl-windows-amd64.zip) and add it to your `PATH`. See [CLI Installation](./components/cli/install.md) for full Windows instructions.
 
 Verify the install:
 
@@ -101,9 +101,9 @@ Install the SLIM bindings for your language:
 === "Go"
 
     ```bash
-    go get github.com/agntcy/slim-bindings-go@v2.0.0
+    go get github.com/agntcy/slim-bindings-go/v3@v3.3.9
     # Run the setup tool to download the native library
-    go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup
+    go run github.com/agntcy/slim-bindings-go/v3/cmd/slim-bindings-setup
     ```
 
 === "Java"
@@ -111,7 +111,7 @@ Install the SLIM bindings for your language:
     ```kotlin
     // build.gradle.kts
     dependencies {
-        implementation("io.agntcy.slim:slim-bindings-java:2.0.0")
+        implementation("io.agntcy.slim:slim-bindings-java:3.3.9")
     }
     ```
 
@@ -120,7 +120,7 @@ Install the SLIM bindings for your language:
     ```kotlin
     // build.gradle.kts
     dependencies {
-        implementation("io.agntcy.slim:slim-bindings-kotlin:2.0.0")
+        implementation("io.agntcy.slim:slim-bindings-kotlin:3.3.9")
     }
     ```
 
@@ -139,7 +139,7 @@ Install the SLIM bindings for your language:
     Or add to your `.csproj`:
 
     ```xml
-    <PackageReference Include="Agntcy.Slim" Version="2.1.0" />
+    <PackageReference Include="Agntcy.Slim" Version="3.3.9" />
     ```
 
     The NuGet package includes native libraries for all supported platforms — no additional setup required. See the [.NET SDK guide](./components/sdk/dotnet.md) for API details and examples.

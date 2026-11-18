@@ -1,17 +1,34 @@
 # Java SDK
 
-The SLIM Java SDK (`io.agntcy.slim:slim-bindings-java`) provides an idiomatic Java API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-java](https://github.com/IronCoreLabs/uniffi-bindgen-java), with synchronous methods and `CompletableFuture`-based async variants, and native libraries loaded through JNA.
+The SLIM Java SDK (`io.agntcy.slim:slim-bindings-java`) provides an idiomatic Java API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-java](https://github.com/IronCoreLabs/uniffi-bindgen-java), with synchronous methods and `CompletableFuture`-based async variants. The generated code calls the native library through the Java Foreign Function & Memory API (Project Panama).
 
 ## Requirements
 
 | | |
 |---|---|
-| **Runtime** | Java 21 or higher |
+| **Runtime** | JDK 21, run with `--enable-preview` |
 | **Package** | [`slim-bindings-java`](https://central.sonatype.com/artifact/io.agntcy.slim/slim-bindings-java) on Maven Central |
 | **Build tools** | Maven 3.8+ |
 | **Examples** | [java/examples](https://github.com/agntcy/slim-bindings/tree/main/java/examples) in slim-bindings |
 
-The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64 and arm64. JNA loads the correct library for your platform at runtime.
+The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64 and arm64, one per platform directory at the root of the JAR (for example `darwin-aarch64/libslim_bindings.dylib`).
+
+!!! warning "JVM flags"
+    The bindings are compiled for Java 21 with preview features enabled (the Foreign Function & Memory API is a preview API in Java 21), so code that uses them must be compiled with `--enable-preview` (javac rejects classes that use preview features otherwise) and run on JDK 21 started with `--enable-preview`. The examples also pass `--add-opens=java.base/java.lang=ALL-UNNAMED` and `--add-opens=java.base/java.lang.reflect=ALL-UNNAMED`.
+
+    The native library is loaded with `System.loadLibrary("slim_bindings")`, which does not look inside the JAR. Extract the library for your platform and point the JVM at it, either with `-Djava.library.path=<dir containing libslim_bindings>` or with an absolute path via `-Duniffi.component.slim_bindings.libraryOverride=/path/to/libslim_bindings.dylib`.
+
+    For example:
+
+    ```bash
+    java --enable-preview \
+      --add-opens=java.base/java.lang=ALL-UNNAMED \
+      --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
+      -Djava.library.path=/path/to/native/darwin-aarch64 \
+      -jar my-app.jar
+    ```
+
+    With Maven `exec:java`, which runs in Maven's own JVM, put the flags in `.mvn/jvm.config` as the [examples](https://github.com/agntcy/slim-bindings/blob/main/java/examples/.mvn/jvm.config) do.
 
 ## Installation
 
@@ -23,15 +40,40 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
     <dependency>
       <groupId>io.agntcy.slim</groupId>
       <artifactId>slim-bindings-java</artifactId>
-      <version>1.2.0</version>
+      <version>3.3.9</version>
     </dependency>
+    ```
+
+    Compile with preview features enabled:
+
+    ```xml
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-compiler-plugin</artifactId>
+      <configuration>
+        <release>21</release>
+        <compilerArgs>
+          <arg>--enable-preview</arg>
+        </compilerArgs>
+      </configuration>
+    </plugin>
     ```
 
 === "Gradle"
 
     ```kotlin
     dependencies {
-        implementation("io.agntcy.slim:slim-bindings-java:1.2.0")
+        implementation("io.agntcy.slim:slim-bindings-java:3.3.9")
+    }
+
+    tasks.withType<JavaCompile> {
+        options.compilerArgs.add("--enable-preview")
+    }
+    tasks.withType<JavaExec> {
+        jvmArgs("--enable-preview")
+    }
+    tasks.withType<Test> {
+        jvmArgs("--enable-preview")
     }
     ```
 
@@ -157,7 +199,7 @@ The [slim-bindings/java](https://github.com/agntcy/slim-bindings/tree/main/java)
 ```bash
 cd java
 task examples:p2p:alice   # Receiver
-task examples:p2p:bob     # Sender (in another terminal)
+task examples:p2p:no-mls:bob  # Sender (in another terminal)
 ```
 
 **SLIMRPC** (requires a running SLIM node and generated proto code):
@@ -169,7 +211,7 @@ task examples:rpc:client
 
 ## Platform Support
 
-| Platform | Architecture | JNA directory |
+| Platform | Architecture | JAR directory |
 |---|---|---|
 | Linux | x86_64 | `linux-x86-64` |
 | Linux | aarch64 | `linux-aarch64` |

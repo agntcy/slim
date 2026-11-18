@@ -1007,6 +1007,15 @@ mod tests {
             .await
             .unwrap();
 
+        // The session is built off the receive loop.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while app.session_layer.pool_size() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the session must be built");
+
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(
             rx_app.try_recv().is_err(),
