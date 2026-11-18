@@ -72,6 +72,12 @@ runs:
       if: runner.os == 'Linux'
       shell: bash
       run: |
+        sudo apt-get update
+        if apt-cache show clang-19 >/dev/null 2>&1; then
+          echo "clang-19 available from the distro archive"
+          exit 0
+        fi
+
         . /etc/os-release
         codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
         if [[ -z "${codename}" ]]; then
@@ -100,7 +106,7 @@ runs:
           g++-aarch64-linux-gnu
           gcc-x86-64-linux-gnu
           g++-x86-64-linux-gnu
-        version: llvm19-v1
+        version: llvm19-v2
         execute_install_scripts: "true"
 
     - name: Verify C/C++ toolchain

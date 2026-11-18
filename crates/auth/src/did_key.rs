@@ -19,6 +19,23 @@ pub fn ed25519_did_key(public_key: &[u8]) -> String {
     format!("did:key:z{}", bs58::encode(bytes).into_string())
 }
 
+/// The Ed25519 public key encoded by a `did:key:z...` identifier.
+pub fn ed25519_public_key_from_did_key(did: &str) -> Result<[u8; 32], AuthError> {
+    let unsupported = || AuthError::InvalidDidKey(did.to_string());
+
+    let multibase_value = did.strip_prefix("did:key:").ok_or_else(unsupported)?;
+    // 'z' is the multibase prefix for base58btc; did:key only ever uses it.
+    let base58_value = multibase_value.strip_prefix('z').ok_or_else(unsupported)?;
+    let decoded = bs58::decode(base58_value)
+        .into_vec()
+        .map_err(|_| unsupported())?;
+
+    decoded
+        .strip_prefix(&ED25519_PUB_MULTICODEC)
+        .and_then(|key| key.try_into().ok())
+        .ok_or_else(unsupported)
+}
+
 /// The `did:key` of the Ed25519 key in a PKCS#8 PEM document
 /// (`-----BEGIN PRIVATE KEY-----`).
 pub fn ed25519_did_key_from_pkcs8_pem(pem: &str) -> Result<String, AuthError> {
@@ -37,6 +54,27 @@ pub fn ed25519_key_pair_from_pkcs8_pem(pem: &str) -> Result<Ed25519KeyPair, Auth
     Ed25519KeyPair::from_pkcs8(&der).map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))
 }
 
+/// MLS signature keys `(secret, public)` for the Ed25519 key in a PKCS#8 PEM
+/// document, in the encoding the Curve25519 MLS ciphersuite uses (AWS-LC:
+/// the secret key is the 32-byte seed followed by the 32-byte public key).
+pub fn ed25519_mls_signature_keys_from_pkcs8_pem(
+    pem: &str,
+) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
+    use aws_lc_rs::encoding::AsBigEndian;
+
+    let key_pair = ed25519_key_pair_from_pkcs8_pem(pem)?;
+    let public = key_pair.public_key().as_ref().to_vec();
+    let seed = key_pair
+        .seed()
+        .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?;
+    let seed = seed
+        .as_be_bytes()
+        .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))?;
+    let mut secret = seed.as_ref().to_vec();
+    secret.extend_from_slice(&public);
+    Ok((secret, public))
+}
+
 /// The DER bytes of the first `label` block in `pem`.
 fn pem_contents(pem: &str, label: &str) -> Result<Vec<u8>, AuthError> {
     let begin = format!("-----BEGIN {label}-----");
@@ -48,6 +86,67 @@ fn pem_contents(pem: &str, label: &str) -> Result<Vec<u8>, AuthError> {
     base64::engine::general_purpose::STANDARD
         .decode(base64)
         .map_err(|e| AuthError::InvalidEd25519Key(e.to_string()))
+}
+
+/// A fresh Ed25519 identity for tests: its PKCS#8 PEM, its `did:key`, and its
+/// raw public key bytes.
+#[cfg(all(
+    any(test, feature = "test-utils"),
+    feature = "insecure-self-certified-did"
+))]
+pub fn fresh_identity() -> (String, String, Vec<u8>) {
+    use aws_lc_rs::rand::SystemRandom;
+    let pkcs8 = Ed25519KeyPair::generate_pkcs8(&SystemRandom::new()).unwrap();
+    let public = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref())
+        .unwrap()
+        .public_key()
+        .as_ref()
+        .to_vec();
+    let pem = crate::utils::bytes_to_pem(
+        pkcs8.as_ref(),
+        "-----BEGIN PRIVATE KEY-----\n",
+        "\n-----END PRIVATE KEY-----\n",
+    );
+    (pem, ed25519_did_key(&public), public)
+}
+
+/// A signer for a fresh `did:key`, built as the config layer builds it:
+/// `iss`/`sub` are the did:key and its key is also the MLS signature key.
+#[cfg(all(
+    any(test, feature = "test-utils"),
+    feature = "insecure-self-certified-did"
+))]
+pub fn did_bound_signer() -> (crate::jwt::SignerJwt, String) {
+    use crate::jwt::{Algorithm, Key, KeyData, KeyFormat};
+
+    let (pem, did, _) = fresh_identity();
+    let key = Key {
+        algorithm: Algorithm::EdDSA,
+        format: KeyFormat::Pem,
+        key: KeyData::Data(pem.clone()),
+    };
+    let signer = crate::builder::JwtBuilder::new()
+        .issuer(&did)
+        .subject(&did)
+        .private_key(&key)
+        .build()
+        .unwrap()
+        .with_did_key_signature_keys(&pem)
+        .unwrap();
+    (signer, did)
+}
+
+/// A verifier that accepts self-certified `did:key` tokens, as the config
+/// layer builds it with no audience.
+#[cfg(all(
+    any(test, feature = "test-utils"),
+    feature = "insecure-self-certified-did"
+))]
+pub fn self_certified_verifier() -> crate::jwt::VerifierJwt {
+    crate::builder::JwtBuilder::new()
+        .key_resolver(crate::resolver::KeyResolver::with_self_certified_did())
+        .build()
+        .unwrap()
 }
 
 #[cfg(test)]
@@ -88,6 +187,40 @@ mod tests {
     }
 
     #[test]
+    fn decoding_a_did_key_recovers_the_public_key() {
+        let did = ed25519_did_key(&hex(PUBLIC));
+        assert_eq!(
+            ed25519_public_key_from_did_key(&did).unwrap(),
+            hex(PUBLIC).as_slice()
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_did_keys() {
+        let encoded = |prefix: &[u8], key: &[u8]| {
+            format!(
+                "did:key:z{}",
+                bs58::encode([prefix, key].concat()).into_string()
+            )
+        };
+        for did in [
+            "z6MkhaXg".to_string(),
+            "did:key:6MkhaXg".to_string(),
+            "did:key:z0OIl".to_string(),
+            encoded(&[0x00, 0x00], &hex(PUBLIC)),
+            encoded(&ED25519_PUB_MULTICODEC, &hex(PUBLIC)[..16]),
+        ] {
+            assert!(
+                matches!(
+                    ed25519_public_key_from_did_key(&did),
+                    Err(AuthError::InvalidDidKey(_))
+                ),
+                "{did}"
+            );
+        }
+    }
+
+    #[test]
     fn did_key_from_a_pkcs8_pem_matches_its_public_key() {
         assert_eq!(
             ed25519_did_key_from_pkcs8_pem(&pkcs8_pem(&hex(SEED))).unwrap(),
@@ -116,5 +249,15 @@ mod tests {
             ed25519_did_key_from_pkcs8_pem(&pem),
             Err(AuthError::InvalidEd25519Key(_))
         ));
+    }
+
+    #[test]
+    fn mls_signature_keys_are_seed_then_public_and_sign() {
+        let (secret, public) =
+            ed25519_mls_signature_keys_from_pkcs8_pem(&pkcs8_pem(&hex(SEED))).unwrap();
+        assert_eq!(public, hex(PUBLIC));
+        assert_eq!(secret, [hex(SEED), hex(PUBLIC)].concat());
+        let sig = crate::utils::sign_header_aad(b"aad", &secret, &public).unwrap();
+        crate::utils::verify_header_aad(b"aad", &sig, &public).unwrap();
     }
 }

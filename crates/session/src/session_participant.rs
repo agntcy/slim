@@ -465,16 +465,31 @@ where
             },
         );
 
+        // The identity must land first: a session record is only restorable with
+        // the identity (MLS key) its group was built with. The MLS layer's
+        // provider holds the group leaf's key; the settings clone may not.
+        let identity_provider = self
+            .mls_state
+            .as_ref()
+            .map_or(&self.common.settings.identity_provider, |m| {
+                m.mls.identity_provider()
+            });
+        if persistence::persist_app_identity(kv, identity_provider)
+            == persistence::AppIdentity::Failed
+        {
+            tracing::error!(
+                session_id = self.common.settings.id,
+                "skipping participant session record: app identity not persisted"
+            );
+            return;
+        }
+
         if let Err(e) = record
             .to_bytes()
             .and_then(|bytes| Ok(kv.put(&persistence::session_key(record.session_id), &bytes)?))
         {
             tracing::error!(error = %e, session_id = self.common.settings.id, "failed to persist participant session state");
         }
-
-        // Save the app identity (now carrying the MLS-installed keypair) so a
-        // restart restores the exact identity this session was built with.
-        persistence::persist_app_identity(kv, &self.common.settings.identity_provider);
     }
 
     #[maybe_async::maybe_async]
@@ -1419,24 +1434,27 @@ where
         self.subscribed = true;
         self.conn_id = Some(conn);
 
-        if self.common.settings.config.session_type == ProtoSessionType::PointToPoint {
-            return Ok(());
+        if self.common.settings.config.session_type == ProtoSessionType::Multicast {
+            let destination = self.common.settings.destination.clone();
+            let control = self.common.settings.control.clone();
+
+            // Restore the control sender's group name so heartbeats resume after
+            // a restart, matching what `on_join_request` does for a fresh join.
+            // Without it a restored session that then sits idle emits no
+            // heartbeats and the moderator eventually marks it offline. For
+            // multicast the heartbeat/control traffic uses the control name.
+            self.common.sender.set_group_name(control.clone());
+
+            self.common.add_route(destination.clone(), conn).await?;
+            self.common.add_subscription(destination, conn).await?;
+            self.common.add_route(control.clone(), conn).await?;
+            self.common.add_subscription(control, conn).await?;
+        } else {
+            // In point-to-point sessions the group name is the destination.
+            self.common
+                .sender
+                .set_group_name(self.common.settings.destination.clone());
         }
-
-        let destination = self.common.settings.destination.clone();
-        let control = self.common.settings.control.clone();
-
-        // Restore the control sender's group name so heartbeats resume after a
-        // restart, matching what `on_join_request` does for a fresh join.
-        // Without it a restored session that then sits idle emits no heartbeats
-        // and the moderator eventually marks it offline. For multicast the
-        // heartbeat/control traffic uses the control name.
-        self.common.sender.set_group_name(control.clone());
-
-        self.common.add_route(destination.clone(), conn).await?;
-        self.common.add_subscription(destination, conn).await?;
-        self.common.add_route(control.clone(), conn).await?;
-        self.common.add_subscription(control, conn).await?;
 
         // For each other group member (moderator included), skipping self:
         // re-add its route AND re-register it with the session sender. Without

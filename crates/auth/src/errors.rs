@@ -24,6 +24,10 @@ pub enum AuthError {
     JwtMissingPrivateKey,
     #[error("invalid Ed25519 key: {0}")]
     InvalidEd25519Key(String),
+    #[error("invalid did:key: {0}")]
+    InvalidDidKey(String),
+    #[error("self-certified did: {0}")]
+    SelfCertifiedDid(String),
     #[error("missing decoding key or autoresolve is disabled")]
     JwtMissingDecodingKeyOrKeyResolver,
     #[error("missing 'iss' in JWT claims")]
@@ -191,4 +195,12 @@ pub enum AuthError {
     PublicKeyNotFound,
     #[error("subject not found in identity claims")]
     SubjectNotFound,
+    #[error(
+        "token of {subject} is not bound to the expected public key: expected: {expected}, found: {found}"
+    )]
+    PublicKeyMismatch {
+        subject: String,
+        expected: String,
+        found: String,
+    },
 }
