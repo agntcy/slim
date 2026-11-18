@@ -411,6 +411,10 @@ impl Verifier for AuthVerifier {
         dispatch_verifier!(self, v => v.try_get_claims(token))
     }
 
+    async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
+        dispatch_verifier!(self, v => v.get_public_key(token).await)
+    }
+
     fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         dispatch_verifier!(self, v => v.try_get_subject(token))
     }
