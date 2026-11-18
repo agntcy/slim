@@ -907,9 +907,7 @@
   {
     "version": "slim-proto-v0.8.9",
     "title": "slim-proto-v0.8.9",
-    "aliases": [
-      "latest"
-    ]
+    "aliases": []
   },
   {
     "version": "slim-proto-v0.8.8",
@@ -1010,6 +1008,13 @@
     "version": "slim-mls-v0.2.0",
     "title": "slim-mls-v0.2.0",
     "aliases": []
+  },
+  {
+    "version": "slim-datapath-v0.19.16",
+    "title": "slim-datapath-v0.19.16",
+    "aliases": [
+      "latest"
+    ]
   },
   {
     "version": "slim-datapath-v0.19.12",
