@@ -3,6 +3,7 @@
 
 // Core modules available on every target
 pub mod auth_provider;
+mod erased;
 pub mod errors;
 pub mod identity_binding;
 pub mod identity_claims;

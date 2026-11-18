@@ -284,6 +284,51 @@ impl Service {
         self.inner.get_connection_id(&endpoint)
     }
 
+    /// Create a new App whose identity is provided by foreign-language objects (async version)
+    ///
+    /// `identity_provider` proves this app's identity; `identity_verifier` verifies peers.
+    pub async fn create_app_with_custom_identity_async(
+        &self,
+        name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let base_name: SlimName = name.as_ref().into();
+        let (provider, verifier) =
+            crate::custom_identity::into_core(identity_provider, identity_verifier);
+        let service = self.inner.clone();
+        // Spawn on the runtime so a tokio context exists when called from a UniFFI async context.
+        let handle = get_runtime().spawn(async move {
+            create_app_from_identity(base_name, provider, verifier, service, direction, None).await
+        });
+        handle
+            .await
+            .map_err(|e| SlimError::InternalError {
+                message: format!("create_app_with_custom_identity task failed: {e}"),
+            })?
+            .map(Arc::new)
+    }
+
+    /// Create a new App whose identity is provided by foreign-language objects - blocking version
+    ///
+    /// Blocks while the objects' async `initialize` run; see
+    /// [`crate::App::new_with_custom_identity`] for when not to use it.
+    pub fn create_app_with_custom_identity(
+        &self,
+        name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        get_runtime().block_on(self.create_app_with_custom_identity_async(
+            name,
+            identity_provider,
+            identity_verifier,
+            direction,
+        ))
+    }
+
     /// Create a new App with authentication configuration (async version)
     ///
     /// This method initializes authentication providers/verifiers and creates a App
@@ -468,9 +513,31 @@ pub(crate) async fn create_app_async_internal(
     direction: crate::app::Direction,
 ) -> Result<crate::app::App, SlimError> {
     // Convert configurations to actual providers/verifiers
-    let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
-    let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
+    let identity_provider: AuthProvider = identity_provider_config.try_into()?;
+    let identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
 
+    create_app_from_identity(
+        base_name,
+        identity_provider,
+        identity_verifier,
+        service,
+        direction,
+        None,
+    )
+    .await
+}
+
+/// Create an app from already-built identity objects: initialize them, check the
+/// provider yields a token, and register the app on `service`.
+#[cfg(not(feature = "web"))]
+pub(crate) async fn create_app_from_identity(
+    base_name: SlimName,
+    mut identity_provider: AuthProvider,
+    mut identity_verifier: AuthVerifier,
+    service: Arc<SlimService>,
+    direction: crate::app::Direction,
+    persistence: Option<slim_persistence::PersistenceConfig>,
+) -> Result<crate::app::App, SlimError> {
     // Initialize the identity provider
     identity_provider.initialize().await?;
 
@@ -481,11 +548,12 @@ pub(crate) async fn create_app_async_internal(
     let _identity_token = identity_provider.get_token()?;
 
     // Create the app using the provided service
-    let (app, rx) = service.create_app_with_direction(
+    let (app, rx) = service.create_app_with_direction_and_persistence(
         &base_name,
         identity_provider,
         identity_verifier,
         direction.into(),
+        persistence,
     )?;
 
     Ok(crate::app::App::from_parts(

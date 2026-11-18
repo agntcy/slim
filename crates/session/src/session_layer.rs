@@ -427,7 +427,14 @@ where
                             debug!("restored persisted app identity");
                             Ok(restored)
                         }
-                        Err(e @ slim_auth::errors::AuthError::SelfCertifiedDid(_)) => {
+                        // A custom provider that cannot restore keeps its fresh identity, and
+                        // MLS would install a new key pair over the one the persisted groups
+                        // were created with. Same outcome as a rejected identity.
+                        Err(
+                            e @ (slim_auth::errors::AuthError::SelfCertifiedDid(_)
+                            | slim_auth::errors::AuthError::IdentityMismatch(_)
+                            | slim_auth::errors::AuthError::Custom(_)),
+                        ) => {
                             error!(error = %e, "persisted app identity rejected; persistence disabled");
                             Err(fallback)
                         }
@@ -1416,6 +1423,93 @@ mod tests {
             kv.get(crate::persistence::APP_IDENTITY_KEY).unwrap(),
             Some(stored)
         );
+    }
+
+    /// A provider that rejects any stored identity: as belonging to another one, or, when
+    /// the flag is set, with the error of a foreign implementation that failed.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Default)]
+    struct MismatchingProvider(MockTokenProvider, bool);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl TokenProvider for MismatchingProvider {
+        async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
+            self.0.get_token()
+        }
+        fn get_id(&self) -> Result<String, slim_auth::errors::AuthError> {
+            self.0.get_id()
+        }
+        async fn set_signature_keys(
+            &mut self,
+            _private_key: Vec<u8>,
+            _public_key: Vec<u8>,
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn with_restored_identity(
+            self,
+            _identity: ExportedIdentity,
+        ) -> Result<Self, slim_auth::errors::AuthError> {
+            Err(if self.1 {
+                slim_auth::errors::AuthError::Custom("restore failed".into())
+            } else {
+                slim_auth::errors::AuthError::IdentityMismatch(
+                    "stored identity belongs to another provider".into(),
+                )
+            })
+        }
+    }
+
+    /// An identity the provider rejects, as a mismatch or by failing to restore it, turns
+    /// persistence off, as a did:key of another key does, and leaves what is stored alone.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_restore_with_an_identity_mismatch_disables_persistence() {
+        for custom in [false, true] {
+            use slim_persistence::MlsEncryptionKey;
+
+            let name = make_name(&["test", "app", "v1"]);
+            let dir = tempfile::tempdir().unwrap();
+            let cfg = PersistenceConfig::with_key(dir.path(), MlsEncryptionKey::RawKey([7; 32]));
+            let open = |provider: MismatchingProvider| {
+                SessionLayer::<MismatchingProvider, MockVerifier>::open_persistent_store(
+                    &name,
+                    provider,
+                    Some(&cfg),
+                )
+            };
+
+            // Nothing stored yet, so there is nothing to mismatch: persistence is on.
+            let stored =
+            br#"{"id":"a","credential":[],"signature_secret_key":[],"signature_public_key":[]}"#;
+            let (_, group, kv) = open(MismatchingProvider(MockTokenProvider, custom));
+            {
+                let kv = kv.expect("persistence is enabled while no identity is stored");
+                assert!(group.is_some());
+                drop(group);
+                kv.put(crate::persistence::APP_IDENTITY_KEY, stored)
+                    .unwrap();
+            }
+
+            let (_, group, kv) = open(MismatchingProvider(MockTokenProvider, custom));
+            assert!(group.is_none() && kv.is_none());
+
+            let (_, kv) = PersistentStore::open(
+                dir.path(),
+                &SessionLayer::<MismatchingProvider, MockVerifier>::app_store_key(&name),
+                cfg.encryption_key.clone(),
+            )
+            .unwrap();
+            assert_eq!(
+                kv.get(crate::persistence::APP_IDENTITY_KEY)
+                    .unwrap()
+                    .as_deref(),
+                Some(&stored[..])
+            );
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]

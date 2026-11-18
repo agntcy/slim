@@ -18,6 +18,7 @@ web = []
 insecure-self-certified-did = ["agntcy-slim-config/insecure-self-certified-did"]
 
 [dependencies]
+async-trait = { workspace = true }
 display-error-chain = { workspace = true }
 futures = { workspace = true }
 futures-timer = { workspace = true }
@@ -58,6 +59,7 @@ agntcy-slim-version = { workspace = true }
 uniffi = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
+base64 = { workspace = true }
 cfg-if = { workspace = true }
 clap = { workspace = true }
 test-fork = { workspace = true }

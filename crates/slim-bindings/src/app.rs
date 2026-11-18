@@ -296,6 +296,73 @@ impl App {
         })
     }
 
+    /// Create a new App whose identity is implemented in the foreign language
+    ///
+    /// Unlike [`App::new`], which selects a built-in mechanism through a config enum,
+    /// this takes the provider and verifier objects directly.
+    ///
+    /// # Arguments
+    /// * `base_name` - The base name for the app (without ID)
+    /// * `identity_provider` - Proves this app's identity to others
+    /// * `identity_verifier` - Verifies the identity of others
+    /// * `direction` - Traffic direction for sessions
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use slim_bindings::*;
+    /// # fn demo(
+    /// #     name: Arc<Name>,
+    /// #     provider: Arc<dyn IdentityProvider>,
+    /// #     verifier: Arc<dyn IdentityVerifier>,
+    /// # ) -> Result<(), SlimError> {
+    /// let app = App::new_with_custom_identity(name, provider, verifier, Direction::Bidirectional)?;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Blocking
+    ///
+    /// This constructor blocks the calling thread while the provider's and verifier's
+    /// async `initialize` run. Do not call it from inside an event loop of a language
+    /// whose callbacks need that loop (e.g. Python asyncio): it deadlocks. Use
+    /// [`App::new_with_custom_identity_async`] there.
+    #[uniffi::constructor]
+    pub fn new_with_custom_identity(
+        base_name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: Direction,
+    ) -> Result<Arc<App>, SlimError> {
+        get_global_service().create_app_with_custom_identity(
+            base_name,
+            identity_provider,
+            identity_verifier,
+            direction,
+        )
+    }
+
+    /// Create a new App whose identity is implemented in the foreign language (async version)
+    ///
+    /// Same as [`App::new_with_custom_identity`], but awaits the provider's and
+    /// verifier's `initialize` instead of blocking. Prefer it from async code.
+    #[uniffi::constructor]
+    pub async fn new_with_custom_identity_async(
+        base_name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: Direction,
+    ) -> Result<Arc<App>, SlimError> {
+        get_global_service()
+            .create_app_with_custom_identity_async(
+                base_name,
+                identity_provider,
+                identity_verifier,
+                direction,
+            )
+            .await
+    }
+
     /// Create a new App with traffic direction (blocking version)
     ///
     /// This is a convenience function for creating a SLIM application with configurable
