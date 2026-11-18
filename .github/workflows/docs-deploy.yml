@@ -81,6 +81,9 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/reusable-docs.yml
+    secrets:
+      PROJECT_APP_ID: ${{ secrets.PROJECT_APP_ID }}
+      PROJECT_APP_KEY: ${{ secrets.PROJECT_APP_KEY }}
     with:
       mode: ${{ needs.resolve.outputs.mode }}
       version: ${{ needs.resolve.outputs.version }}

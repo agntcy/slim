@@ -24,8 +24,8 @@ vars:
   # Deploy (mike --push to gh-pages). Defaults overridable from the environment.
   MIKE_REMOTE: '{{.MIKE_REMOTE | default "origin"}}'
   SITE_URL: '{{.SITE_URL | default "https://agntcy.github.io/slim/"}}'
-  BOT_NAME: "github-actions[bot]"
-  BOT_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+  BOT_NAME: '{{.BOT_NAME | default "github-actions[bot]"}}'
+  BOT_EMAIL: '{{.BOT_EMAIL | default "41898282+github-actions[bot]@users.noreply.github.com"}}'
 
 tasks:
   default:

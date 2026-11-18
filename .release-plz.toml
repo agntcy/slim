@@ -45,7 +45,7 @@ pr_body = '''
 ---
 This PR was generated with [release-plz](https://github.com/release-plz/release-plz/).
 
-Signed-off-by: Agntcy Build Bot <build@agntcy.io>
+Signed-off-by: agntcy-automation[bot] <269490587+agntcy-automation[bot]@users.noreply.github.com>
 '''
 
 [[package]]
