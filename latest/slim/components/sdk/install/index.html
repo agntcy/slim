@@ -5234,9 +5234,9 @@
 </tr>
 <tr>
 <td><a href="../go/">Go</a></td>
-<td><a href="https://github.com/agntcy/slim-bindings-go"><code>github.com/agntcy/slim-bindings-go</code></a></td>
+<td><a href="https://github.com/agntcy/slim-bindings-go"><code>github.com/agntcy/slim-bindings-go/v3</code></a></td>
 <td>Go 1.23+, C compiler (CGO)</td>
-<td><code>go get github.com/agntcy/slim-bindings-go</code></td>
+<td><code>go get github.com/agntcy/slim-bindings-go/v3</code></td>
 </tr>
 <tr>
 <td><a href="../dotnet/">.NET</a></td>
@@ -5247,7 +5247,7 @@
 <tr>
 <td><a href="../java/">Java</a></td>
 <td><a href="https://central.sonatype.com/artifact/io.agntcy.slim/slim-bindings-java"><code>slim-bindings-java</code></a> on Maven Central</td>
-<td>Java 21+, Maven 3.8+, JNA</td>
+<td>JDK 21 with <code>--enable-preview</code>, Maven 3.8+</td>
 <td>Maven dependency</td>
 </tr>
 <tr>
@@ -5265,7 +5265,7 @@
 <tr>
 <td><a href="../react-native/">React Native</a></td>
 <td><a href="https://www.npmjs.com/package/@agntcy/slim-bindings-react-native"><code>@agntcy/slim-bindings-react-native</code></a> on npm</td>
-<td>iOS or Android</td>
+<td>iOS or browser (WebAssembly)</td>
 <td><code>npm install @agntcy/slim-bindings-react-native</code></td>
 </tr>
 </tbody>
@@ -5273,7 +5273,7 @@
 <p>Each language guide has the full installation steps for that binding — exact version pins, build-tool snippets, and any post-install work — alongside its API overview, transport authentication, and platform support.</p>
 <div class="admonition warning">
 <p class="admonition-title">Post-install steps</p>
-<p>Two bindings need one more step after the package is installed. Go requires a one-time <code>go run github.com/agntcy/slim-bindings-go/cmd/slim-bindings-setup</code> to fetch native libraries, and React Native requires <code>cd ios &amp;&amp; pod install</code>. See the <a href="../go/#installation">Go</a> and <a href="../react-native/#installation">React Native</a> guides.</p>
+<p>Two bindings need one more step after the package is installed. Go requires <code>go run github.com/agntcy/slim-bindings-go/v3/cmd/slim-bindings-setup</code> (once per binding version) to fetch native libraries, and React Native requires <code>cd ios &amp;&amp; pod install</code>. See the <a href="../go/#installation">Go</a> and <a href="../react-native/#installation">React Native</a> guides.</p>
 </div>
 <h2 id="building-from-source">Building from Source</h2>
 <p>To build the bindings from source:</p>
@@ -5283,8 +5283,8 @@
 <span class="c1"># Build the Rust FFI library</span>
 <span class="nb">cd</span><span class="w"> </span>rust<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>task<span class="w"> </span>build
 
-<span class="c1"># Build a specific binding (example: Python)</span>
-<span class="nb">cd</span><span class="w"> </span>python<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>task<span class="w"> </span>build
+<span class="c1"># Build a specific binding (example: Python, installed in development mode)</span>
+<span class="nb">cd</span><span class="w"> </span>../python<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>task<span class="w"> </span>python:bindings:build
 </code></pre></div>
 <p>Each language guide has the build steps for its own binding, and the README in each binding directory covers the full list of development tasks.</p>
 <h2 id="next-steps">Next Steps</h2>

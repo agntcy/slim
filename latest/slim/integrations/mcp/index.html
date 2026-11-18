@@ -5274,16 +5274,24 @@
 <thead>
 <tr>
 <th>Language</th>
+<th>Package</th>
 <th>Repository</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Python</td>
+<td><a href="https://pypi.org/project/slim-mcp/"><code>slim-mcp</code></a>, for the MCP Python SDK</td>
 <td><a href="https://github.com/agntcy/slim-mcp-python">agntcy/slim-mcp-python</a></td>
+</tr>
+<tr>
+<td>Rust</td>
+<td><a href="https://crates.io/crates/agntcy-slim-mcp-transport"><code>agntcy-slim-mcp-transport</code></a>, for <a href="https://crates.io/crates/rmcp">rmcp</a></td>
+<td><a href="https://github.com/agntcy/slim-mcp-rust">agntcy/slim-mcp-rust</a></td>
 </tr>
 </tbody>
 </table>
+<p>To connect an existing MCP server without changing it, run <a href="https://github.com/agntcy/slim-mcp-rust/tree/main/mcp-proxy"><code>mcp-proxy</code></a> in front of it. The proxy forwards SLIM sessions to the server's Streamable HTTP endpoint.</p>
 <h2 id="related">Related</h2>
 <ul>
 <li><a href="../../components/sdk/">SLIM SDK</a> — connect and build SLIM-enabled apps</li>

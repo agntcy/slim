@@ -5378,21 +5378,20 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:7"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><input id="__tabbed_1_7" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Python</label><label for="__tabbed_1_3">Go</label><label for="__tabbed_1_4">Java</label><label for="__tabbed_1_5">Kotlin</label><label for="__tabbed_1_6">Node.js</label><label for="__tabbed_1_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::</span><span class="n">Channel</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="p">;</span>
 
-<span class="c1">// app, conn_id, and remote_name come from the prerequisite tutorials</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">channel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Channel</span><span class="p">::</span><span class="n">new_with_members_internal</span><span class="p">(</span>
-<span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span>
-<span class="w">    </span><span class="fm">vec!</span><span class="p">[</span><span class="n">remote_name</span><span class="p">.</span><span class="n">clone</span><span class="p">()],</span>
-<span class="w">    </span><span class="kc">false</span><span class="p">,</span>
-<span class="w">    </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">),</span>
-<span class="w">    </span><span class="n">tokio</span><span class="p">::</span><span class="n">runtime</span><span class="p">::</span><span class="n">Handle</span><span class="p">::</span><span class="n">current</span><span class="p">(),</span>
-<span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_datapath</span><span class="p">::</span><span class="n">api</span><span class="p">::</span><span class="n">ProtoName</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_rpc</span><span class="p">::</span><span class="n">Channel</span><span class="p">;</span>
+
+<span class="c1">// app and conn_id come from the prerequisite tutorials. Wrap the app in an Arc and</span>
+<span class="c1">// build it with the AuthProvider / AuthVerifier wrappers, as in the serving tutorial.</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">remote_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ProtoName</span><span class="p">::</span><span class="n">from_strings</span><span class="p">([</span><span class="s">&quot;myorg&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;my-service&quot;</span><span class="p">]);</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">channel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Channel</span><span class="p">::</span><span class="n">new_with_connection</span><span class="p">(</span><span class="n">app</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span><span class="w"> </span><span class="n">Arc</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="n">remote_name</span><span class="p">),</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">));</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">slim_bindings</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">types.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestStub</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">example_service.example_pb2_slimrpc</span><span class="w"> </span><span class="kn">import</span> <span class="n">TestStub</span>
 
 <span class="c1"># app, conn_id, and remote_name come from the prerequisite tutorials</span>
 <span class="n">channel</span> <span class="o">=</span> <span class="n">slim_bindings</span><span class="o">.</span><span class="n">Channel</span><span class="o">.</span><span class="n">new_with_connection</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">remote_name</span><span class="p">,</span> <span class="n">conn_id</span><span class="p">)</span>
@@ -5401,7 +5400,7 @@
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="p">(</span>
-<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/slim_rpc&quot;</span>
+<span class="w">    </span><span class="nx">slim_rpc</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3/slim_rpc&quot;</span>
 <span class="w">    </span><span class="nx">pb</span><span class="w"> </span><span class="s">&quot;example/types&quot;</span>
 <span class="p">)</span>
 
@@ -5461,14 +5460,14 @@
 <span class="p">};</span>
 
 <span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleResponse</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span>
-<span class="w">    </span><span class="p">.</span><span class="n">unary</span><span class="p">(</span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ExampleUnaryUnary&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">)</span>
+<span class="w">    </span><span class="p">.</span><span class="n">unary</span><span class="p">(</span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ExampleUnaryUnary&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">.</span><span class="n">clone</span><span class="p">(),</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">)</span>
 <span class="w">    </span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Response: {} {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">.</span><span class="n">example_string</span><span class="p">,</span><span class="w"> </span><span class="n">response</span><span class="p">.</span><span class="n">example_integer</span><span class="p">);</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">timedelta</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">types.example_pb2</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExampleRequest</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">example_service.example_pb2</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExampleRequest</span>
 
 <span class="n">request</span> <span class="o">=</span> <span class="n">ExampleRequest</span><span class="p">(</span><span class="n">example_string</span><span class="o">=</span><span class="s2">&quot;world&quot;</span><span class="p">,</span> <span class="n">example_integer</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
 <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">ExampleUnaryUnary</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span>
@@ -5544,12 +5543,19 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="3:7"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><input id="__tabbed_3_4" name="__tabbed_3" type="radio" /><input id="__tabbed_3_5" name="__tabbed_3" type="radio" /><input id="__tabbed_3_6" name="__tabbed_3" type="radio" /><input id="__tabbed_3_7" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Rust</label><label for="__tabbed_3_2">Python</label><label for="__tabbed_3_3">Go</label><label for="__tabbed_3_4">Java</label><label for="__tabbed_3_5">Kotlin</label><label for="__tabbed_3_6">Node.js</label><label for="__tabbed_3_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span>
-<span class="w">    </span><span class="p">.</span><span class="n">unary_stream</span><span class="p">(</span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ExampleUnaryStream&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">)</span>
-<span class="w">    </span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">futures</span><span class="p">::</span><span class="n">StreamExt</span><span class="p">;</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span><span class="p">.</span><span class="n">unary_stream</span><span class="p">::</span><span class="o">&lt;</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="o">&gt;</span><span class="p">(</span>
+<span class="w">    </span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s">&quot;ExampleUnaryStream&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">request</span><span class="p">,</span>
+<span class="w">    </span><span class="nb">None</span><span class="p">,</span>
+<span class="w">    </span><span class="nb">None</span><span class="p">,</span>
+<span class="p">);</span>
+<span class="n">futures</span><span class="p">::</span><span class="n">pin_mut</span><span class="o">!</span><span class="p">(</span><span class="n">stream</span><span class="p">);</span>
 
 <span class="k">while</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">response</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stream</span><span class="p">.</span><span class="n">next</span><span class="p">().</span><span class="k">await</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleResponse</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">response</span><span class="o">?</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">response</span><span class="o">?</span><span class="p">;</span>
 <span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Stream response: {} {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">example_string</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">example_integer</span><span class="p">);</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -5566,11 +5572,11 @@
 <span class="p">}</span>
 <span class="k">for</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">resp</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">stream</span><span class="p">.</span><span class="nx">Recv</span><span class="p">()</span>
-<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">io</span><span class="p">.</span><span class="nx">EOF</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">break</span>
-<span class="w">    </span><span class="p">}</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">resp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// end of stream</span>
+<span class="w">        </span><span class="k">break</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">&quot;Stream response:&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">ExampleString</span><span class="p">,</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">ExampleInteger</span><span class="p">)</span>
 <span class="p">}</span>
@@ -5625,12 +5631,10 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="4:7"><input checked="checked" id="__tabbed_4_1" name="__tabbed_4" type="radio" /><input id="__tabbed_4_2" name="__tabbed_4" type="radio" /><input id="__tabbed_4_3" name="__tabbed_4" type="radio" /><input id="__tabbed_4_4" name="__tabbed_4" type="radio" /><input id="__tabbed_4_5" name="__tabbed_4" type="radio" /><input id="__tabbed_4_6" name="__tabbed_4" type="radio" /><input id="__tabbed_4_7" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="__tabbed_4_1">Rust</label><label for="__tabbed_4_2">Python</label><label for="__tabbed_4_3">Go</label><label for="__tabbed_4_4">Java</label><label for="__tabbed_4_5">Kotlin</label><label for="__tabbed_4_6">Node.js</label><label for="__tabbed_4_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="n">requests</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">ExampleRequest</span><span class="o">&gt;</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">0</span><span class="o">..</span><span class="mi">5</span><span class="p">)</span>
-<span class="w">    </span><span class="p">.</span><span class="n">map</span><span class="p">(</span><span class="o">|</span><span class="n">i</span><span class="o">|</span><span class="w"> </span><span class="n">ExampleRequest</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="nc">format</span><span class="o">!</span><span class="p">(</span><span class="s">&quot;req_{i}&quot;</span><span class="p">),</span>
-<span class="w">        </span><span class="n">example_integer</span><span class="p">:</span><span class="w"> </span><span class="nc">i</span><span class="p">,</span>
-<span class="w">    </span><span class="p">})</span>
-<span class="w">    </span><span class="p">.</span><span class="n">collect</span><span class="p">();</span>
+<div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="n">requests</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">futures</span><span class="p">::</span><span class="n">stream</span><span class="p">::</span><span class="n">iter</span><span class="p">((</span><span class="mi">0</span><span class="o">..</span><span class="mi">5</span><span class="p">).</span><span class="n">map</span><span class="p">(</span><span class="o">|</span><span class="n">i</span><span class="o">|</span><span class="w"> </span><span class="n">ExampleRequest</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="nc">format</span><span class="o">!</span><span class="p">(</span><span class="s">&quot;req_{i}&quot;</span><span class="p">),</span>
+<span class="w">    </span><span class="n">example_integer</span><span class="p">:</span><span class="w"> </span><span class="nc">i</span><span class="p">,</span>
+<span class="p">}));</span>
 
 <span class="kd">let</span><span class="w"> </span><span class="n">response</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleResponse</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span>
 <span class="w">    </span><span class="p">.</span><span class="n">stream_unary</span><span class="p">(</span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ExampleStreamUnary&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">requests</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">)</span>
@@ -5731,12 +5735,23 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="5:7"><input checked="checked" id="__tabbed_5_1" name="__tabbed_5" type="radio" /><input id="__tabbed_5_2" name="__tabbed_5" type="radio" /><input id="__tabbed_5_3" name="__tabbed_5" type="radio" /><input id="__tabbed_5_4" name="__tabbed_5" type="radio" /><input id="__tabbed_5_5" name="__tabbed_5" type="radio" /><input id="__tabbed_5_6" name="__tabbed_5" type="radio" /><input id="__tabbed_5_7" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="__tabbed_5_1">Rust</label><label for="__tabbed_5_2">Python</label><label for="__tabbed_5_3">Go</label><label for="__tabbed_5_4">Java</label><label for="__tabbed_5_5">Kotlin</label><label for="__tabbed_5_6">Node.js</label><label for="__tabbed_5_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="k">mut</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span>
-<span class="w">    </span><span class="p">.</span><span class="n">stream_stream</span><span class="p">(</span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;ExampleStreamStream&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">requests</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">,</span><span class="w"> </span><span class="nb">None</span><span class="p">)</span>
-<span class="w">    </span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="c1">// A request stream is consumed by the call, so build a new one</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">requests</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">futures</span><span class="p">::</span><span class="n">stream</span><span class="p">::</span><span class="n">iter</span><span class="p">((</span><span class="mi">0</span><span class="o">..</span><span class="mi">5</span><span class="p">).</span><span class="n">map</span><span class="p">(</span><span class="o">|</span><span class="n">i</span><span class="o">|</span><span class="w"> </span><span class="n">ExampleRequest</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">example_string</span><span class="p">:</span><span class="w"> </span><span class="nc">format</span><span class="o">!</span><span class="p">(</span><span class="s">&quot;req_{i}&quot;</span><span class="p">),</span>
+<span class="w">    </span><span class="n">example_integer</span><span class="p">:</span><span class="w"> </span><span class="nc">i</span><span class="p">,</span>
+<span class="p">}));</span>
+
+<span class="kd">let</span><span class="w"> </span><span class="n">stream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">channel</span><span class="p">.</span><span class="n">stream_stream</span><span class="p">::</span><span class="o">&lt;</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">ExampleResponse</span><span class="o">&gt;</span><span class="p">(</span>
+<span class="w">    </span><span class="s">&quot;example_service.Test&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s">&quot;ExampleStreamStream&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">requests</span><span class="p">,</span>
+<span class="w">    </span><span class="nb">None</span><span class="p">,</span>
+<span class="w">    </span><span class="nb">None</span><span class="p">,</span>
+<span class="p">);</span>
+<span class="n">futures</span><span class="p">::</span><span class="n">pin_mut</span><span class="o">!</span><span class="p">(</span><span class="n">stream</span><span class="p">);</span>
 
 <span class="k">while</span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">response</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">stream</span><span class="p">.</span><span class="n">next</span><span class="p">().</span><span class="k">await</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="p">:</span><span class="w"> </span><span class="nc">ExampleResponse</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">response</span><span class="o">?</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">resp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">response</span><span class="o">?</span><span class="p">;</span>
 <span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Stream response: {} {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">example_string</span><span class="p">,</span><span class="w"> </span><span class="n">resp</span><span class="p">.</span><span class="n">example_integer</span><span class="p">);</span>
 <span class="p">}</span>
 </code></pre></div>
@@ -5772,11 +5787,11 @@
 <span class="c1">// Receive responses</span>
 <span class="k">for</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">resp</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">streamBidi</span><span class="p">.</span><span class="nx">Recv</span><span class="p">()</span>
-<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">io</span><span class="p">.</span><span class="nx">EOF</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="k">break</span>
-<span class="w">    </span><span class="p">}</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">resp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// end of stream</span>
+<span class="w">        </span><span class="k">break</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">&quot;Stream response:&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">ExampleString</span><span class="p">,</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">ExampleInteger</span><span class="p">)</span>
 <span class="p">}</span>
@@ -5791,13 +5806,17 @@
 
 <span class="c1">// Send requests in a separate thread</span>
 <span class="k">new</span><span class="w"> </span><span class="n">Thread</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="n">stream</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="n">ExampleRequest</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
-<span class="w">            </span><span class="p">.</span><span class="na">setExampleString</span><span class="p">(</span><span class="s">&quot;req_&quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">)</span>
-<span class="w">            </span><span class="p">.</span><span class="na">setExampleInteger</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
-<span class="w">            </span><span class="p">.</span><span class="na">build</span><span class="p">());</span>
+<span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="n">stream</span><span class="p">.</span><span class="na">send</span><span class="p">(</span><span class="n">ExampleRequest</span><span class="p">.</span><span class="na">newBuilder</span><span class="p">()</span>
+<span class="w">                </span><span class="p">.</span><span class="na">setExampleString</span><span class="p">(</span><span class="s">&quot;req_&quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">)</span>
+<span class="w">                </span><span class="p">.</span><span class="na">setExampleInteger</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+<span class="w">                </span><span class="p">.</span><span class="na">build</span><span class="p">());</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="n">stream</span><span class="p">.</span><span class="na">closeSend</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">Exception</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">throw</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RuntimeException</span><span class="p">(</span><span class="n">e</span><span class="p">);</span>
 <span class="w">    </span><span class="p">}</span>
-<span class="w">    </span><span class="n">stream</span><span class="p">.</span><span class="na">closeSend</span><span class="p">();</span>
 <span class="p">}).</span><span class="na">start</span><span class="p">();</span>
 
 <span class="c1">// Receive responses</span>
@@ -5867,7 +5886,7 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="6:7"><input checked="checked" id="__tabbed_6_1" name="__tabbed_6" type="radio" /><input id="__tabbed_6_2" name="__tabbed_6" type="radio" /><input id="__tabbed_6_3" name="__tabbed_6" type="radio" /><input id="__tabbed_6_4" name="__tabbed_6" type="radio" /><input id="__tabbed_6_5" name="__tabbed_6" type="radio" /><input id="__tabbed_6_6" name="__tabbed_6" type="radio" /><input id="__tabbed_6_7" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="__tabbed_6_1">Rust</label><label for="__tabbed_6_2">Python</label><label for="__tabbed_6_3">Go</label><label for="__tabbed_6_4">Java</label><label for="__tabbed_6_5">Kotlin</label><label for="__tabbed_6_6">Node.js</label><label for="__tabbed_6_7">.NET</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="n">channel</span><span class="p">.</span><span class="n">close</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="n">channel</span><span class="p">.</span><span class="n">close</span><span class="p">(</span><span class="nb">None</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">

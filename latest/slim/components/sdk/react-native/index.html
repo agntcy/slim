@@ -5402,7 +5402,7 @@
 
 
 <h1 id="react-native-sdk">React Native SDK</h1>
-<p>The SLIM React Native SDK (<code>@agntcy/slim-bindings-react-native</code>) provides mobile and browser APIs for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via <a href="https://jhugman.github.io/uniffi-bindgen-react-native/">uniffi-bindgen-react-native</a>, with native integration for iOS and Android and a WebAssembly build for browsers.</p>
+<p>The SLIM React Native SDK (<code>@agntcy/slim-bindings-react-native</code>) provides mobile and browser APIs for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via <a href="https://jhugman.github.io/uniffi-bindgen-react-native/">uniffi-bindgen-react-native</a>, with native integration for iOS and a WebAssembly build for browsers. Android is not supported yet.</p>
 <p>For Node.js servers, CLI tools, and non-mobile JavaScript applications, use <a href="../node/"><code>@agntcy/slim-bindings</code></a> instead.</p>
 <h2 id="requirements">Requirements</h2>
 <table>
@@ -5415,7 +5415,7 @@
 <tbody>
 <tr>
 <td><strong>Native targets</strong></td>
-<td>iOS, Android (React Native)</td>
+<td>iOS (React Native); Android is not supported yet</td>
 </tr>
 <tr>
 <td><strong>Web target</strong></td>
@@ -5427,7 +5427,7 @@
 </tr>
 <tr>
 <td><strong>Build tools</strong></td>
-<td>Node.js 18+, Rust 1.70+ (for building from source)</td>
+<td>Node.js 18+, recent stable Rust, 1.88+ (for building from source)</td>
 </tr>
 <tr>
 <td><strong>Examples</strong></td>
@@ -5452,14 +5452,14 @@
 <div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>ios<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>pod<span class="w"> </span>install
 </code></pre></div>
 <h2 id="getting-started">Getting Started</h2>
-<p>The <a href="../tutorials/">SDK tutorials</a> build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with React Native snippets shown alongside every other binding. They target the native (iOS/Android) build; the browser quick start below covers the WebAssembly entry point.</p>
+<p>The <a href="../tutorials/">SDK tutorials</a> build a full application step by step — initialising the service, connecting to a node, creating an app, opening sessions, receiving messages, and adding persistence — with React Native snippets shown alongside every other binding. They target the native (iOS) build; the browser quick start below covers the WebAssembly entry point.</p>
 <p>Start with <a href="../tutorials/tutorial-connect/">Connecting to SLIM</a>.</p>
 <h2 id="browser-webassembly-quick-start">Browser / WebAssembly Quick Start</h2>
 <p>Browser builds connect over <code>ws://</code> or <code>wss://</code> and use a separate entry point. Call <code>uniffiInitAsync()</code> once before using the bindings:</p>
 <div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="p">{</span>
-<span class="w">  </span><span class="nx">App</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">Direction</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">Name</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">Service</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">SessionType</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">uniffiInitAsync</span><span class="p">,</span>
 <span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@agntcy/slim-bindings-react-native/web&#39;</span><span class="p">;</span>
@@ -5469,15 +5469,23 @@
 <span class="kd">const</span><span class="w"> </span><span class="nx">local</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">Name</span><span class="p">(</span><span class="s1">&#39;org&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;default&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;browser&#39;</span><span class="p">);</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">remote</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">Name</span><span class="p">(</span><span class="s1">&#39;org&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;default&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;agent&#39;</span><span class="p">);</span>
 
-<span class="kd">const</span><span class="w"> </span><span class="nx">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">App</span><span class="p">.</span><span class="nx">connectWithSecret</span><span class="p">(</span>
-<span class="w">  </span><span class="s1">&#39;wss://slim.example/ws&#39;</span><span class="p">,</span>
-<span class="w">  </span><span class="kc">undefined</span><span class="p">,</span>
+<span class="c1">// The service id may contain only lowercase letters, digits and &#39;-&#39; (anything else panics).</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">Service</span><span class="p">(</span><span class="s1">&#39;browser&#39;</span><span class="p">);</span>
+
+<span class="c1">// Optional second argument: a token appended as the `token` query parameter.</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">connId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">service</span><span class="p">.</span><span class="nx">connectAsync</span><span class="p">(</span><span class="s1">&#39;wss://slim.example/ws&#39;</span><span class="p">,</span><span class="w"> </span><span class="kc">undefined</span><span class="p">);</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">service</span><span class="p">.</span><span class="nx">createAppWithDirectionAsync</span><span class="p">(</span>
 <span class="w">  </span><span class="nx">local</span><span class="p">,</span>
 <span class="w">  </span><span class="s1">&#39;change-me-before-going-to-production&#39;</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">Direction</span><span class="p">.</span><span class="nx">Bidirectional</span><span class="p">,</span>
 <span class="p">);</span>
 
-<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">setRouteViaUpstreamAsync</span><span class="p">(</span><span class="nx">remote</span><span class="p">);</span>
+<span class="c1">// Subscribe the app&#39;s own name so the node can route messages back to it,</span>
+<span class="c1">// then route the remote name over the same connection.</span>
+<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">subscribeAsync</span><span class="p">(</span><span class="nx">local</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
+<span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">setRouteAsync</span><span class="p">(</span><span class="nx">remote</span><span class="p">,</span><span class="w"> </span><span class="nx">connId</span><span class="p">);</span>
+
 <span class="kd">const</span><span class="w"> </span><span class="nx">session</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">app</span><span class="p">.</span><span class="nx">createSessionAndWaitAsync</span><span class="p">(</span>
 <span class="w">  </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">sessionType</span><span class="o">:</span><span class="w"> </span><span class="kt">SessionType.PointToPoint</span><span class="p">,</span>
@@ -5490,12 +5498,12 @@
 <span class="p">);</span>
 
 <span class="k">await</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">publishAndWaitAsync</span><span class="p">(</span>
-<span class="w">  </span><span class="ow">new</span><span class="w"> </span><span class="nx">TextEncoder</span><span class="p">().</span><span class="nx">encode</span><span class="p">(</span><span class="s1">&#39;Hello, SLIM!&#39;</span><span class="p">),</span>
+<span class="w">  </span><span class="ow">new</span><span class="w"> </span><span class="nx">TextEncoder</span><span class="p">().</span><span class="nx">encode</span><span class="p">(</span><span class="s1">&#39;Hello, SLIM!&#39;</span><span class="p">).</span><span class="nx">buffer</span><span class="p">,</span>
 <span class="w">  </span><span class="s1">&#39;text/plain&#39;</span><span class="p">,</span>
 <span class="w">  </span><span class="kc">undefined</span><span class="p">,</span>
 <span class="p">);</span>
 </code></pre></div>
-<p>All operations that wait for network or session state must use their async variants in browsers.</p>
+<p>All operations that wait for network or session state must use their async variants in browsers. <code>service.createAppAsync(name, secret)</code> is a shorthand for a bidirectional app.</p>
 <h2 id="api-overview">API Overview</h2>
 <table>
 <thead>
@@ -5514,7 +5522,7 @@
 <td>Application handle for sessions, subscriptions, and routing</td>
 </tr>
 <tr>
-<td><code>BindingsSessionContext</code></td>
+<td><code>Session</code></td>
 <td>Session for sending and receiving messages</td>
 </tr>
 <tr>
@@ -5535,8 +5543,8 @@
 </tr>
 </tbody>
 </table>
-<p>On the <strong>native (iOS/Android)</strong> target, the gRPC client and server configurations expose transport authentication via <code>config.auth</code>, matching the <a href="../node/#transport-authentication">Node.js SDK</a>. On the <strong>web/WebAssembly</strong> target, gRPC configuration is absent by design — browser apps connect over WebSocket and authenticate through the identity path instead.</p>
-<p>Call <code>app.destroy()</code> when finished to release native resources.</p>
+<p>On the <strong>native (iOS)</strong> target, the gRPC client and server configurations expose transport authentication via <code>config.auth</code>, matching the <a href="../node/#transport-authentication">Node.js SDK</a>. On the <strong>web/WebAssembly</strong> target, gRPC configuration is absent by design — browser apps connect over WebSocket and authenticate through the identity path instead.</p>
+<p>Call <code>app.uniffiDestroy()</code> when finished to release native resources.</p>
 <h3 id="session-configuration-native">Session Configuration (Native)</h3>
 <div class="highlight"><pre><span></span><code><span class="kd">const</span><span class="w"> </span><span class="nx">sessionConfig</span><span class="o">:</span><span class="w"> </span><span class="kt">slimBindings.SessionConfig</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
 <span class="w">  </span><span class="nx">sessionType</span><span class="o">:</span><span class="w"> </span><span class="kt">slimBindings.SessionType.PointToPoint</span><span class="p">,</span>
@@ -5548,8 +5556,8 @@
 </code></pre></div>
 <p>Annotate the object as <code>SessionConfig</code> rather than typing it <code>any</code> — that is what catches an unknown field, which is otherwise accepted and silently ignored. <code>metadata</code> is required, <code>maxRetries</code> and <code>interval</code> fall back to the SLIM defaults, and omitting <code>mlsSettings</code> disables MLS.</p>
 <h2 id="transport-authentication">Transport Authentication</h2>
-<p>On the <strong>native (iOS/Android)</strong> target, transport authentication via OIDC and other gRPC auth modes matches the Node.js SDK. See the <a href="../node/#transport-authentication">Node.js transport authentication section</a> for code snippets and the JSON config form.</p>
-<p>On the <strong>web/WebAssembly</strong> target, the browser build compiles out the gRPC configuration module (<code>ClientConfig</code>, <code>TlsClientConfig</code>, <code>ClientAuthenticationConfig</code>, and therefore OIDC). Browser apps authenticate through the shared-secret, JWT, or SPIRE identity path instead.</p>
+<p>On the <strong>native (iOS)</strong> target, transport authentication via OIDC and other gRPC auth modes matches the Node.js SDK. See the <a href="../node/#transport-authentication">Node.js transport authentication section</a> for code snippets and the JSON config form.</p>
+<p>On the <strong>web/WebAssembly</strong> target, the browser build compiles out the gRPC configuration module (<code>ClientConfig</code>, <code>TlsClientConfig</code>, <code>ClientAuthenticationConfig</code>, and therefore OIDC). Browser apps authenticate with a shared-secret app identity (<code>createAppAsync</code> / <code>createAppWithDirectionAsync</code>), optionally passing a token to <code>connectAsync</code>; JWT and SPIRE identities are native-only.</p>
 <h2 id="examples">Examples</h2>
 <p>The <a href="https://github.com/agntcy/slim-bindings/tree/main/react-native">slim-bindings/react-native</a> directory includes:</p>
 <table>
@@ -5562,7 +5570,7 @@
 <tbody>
 <tr>
 <td><code>examples/react-native/test-app</code></td>
-<td>React Native test app for iOS and Android</td>
+<td>React Native test app for iOS</td>
 </tr>
 <tr>
 <td><code>examples/browser</code></td>
@@ -5597,7 +5605,7 @@ npm<span class="w"> </span>run<span class="w"> </span>dev
 <tr>
 <td>Native</td>
 <td>Android</td>
-<td>Supported</td>
+<td>Not supported yet</td>
 </tr>
 <tr>
 <td>Web</td>
@@ -5612,9 +5620,9 @@ npm<span class="w"> </span>run<span class="w"> </span>dev
 <span class="nb">cd</span><span class="w"> </span>slim-bindings/react-native
 
 npm<span class="w"> </span>install
-task<span class="w"> </span>generate
-task<span class="w"> </span>generate:web
-task<span class="w"> </span><span class="nb">test</span>
+task<span class="w"> </span>generate<span class="w">       </span><span class="c1"># React Native (JSI) bindings</span>
+task<span class="w"> </span>generate:web<span class="w">   </span><span class="c1"># browser TypeScript bindings and WebAssembly package</span>
+task<span class="w"> </span>test:e2e:ios<span class="w">   </span><span class="c1"># iOS E2E smoke tests (requires Xcode, an iOS simulator, and Maestro)</span>
 </code></pre></div>
 <p>For iOS build issues, refresh the XCFramework and pods:</p>
 <div class="highlight"><pre><span></span><code>task<span class="w"> </span>prepare:ios

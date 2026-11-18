@@ -5243,7 +5243,7 @@
 </div>
 <h2 id="docker">Docker</h2>
 <p>Pull the controller image:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/control-plane:2.0.0
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/control-plane:3.4.6
 </code></pre></div>
 <p>Create a configuration file:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># slim-control-plane.yaml</span>
@@ -5268,7 +5268,7 @@
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span>./slim-control-plane.yaml:/config.yaml<span class="w"> </span>-v<span class="w"> </span>.:/db<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-p<span class="w"> </span><span class="m">50051</span>:50051<span class="w"> </span>-p<span class="w"> </span><span class="m">50052</span>:50052<span class="w">                      </span><span class="se">\</span>
-<span class="w">    </span>ghcr.io/agntcy/slim/control-plane:2.0.0
+<span class="w">    </span>ghcr.io/agntcy/slim/control-plane:3.4.6
 <span class="w">    </span>--config<span class="w"> </span>/config.yaml
 </code></pre></div>
 <h2 id="helm">Helm</h2>

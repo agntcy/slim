@@ -5440,12 +5440,12 @@
 <p><a href="../install/">Installation</a> covers building and running it locally; <a href="../config/">Configuration Reference</a> documents every setting.</p>
 <h2 id="container">Container</h2>
 <p>The release image is published to the GitHub registry and runs the binary directly:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:2.0.0
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim/channel-manager:3.4.6
 docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/config.yaml:/config.yaml:ro&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-p<span class="w"> </span><span class="m">10356</span>:10356<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-e<span class="w"> </span>CM_PASSPHRASE<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>ghcr.io/agntcy/slim/channel-manager:2.0.0<span class="w"> </span>--config-file<span class="w"> </span>/config.yaml
+<span class="w">  </span>ghcr.io/agntcy/slim/channel-manager:3.4.6<span class="w"> </span>--config-file<span class="w"> </span>/config.yaml
 </code></pre></div>
 <p>The image is built <code>FROM gcr.io/distroless/base-nossl-debian12:nonroot</code>, so it has no shell and runs as a non-root user. Its entrypoint is <code>/channel-manager</code>, and the only argument it needs is <code>--config-file</code>. A <code>channel-manager-debug</code> image built on <code>debian:bookworm-slim</code> carries a shell and debug symbols, for when something has to be inspected in place.</p>
 <p>Two things the container needs from outside:</p>

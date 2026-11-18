@@ -5480,7 +5480,7 @@
 
 
 <h1 id="java-sdk">Java SDK</h1>
-<p>The SLIM Java SDK (<code>io.agntcy.slim:slim-bindings-java</code>) provides an idiomatic Java API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via <a href="https://github.com/IronCoreLabs/uniffi-bindgen-java">uniffi-bindgen-java</a>, with synchronous methods and <code>CompletableFuture</code>-based async variants, and native libraries loaded through JNA.</p>
+<p>The SLIM Java SDK (<code>io.agntcy.slim:slim-bindings-java</code>) provides an idiomatic Java API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via <a href="https://github.com/IronCoreLabs/uniffi-bindgen-java">uniffi-bindgen-java</a>, with synchronous methods and <code>CompletableFuture</code>-based async variants. The generated code calls the native library through the Java Foreign Function &amp; Memory API (Project Panama).</p>
 <h2 id="requirements">Requirements</h2>
 <table>
 <thead>
@@ -5492,7 +5492,7 @@
 <tbody>
 <tr>
 <td><strong>Runtime</strong></td>
-<td>Java 21 or higher</td>
+<td>JDK 21, run with <code>--enable-preview</code></td>
 </tr>
 <tr>
 <td><strong>Package</strong></td>
@@ -5508,7 +5508,20 @@
 </tr>
 </tbody>
 </table>
-<p>The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64 and arm64. JNA loads the correct library for your platform at runtime.</p>
+<p>The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64 and arm64, one per platform directory at the root of the JAR (for example <code>darwin-aarch64/libslim_bindings.dylib</code>).</p>
+<div class="admonition warning">
+<p class="admonition-title">JVM flags</p>
+<p>The bindings are compiled for Java 21 with preview features enabled (the Foreign Function &amp; Memory API is a preview API in Java 21), so code that uses them must be compiled with <code>--enable-preview</code> (javac rejects classes that use preview features otherwise) and run on JDK 21 started with <code>--enable-preview</code>. The examples also pass <code>--add-opens=java.base/java.lang=ALL-UNNAMED</code> and <code>--add-opens=java.base/java.lang.reflect=ALL-UNNAMED</code>.</p>
+<p>The native library is loaded with <code>System.loadLibrary("slim_bindings")</code>, which does not look inside the JAR. Extract the library for your platform and point the JVM at it, either with <code>-Djava.library.path=&lt;dir containing libslim_bindings&gt;</code> or with an absolute path via <code>-Duniffi.component.slim_bindings.libraryOverride=/path/to/libslim_bindings.dylib</code>.</p>
+<p>For example:</p>
+<div class="highlight"><pre><span></span><code>java<span class="w"> </span>--enable-preview<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--add-opens<span class="o">=</span>java.base/java.lang<span class="o">=</span>ALL-UNNAMED<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--add-opens<span class="o">=</span>java.base/java.lang.reflect<span class="o">=</span>ALL-UNNAMED<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-Djava.library.path<span class="o">=</span>/path/to/native/darwin-aarch64<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-jar<span class="w"> </span>my-app.jar
+</code></pre></div>
+<p>With Maven <code>exec:java</code>, which runs in Maven's own JVM, put the flags in <code>.mvn/jvm.config</code> as the <a href="https://github.com/agntcy/slim-bindings/blob/main/java/examples/.mvn/jvm.config">examples</a> do.</p>
+</div>
 <h2 id="installation">Installation</h2>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Maven</label><label for="__tabbed_1_2">Gradle</label></div>
 <div class="tabbed-content">
@@ -5517,13 +5530,35 @@
 <div class="highlight"><pre><span></span><code><span class="nt">&lt;dependency&gt;</span>
 <span class="w">  </span><span class="nt">&lt;groupId&gt;</span>io.agntcy.slim<span class="nt">&lt;/groupId&gt;</span>
 <span class="w">  </span><span class="nt">&lt;artifactId&gt;</span>slim-bindings-java<span class="nt">&lt;/artifactId&gt;</span>
-<span class="w">  </span><span class="nt">&lt;version&gt;</span>1.2.0<span class="nt">&lt;/version&gt;</span>
+<span class="w">  </span><span class="nt">&lt;version&gt;</span>3.3.9<span class="nt">&lt;/version&gt;</span>
 <span class="nt">&lt;/dependency&gt;</span>
+</code></pre></div>
+<p>Compile with preview features enabled:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">&lt;plugin&gt;</span>
+<span class="w">  </span><span class="nt">&lt;groupId&gt;</span>org.apache.maven.plugins<span class="nt">&lt;/groupId&gt;</span>
+<span class="w">  </span><span class="nt">&lt;artifactId&gt;</span>maven-compiler-plugin<span class="nt">&lt;/artifactId&gt;</span>
+<span class="w">  </span><span class="nt">&lt;configuration&gt;</span>
+<span class="w">    </span><span class="nt">&lt;release&gt;</span>21<span class="nt">&lt;/release&gt;</span>
+<span class="w">    </span><span class="nt">&lt;compilerArgs&gt;</span>
+<span class="w">      </span><span class="nt">&lt;arg&gt;</span>--enable-preview<span class="nt">&lt;/arg&gt;</span>
+<span class="w">    </span><span class="nt">&lt;/compilerArgs&gt;</span>
+<span class="w">  </span><span class="nt">&lt;/configuration&gt;</span>
+<span class="nt">&lt;/plugin&gt;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="n">dependencies</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">implementation</span><span class="p">(</span><span class="s">&quot;io.agntcy.slim:slim-bindings-java:1.2.0&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="n">implementation</span><span class="p">(</span><span class="s">&quot;io.agntcy.slim:slim-bindings-java:3.3.9&quot;</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="n">tasks</span><span class="p">.</span><span class="na">withType</span><span class="o">&lt;</span><span class="n">JavaCompile</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">options</span><span class="p">.</span><span class="na">compilerArgs</span><span class="p">.</span><span class="na">add</span><span class="p">(</span><span class="s">&quot;--enable-preview&quot;</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="n">tasks</span><span class="p">.</span><span class="na">withType</span><span class="o">&lt;</span><span class="n">JavaExec</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">jvmArgs</span><span class="p">(</span><span class="s">&quot;--enable-preview&quot;</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="n">tasks</span><span class="p">.</span><span class="na">withType</span><span class="o">&lt;</span><span class="n">Test</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">jvmArgs</span><span class="p">(</span><span class="s">&quot;--enable-preview&quot;</span><span class="p">)</span>
 <span class="p">}</span>
 </code></pre></div>
 </div>
@@ -5679,7 +5714,7 @@
 <p><strong>Point-to-point:</strong></p>
 <div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>java
 task<span class="w"> </span>examples:p2p:alice<span class="w">   </span><span class="c1"># Receiver</span>
-task<span class="w"> </span>examples:p2p:bob<span class="w">     </span><span class="c1"># Sender (in another terminal)</span>
+task<span class="w"> </span>examples:p2p:no-mls:bob<span class="w">  </span><span class="c1"># Sender (in another terminal)</span>
 </code></pre></div>
 <p><strong>SLIMRPC</strong> (requires a running SLIM node and generated proto code):</p>
 <div class="highlight"><pre><span></span><code>task<span class="w"> </span>examples:rpc:server
@@ -5691,7 +5726,7 @@ task<span class="w"> </span>examples:rpc:client
 <tr>
 <th>Platform</th>
 <th>Architecture</th>
-<th>JNA directory</th>
+<th>JAR directory</th>
 </tr>
 </thead>
 <tbody>

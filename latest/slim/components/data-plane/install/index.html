@@ -5287,7 +5287,7 @@
 </div>
 <h2 id="docker">Docker</h2>
 <p>Pull the SLIM container image and run it with a configuration file:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim:2.0.0
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>pull<span class="w"> </span>ghcr.io/agntcy/slim:3.4.6
 </code></pre></div>
 <p>Create a minimal configuration file:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># config.yaml</span>
@@ -5314,7 +5314,7 @@
 <p>Run the container:</p>
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>-it<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>-v<span class="w"> </span>./config.yaml:/config.yaml<span class="w"> </span>-p<span class="w"> </span><span class="m">46357</span>:46357<span class="w"> </span><span class="se">\</span>
-<span class="w">    </span>ghcr.io/agntcy/slim:2.0.0<span class="w"> </span>/slim<span class="w"> </span>--config<span class="w"> </span>/config.yaml
+<span class="w">    </span>ghcr.io/agntcy/slim:3.4.6<span class="w"> </span>/slim<span class="w"> </span>--config<span class="w"> </span>/config.yaml
 </code></pre></div>
 <h2 id="cargo">Cargo</h2>
 <p>Install SLIM using Rust's package manager:</p>

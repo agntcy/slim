@@ -5607,8 +5607,15 @@
     <span class="n">issuer_url</span><span class="o">=</span><span class="s2">&quot;https://auth.example.com&quot;</span><span class="p">,</span>
     <span class="n">client_id</span><span class="o">=</span><span class="s2">&quot;my-client&quot;</span><span class="p">,</span>
     <span class="n">client_secret</span><span class="o">=</span><span class="s2">&quot;s3cr3t&quot;</span><span class="p">,</span>
+    <span class="n">audience</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">refresh_token</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">refresh_token_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">access_token_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">scope</span><span class="o">=</span><span class="s2">&quot;openid profile&quot;</span><span class="p">,</span>
     <span class="n">timeout</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="mi">30</span><span class="p">),</span>
+    <span class="n">jwks_ttl</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">claim_cache_ttl</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">policy</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="n">base</span> <span class="o">=</span> <span class="n">slim_bindings</span><span class="o">.</span><span class="n">new_insecure_client_config</span><span class="p">(</span><span class="s2">&quot;http://127.0.0.1:46357&quot;</span><span class="p">)</span>
@@ -5617,11 +5624,18 @@
 <span class="p">)</span>
 <span class="n">conn_id</span> <span class="o">=</span> <span class="k">await</span> <span class="n">service</span><span class="o">.</span><span class="n">connect_async</span><span class="p">(</span><span class="n">client_config</span><span class="p">)</span>
 </code></pre></div>
-<p>For the refresh-token flow, set <code>refresh_token</code> (or <code>refresh_token_file</code>, which is rewritten in place as tokens rotate) instead of <code>client_secret</code>.</p>
+<p><code>OidcConfig</code> takes keyword arguments only and defines no defaults, so every field must be passed; use <code>None</code> for the ones you don't need. For the refresh-token flow, set <code>refresh_token</code> (or <code>refresh_token_file</code>, which is rewritten in place as tokens rotate) instead of <code>client_secret</code>.</p>
 <h3 id="oidc-server-verification">OIDC (server verification)</h3>
 <div class="highlight"><pre><span></span><code><span class="n">oidc</span> <span class="o">=</span> <span class="n">slim_bindings</span><span class="o">.</span><span class="n">OidcConfig</span><span class="p">(</span>
     <span class="n">issuer_url</span><span class="o">=</span><span class="s2">&quot;https://auth.example.com&quot;</span><span class="p">,</span>
+    <span class="n">client_id</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">client_secret</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">audience</span><span class="o">=</span><span class="s2">&quot;slim&quot;</span><span class="p">,</span>
+    <span class="n">refresh_token</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">refresh_token_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">access_token_file</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">scope</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">jwks_ttl</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
     <span class="n">claim_cache_ttl</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
     <span class="n">policy</span><span class="o">=</span><span class="n">slim_bindings</span><span class="o">.</span><span class="n">OidcPolicyConfig</span><span class="o">.</span><span class="n">CEL</span><span class="p">(</span>
@@ -5685,7 +5699,7 @@ task<span class="w"> </span>examples:p2p:no-mls:bob<span class="w">   </span><sp
 </code></pre></div>
 <p><strong>SLIMRPC</strong> (requires a running SLIM node and generated proto code):</p>
 <div class="highlight"><pre><span></span><code>task<span class="w"> </span>examples:rpc:server
-task<span class="w"> </span>examples:rpc:client
+task<span class="w"> </span>python:examples:rpc:client
 </code></pre></div>
 <h2 id="platform-support">Platform Support</h2>
 <table>
@@ -5730,8 +5744,8 @@ task<span class="w"> </span>examples:rpc:client
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/agntcy/slim-bindings
 <span class="nb">cd</span><span class="w"> </span>slim-bindings/python
 
-<span class="c1"># Build and install in development mode</span>
-task<span class="w"> </span>build
+<span class="c1"># Build the bindings and install them in development mode</span>
+task<span class="w"> </span>python:bindings:build
 </code></pre></div>
 <p>To create distributable wheels:</p>
 <div class="highlight"><pre><span></span><code>task<span class="w"> </span>python:bindings:packaging

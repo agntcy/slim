@@ -5289,11 +5289,12 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:8"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><input id="__tabbed_1_7" name="__tabbed_1" type="radio" /><input id="__tabbed_1_8" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Python</label><label for="__tabbed_1_3">Go</label><label for="__tabbed_1_4">Java</label><label for="__tabbed_1_5">Kotlin</label><label for="__tabbed_1_6">Node.js</label><label for="__tabbed_1_7">.NET</label><label for="__tabbed_1_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_service</span><span class="p">::</span><span class="n">Service</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_config</span><span class="p">::</span><span class="n">component</span><span class="p">::</span><span class="n">ComponentBuilder</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_service</span><span class="p">::</span><span class="n">Service</span><span class="p">;</span>
 
-<span class="c1">// Build the service — the ID &quot;slim/0&quot; identifies this instance</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Service</span><span class="p">::</span><span class="n">builder</span><span class="p">().</span><span class="n">build</span><span class="p">(</span><span class="s">&quot;slim/0&quot;</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
-<span class="n">service</span><span class="p">.</span><span class="n">run</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<span class="c1">// Build the service — the ID &quot;slim-0&quot; identifies this instance</span>
+<span class="c1">// (lowercase letters, digits and &#39;-&#39; only)</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Service</span><span class="p">::</span><span class="n">builder</span><span class="p">().</span><span class="n">build</span><span class="p">(</span><span class="s">&quot;slim-0&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">())</span><span class="o">?</span><span class="p">;</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -5330,7 +5331,7 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3&quot;</span>
 
 <span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// Initialise the global SLIM service with defaults</span>
@@ -5342,7 +5343,7 @@
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.*</span><span class="p">;</span>
 
 <span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Main</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="c1">// Initialise the global SLIM service with defaults</span>
 <span class="w">        </span><span class="n">SlimBindings</span><span class="p">.</span><span class="na">initializeWithDefaults</span><span class="p">();</span>
 
@@ -5385,10 +5386,10 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nx">slimBindings</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@agntcy/slim-bindings-react-native&#39;</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">waitForJSIBindings</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@agntcy/slim-bindings-react-native&#39;</span><span class="p">;</span>
 
 <span class="c1">// Wait for JSI native module, then initialise (call once per app lifecycle)</span>
-<span class="k">await</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">waitForJSIBindings</span><span class="p">(</span><span class="mf">5000</span><span class="p">);</span>
+<span class="k">await</span><span class="w"> </span><span class="nx">waitForJSIBindings</span><span class="p">(</span><span class="mf">5000</span><span class="p">);</span>
 <span class="nx">slimBindings</span><span class="p">.</span><span class="nx">initializeWithDefaults</span><span class="p">();</span>
 
 <span class="c1">// Obtain a reference to the global service</span>
@@ -5402,13 +5403,15 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="2:8"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><input id="__tabbed_2_4" name="__tabbed_2" type="radio" /><input id="__tabbed_2_5" name="__tabbed_2" type="radio" /><input id="__tabbed_2_6" name="__tabbed_2" type="radio" /><input id="__tabbed_2_7" name="__tabbed_2" type="radio" /><input id="__tabbed_2_8" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Rust</label><label for="__tabbed_2_2">Python</label><label for="__tabbed_2_3">Go</label><label for="__tabbed_2_4">Java</label><label for="__tabbed_2_5">Kotlin</label><label for="__tabbed_2_6">Node.js</label><label for="__tabbed_2_7">.NET</label><label for="__tabbed_2_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_service</span><span class="p">::</span><span class="n">config</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_config</span><span class="p">::</span><span class="n">client</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_config</span><span class="p">::</span><span class="n">tls</span><span class="p">::</span><span class="n">client</span><span class="p">::</span><span class="n">TlsClientConfig</span><span class="p">;</span>
 
-<span class="c1">// Build a client config pointing at your SLIM node</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">client_config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ClientConfig</span><span class="p">::</span><span class="n">with_endpoint</span><span class="p">(</span><span class="s">&quot;http://127.0.0.1:46357&quot;</span><span class="p">);</span>
+<span class="c1">// Build a client config pointing at your SLIM node (plain text, no TLS)</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">client_config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ClientConfig</span><span class="p">::</span><span class="n">with_endpoint</span><span class="p">(</span><span class="s">&quot;http://127.0.0.1:46357&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="p">.</span><span class="n">with_tls_setting</span><span class="p">(</span><span class="n">TlsClientConfig</span><span class="p">::</span><span class="n">insecure</span><span class="p">());</span>
 
 <span class="c1">// Connect — returns a connection ID used in later calls</span>
-<span class="kd">let</span><span class="w"> </span><span class="n">conn_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">connect</span><span class="p">(</span><span class="n">client_config</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<span class="kd">let</span><span class="w"> </span><span class="n">conn_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">connect</span><span class="p">(</span><span class="o">&amp;</span><span class="n">client_config</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Connected, conn_id={conn_id}&quot;</span><span class="p">);</span>
 </code></pre></div>
 </div>
@@ -5493,16 +5496,18 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="3:8"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><input id="__tabbed_3_4" name="__tabbed_3" type="radio" /><input id="__tabbed_3_5" name="__tabbed_3" type="radio" /><input id="__tabbed_3_6" name="__tabbed_3" type="radio" /><input id="__tabbed_3_7" name="__tabbed_3" type="radio" /><input id="__tabbed_3_8" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Rust</label><label for="__tabbed_3_2">Python</label><label for="__tabbed_3_3">Go</label><label for="__tabbed_3_4">Java</label><label for="__tabbed_3_5">Kotlin</label><label for="__tabbed_3_6">Node.js</label><label for="__tabbed_3_7">.NET</label><label for="__tabbed_3_8">React Native</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_service</span><span class="p">::</span><span class="n">Service</span><span class="p">;</span>
-<span class="k">use</span><span class="w"> </span><span class="n">slim_service</span><span class="p">::</span><span class="n">config</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">use</span><span class="w"> </span><span class="n">slim_config</span><span class="p">::</span><span class="n">client</span><span class="p">::</span><span class="n">ClientConfig</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_config</span><span class="p">::</span><span class="n">component</span><span class="p">::</span><span class="n">ComponentBuilder</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_config</span><span class="p">::</span><span class="n">tls</span><span class="p">::</span><span class="n">client</span><span class="p">::</span><span class="n">TlsClientConfig</span><span class="p">;</span>
+<span class="k">use</span><span class="w"> </span><span class="n">slim_service</span><span class="p">::</span><span class="n">Service</span><span class="p">;</span>
 
 <span class="cp">#[tokio::main]</span>
 <span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">anyhow</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Service</span><span class="p">::</span><span class="n">builder</span><span class="p">().</span><span class="n">build</span><span class="p">(</span><span class="s">&quot;slim/0&quot;</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
-<span class="w">    </span><span class="n">service</span><span class="p">.</span><span class="n">run</span><span class="p">().</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Service</span><span class="p">::</span><span class="n">builder</span><span class="p">().</span><span class="n">build</span><span class="p">(</span><span class="s">&quot;slim-0&quot;</span><span class="p">.</span><span class="n">to_string</span><span class="p">())</span><span class="o">?</span><span class="p">;</span>
 
-<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">client_config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ClientConfig</span><span class="p">::</span><span class="n">with_endpoint</span><span class="p">(</span><span class="s">&quot;http://127.0.0.1:46357&quot;</span><span class="p">);</span>
-<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">conn_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">connect</span><span class="p">(</span><span class="n">client_config</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">client_config</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ClientConfig</span><span class="p">::</span><span class="n">with_endpoint</span><span class="p">(</span><span class="s">&quot;http://127.0.0.1:46357&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="n">with_tls_setting</span><span class="p">(</span><span class="n">TlsClientConfig</span><span class="p">::</span><span class="n">insecure</span><span class="p">());</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">conn_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span><span class="p">.</span><span class="n">connect</span><span class="p">(</span><span class="o">&amp;</span><span class="n">client_config</span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;Connected, conn_id={conn_id}&quot;</span><span class="p">);</span>
 <span class="w">    </span><span class="c1">// service and conn_id are passed to create_app in the next tutorial</span>
 
@@ -5536,7 +5541,7 @@
 <span class="w">    </span><span class="s">&quot;fmt&quot;</span>
 <span class="w">    </span><span class="s">&quot;log&quot;</span>
 
-<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go&quot;</span>
+<span class="w">    </span><span class="nx">slim</span><span class="w"> </span><span class="s">&quot;github.com/agntcy/slim-bindings-go/v3&quot;</span>
 <span class="p">)</span>
 
 <span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
@@ -5557,7 +5562,7 @@
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">io.agntcy.slim.bindings.*</span><span class="p">;</span>
 
 <span class="kd">public</span><span class="w"> </span><span class="kd">class</span> <span class="nc">Main</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">public</span><span class="w"> </span><span class="kd">static</span><span class="w"> </span><span class="kt">void</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">String</span><span class="o">[]</span><span class="w"> </span><span class="n">args</span><span class="p">)</span><span class="w"> </span><span class="kd">throws</span><span class="w"> </span><span class="n">Exception</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="n">SlimBindings</span><span class="p">.</span><span class="na">initializeWithDefaults</span><span class="p">();</span>
 <span class="w">        </span><span class="n">Service</span><span class="w"> </span><span class="n">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SlimBindings</span><span class="p">.</span><span class="na">getGlobalService</span><span class="p">();</span>
 
@@ -5617,9 +5622,9 @@
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nx">slimBindings</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@agntcy/slim-bindings-react-native&#39;</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="k">import</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">waitForJSIBindings</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;@agntcy/slim-bindings-react-native&#39;</span><span class="p">;</span>
 
-<span class="k">await</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">waitForJSIBindings</span><span class="p">(</span><span class="mf">5000</span><span class="p">);</span>
+<span class="k">await</span><span class="w"> </span><span class="nx">waitForJSIBindings</span><span class="p">(</span><span class="mf">5000</span><span class="p">);</span>
 <span class="nx">slimBindings</span><span class="p">.</span><span class="nx">initializeWithDefaults</span><span class="p">();</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">service</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">slimBindings</span><span class="p">.</span><span class="nx">getGlobalService</span><span class="p">();</span>
 
