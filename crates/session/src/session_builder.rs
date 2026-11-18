@@ -3,6 +3,7 @@
 
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
+use std::sync::atomic::AtomicU64;
 
 use slim_auth::identity_binding::IdentityBinding;
 use slim_auth::traits::{TokenProvider, Verifier};
@@ -22,6 +23,9 @@ use crate::{
     subscription_manager::{SubscriptionManager, SubscriptionOps},
     traits::MessageHandler,
 };
+
+/// Source of [`SessionSettings::generation`]: one per session built.
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 // Marker types for builder states
 pub struct NotReady;
@@ -434,7 +438,11 @@ where
     ///
     /// Automatically determines whether to create a moderator or participant
     /// internally based on the session configuration's `initiator` flag.
-    pub fn build(self) -> Result<SessionController, SessionError> {
+    ///
+    /// The session is initialized (its MLS state is created) before its processing
+    /// loop starts, so a failure is returned here instead of leaving a half-built
+    /// session behind.
+    pub async fn build(self) -> Result<SessionController, SessionError> {
         let id = self.id.unwrap();
         let source = self.source.clone().unwrap();
         let destination = self.destination.clone().unwrap();
@@ -448,7 +456,8 @@ where
         tracing::debug!(%role, "Building SessionController");
 
         let session_controller = if config.initiator {
-            let (inner, tx, rx, settings) = self.build_session_stack(SessionModerator::new)?;
+            let (mut inner, tx, rx, settings) = self.build_session_stack(SessionModerator::new)?;
+            inner.init().await?;
             SessionController::from_parts(
                 id,
                 source,
@@ -460,7 +469,9 @@ where
                 inner,
             )
         } else {
-            let (inner, tx, rx, settings) = self.build_session_stack(SessionParticipant::new)?;
+            let (mut inner, tx, rx, settings) =
+                self.build_session_stack(SessionParticipant::new)?;
+            inner.init().await?;
             SessionController::from_parts(id, source, destination, config, settings, tx, rx, inner)
         };
 
@@ -541,6 +552,8 @@ where
                         inner.resume_streams();
                         SessionModerator::restore(inner, settings, moderator_mls, roster)
                     })?;
+                // Initialize first: if it fails nothing has been announced on `conn`.
+                wrapper.init().await?;
                 wrapper.restore_reconnect(conn).await?;
                 SessionController::from_parts(
                     id,
@@ -572,6 +585,8 @@ where
                         inner.resume_streams();
                         SessionParticipant::restore(inner, settings, mls_state, moderator, roster)
                     })?;
+                // Initialize first: if it fails nothing has been announced on `conn`.
+                wrapper.init().await?;
                 wrapper.restore_reconnect(conn).await?;
                 SessionController::from_parts(
                     id,
@@ -640,6 +655,7 @@ where
             .expect("subscription_manager must be provided or M must implement from_slim_tx");
         let settings = SessionSettings {
             id: self.id.unwrap(),
+            generation: NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             source: self.source.unwrap(),
             destination: self.destination.unwrap(),
             control: self.control.unwrap(),
@@ -1356,6 +1372,95 @@ mod tests {
 
     // ========== ASYNC TESTS ==========
 
+    /// A provider that cannot say whether its MLS keys are installed. It records whether
+    /// SLIM replaced its keys, which it must not do on an answer it could not read.
+    #[derive(Clone, Default)]
+    struct UnreadableKeys {
+        keys_replaced: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl TokenProvider for UnreadableKeys {
+        async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
+            Ok(String::new())
+        }
+        fn get_id(&self) -> Result<String, slim_auth::errors::AuthError> {
+            Ok("id".into())
+        }
+        fn mls_signature_keys_installed(&self) -> Result<bool, slim_auth::errors::AuthError> {
+            Err(slim_auth::errors::AuthError::TokenInvalid)
+        }
+        async fn set_signature_keys(
+            &mut self,
+            _: Vec<u8>,
+            _: Vec<u8>,
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            self.keys_replaced
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Initialization (MLS state creation) runs inside `build`: a failure is returned to
+    /// the caller, for both roles, and no session is left behind.
+    #[tokio::test]
+    async fn test_build_returns_the_error_when_mls_cannot_be_created() {
+        for initiator in [true, false] {
+            let (tx_to_session, mut rx_from_session) = mpsc::channel(10);
+            let (slim_tx, _slim_rx) = mpsc::channel(10);
+            let (app_tx, _app_rx) = mpsc::unbounded_channel();
+
+            let mut config = create_test_config(initiator);
+            config.mls_settings = Some(MlsSettings {
+                header_integrity_validation_percent: 100,
+                max_seen_control_message_ids_size: None,
+            });
+
+            let provider = UnreadableKeys::default();
+            let keys_replaced = provider.keys_replaced.clone();
+            let result = SessionBuilder::<UnreadableKeys, MockVerifier, ForController, NotReady>::for_controller()
+                .with_id(1)
+                .with_source(create_test_name("source"))
+                .with_destination(create_test_name("dest"))
+                .with_config(config)
+                .with_identity_provider(provider)
+                .with_identity_verifier(MockVerifier)
+                .with_slim_tx(slim_tx)
+                .with_app_tx(app_tx)
+                .with_tx_to_session_layer(tx_to_session)
+                .ready()
+                .unwrap()
+                .build()
+                .await;
+
+            // The provider's own error comes back, and the keys every session shares are
+            // left alone: an unreadable answer is not read as "not installed".
+            assert!(
+                matches!(
+                    result,
+                    Err(SessionError::MlsOp(
+                        slim_mls::errors::MlsError::IdentityProviderError(
+                            slim_auth::errors::AuthError::TokenInvalid
+                        )
+                    ))
+                ),
+                "initiator = {initiator}: {:?}",
+                result.as_ref().err()
+            );
+            // No loop was spawned, so none was dropped to send a `DeleteSession`.
+            assert!(
+                rx_from_session.try_recv().is_err(),
+                "initiator = {initiator}"
+            );
+            assert!(
+                !keys_replaced.load(std::sync::atomic::Ordering::SeqCst),
+                "initiator = {initiator}: the shared keys were replaced"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_builder_build_as_participant() {
         let (tx_to_session, _rx_from_session) = mpsc::channel(10);
@@ -1373,7 +1478,7 @@ mod tests {
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
-        let controller = builder.ready().unwrap().build();
+        let controller = builder.ready().unwrap().build().await;
 
         // Should succeed for participant
         assert!(controller.is_ok());
@@ -1404,7 +1509,7 @@ mod tests {
                 .with_app_tx(app_tx)
                 .with_tx_to_session_layer(tx_to_session);
 
-        let controller = builder.ready().unwrap().build();
+        let controller = builder.ready().unwrap().build().await;
 
         assert!(controller.is_ok());
         let controller = controller.unwrap();
@@ -1444,7 +1549,7 @@ mod tests {
                 .with_app_tx(app_tx)
                 .with_tx_to_session_layer(tx_to_session);
 
-        let controller = builder.ready().unwrap().build();
+        let controller = builder.ready().unwrap().build().await;
 
         assert!(controller.is_ok());
         let controller = controller.unwrap();
@@ -1478,7 +1583,7 @@ mod tests {
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
-        let controller = builder.ready().unwrap().build();
+        let controller = builder.ready().unwrap().build().await;
         assert!(controller.is_ok());
     }
 
@@ -1501,7 +1606,7 @@ mod tests {
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
-        let controller = builder.ready().unwrap().build();
+        let controller = builder.ready().unwrap().build().await;
         assert!(controller.is_ok());
 
         let controller = controller.unwrap();
@@ -1534,7 +1639,7 @@ mod tests {
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
-        let controller = builder.ready().unwrap().build();
+        let controller = builder.ready().unwrap().build().await;
         assert!(controller.is_ok());
 
         let controller = controller.unwrap();
@@ -1563,7 +1668,7 @@ mod tests {
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session);
 
-        let controller = builder.ready().unwrap().build();
+        let controller = builder.ready().unwrap().build().await;
         assert!(controller.is_ok());
 
         let controller = controller.unwrap();
@@ -1600,8 +1705,8 @@ mod tests {
                 .with_test_channels()
                 .with_tx_to_session_layer(tx_to_session2);
 
-        let controller1 = builder1.ready().unwrap().build();
-        let controller2 = builder2.ready().unwrap().build();
+        let controller1 = builder1.ready().unwrap().build().await;
+        let controller2 = builder2.ready().unwrap().build().await;
 
         assert!(controller1.is_ok());
         assert!(controller2.is_ok());

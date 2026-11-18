@@ -135,9 +135,7 @@ where
                 )
                 .with_enforce_pqc(self.common.settings.enforce_pqc);
                 let mut mls_state =
-                    MlsState::new(mls, mls_settings.header_integrity_validation_percent)
-                        .await
-                        .expect("failed to create MLS state");
+                    MlsState::new(mls, mls_settings.header_integrity_validation_percent).await?;
                 mls_state.identity_binding = self.common.settings.identity_binding;
                 Some(mls_state)
             } else {
@@ -931,6 +929,7 @@ where
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
                 session_id: self.common.settings.id,
+                generation: self.common.settings.generation,
             }))
             .await
             .map_err(|_e| SessionError::SessionDeleteMessageSendFailed)?;
@@ -1648,6 +1647,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source,
             destination,
             control,
@@ -2051,7 +2051,7 @@ mod tests {
         // Should have sent delete session message
         let delete_msg = rx_session_layer.try_recv();
         assert!(delete_msg.is_ok());
-        if let Ok(Ok(SessionMessage::DeleteSession { session_id })) = delete_msg {
+        if let Ok(Ok(SessionMessage::DeleteSession { session_id, .. })) = delete_msg {
             assert_eq!(session_id, 1);
         } else {
             panic!("Expected DeleteSession message");

@@ -40,6 +40,10 @@ where
     /// Session ID
     pub(crate) id: u32,
 
+    /// Tells this session apart from every other that ever had the same id: the session
+    /// layer ignores the `DeleteSession` of a controller that no longer owns the id.
+    pub(crate) generation: u64,
+
     /// Local endpoint name
     pub(crate) source: ProtoName,
 

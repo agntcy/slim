@@ -245,6 +245,9 @@ pub struct SessionController {
     /// session id
     pub(crate) id: u32,
 
+    /// tells this controller apart from any other that had the same id
+    generation: u64,
+
     /// local name
     pub(crate) source: ProtoName,
 
@@ -298,6 +301,8 @@ impl SessionController {
         V: slim_auth::traits::Verifier + Send + Sync + Clone + 'static,
         M: crate::subscription_manager::SubscriptionOps,
     {
+        let generation = settings.generation;
+
         // Spawn the processing loop
         let cancellation_token = CancellationToken::new();
 
@@ -328,6 +333,7 @@ impl SessionController {
 
         Self {
             id,
+            generation,
             source,
             destination,
             config,
@@ -600,11 +606,6 @@ impl SessionController {
         // Start with an effectively-infinite timeout (updated on graceful shutdown).
         let mut shutdown_deadline = std::pin::pin!(crate::runtime::infinite_sleep());
 
-        // Init the inner components
-        if let Err(e) = inner.init().await {
-            tracing::error!(error = %e.chain(), "error during initialization of session");
-        }
-
         // Seen control-message ids per remote sender (E2E replay protection).
         let mut seen_control_message_ids: LruCache<ProtoName, LruCache<u32, ()>> =
             LruCache::new(NonZeroUsize::new(MAX_SEEN_CONTROL_MESSAGE_SENDERS_SIZE).unwrap());
@@ -777,6 +778,7 @@ impl SessionController {
             .tx_to_session_layer
             .send(Ok(SessionMessage::DeleteSession {
                 session_id: settings.id,
+                generation: settings.generation,
             }))
             .await;
     }
@@ -784,6 +786,11 @@ impl SessionController {
     /// getters
     pub fn id(&self) -> u32 {
         self.id
+    }
+
+    /// See [`SessionSettings::generation`].
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn source(&self) -> &ProtoName {
@@ -1622,7 +1629,7 @@ mod tests {
             self
         }
 
-        fn build(
+        async fn build(
             self,
         ) -> (
             SessionController,
@@ -1656,6 +1663,7 @@ mod tests {
                 .ready()
                 .expect("failed to validate builder")
                 .build()
+                .await
                 .expect("failed to build controller");
 
             (controller, rx_slim, rx_app)
@@ -2104,7 +2112,8 @@ mod tests {
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_mls_enabled(true)
             .with_metadata(metadata)
-            .build();
+            .build()
+            .await;
 
         assert_eq!(controller.id(), 42);
         assert_eq!(
@@ -2130,7 +2139,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_basic() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello World".to_vec();
@@ -2154,7 +2163,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello to specific connection".to_vec();
@@ -2180,7 +2190,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let target_name = ProtoName::from_strings(["org", "ns", "target"]);
         let payload = b"Hello with metadata".to_vec();
@@ -2207,7 +2218,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2226,7 +2238,8 @@ mod tests {
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_initiator(false)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "new_participant"]);
 
@@ -2238,7 +2251,8 @@ mod tests {
     async fn test_invite_participant_p2p_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::PointToPoint)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2252,7 +2266,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2271,7 +2286,8 @@ mod tests {
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
             .with_initiator(false)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2283,7 +2299,8 @@ mod tests {
     async fn test_remove_participant_p2p_error() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_session_type(ProtoSessionType::PointToPoint)
-            .build();
+            .build()
+            .await;
 
         let participant = ProtoName::from_strings(["org", "ns", "participant"]);
 
@@ -2332,7 +2349,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_controller_drop_cancels_processing() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
@@ -2347,7 +2364,8 @@ mod tests {
     async fn test_close_success() {
         let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new()
             .with_graceful_shutdown_timeout(std::time::Duration::from_secs(2))
-            .build();
+            .build()
+            .await;
 
         let token = controller.cancellation_token.clone();
         assert!(!token.is_cancelled());
@@ -2365,7 +2383,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_already_closed() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         // Leave once - should succeed
         let handle = controller.close();
@@ -2388,7 +2406,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_cancels_token_immediately() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let token = controller.cancellation_token.clone();
 
@@ -2408,7 +2426,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_on_message_direction_north() {
-        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build();
+        let (controller, _rx_slim, _rx_app) = SessionControllerTestBuilder::new().build().await;
 
         let test_message = Message::builder()
             .source(controller.dst().clone())
@@ -2432,7 +2450,8 @@ mod tests {
             .with_session_type(ProtoSessionType::Multicast)
             .with_destination(ProtoName::from_strings(["org", "ns", "group"]).with_id(2))
             .with_control(ProtoName::from_strings(["org", "ns", "group"]).with_id(3))
-            .build();
+            .build()
+            .await;
 
         let target = ProtoName::from_strings(["org", "ns", "target"]);
         let discovery_msg = controller
@@ -2492,6 +2511,7 @@ mod tests {
             .ready()
             .expect("failed to validate builder")
             .build()
+            .await
             .unwrap();
 
         // create a SessionParticipant
@@ -2524,6 +2544,7 @@ mod tests {
             .ready()
             .expect("failed to validate builder")
             .build()
+            .await
             .unwrap();
 
         let completion_handle = moderator
@@ -2982,6 +3003,7 @@ mod tests {
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         let settings = SessionSettings {
             id: 999,
+            generation: 0,
             source: ProtoName::from_strings(["org", "ns", "source"]).with_id(1),
             destination: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
             control: ProtoName::from_strings(["org", "ns", "dest"]).with_id(2),
@@ -3624,6 +3646,7 @@ mod tests {
             crate::subscription_manager::SubscriptionManager::new(tx_slim.clone());
         SessionSettings {
             id: 1,
+            generation: 0,
             source: ProtoName::from_strings(["org", "ns", "test"]).with_id(1),
             destination: ProtoName::from_strings(["org", "ns", "test"]).with_id(2),
             control: ProtoName::from_strings(["org", "ns", "test"]).with_id(2),

@@ -661,10 +661,10 @@ impl TokenProvider for SpireIdentityManager {
         Ok(self.signature_keys.clone())
     }
 
-    fn mls_signature_keys_installed(&self) -> bool {
+    fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
         // Keys are generated at construction for the MLS ciphersuite, so they are
         // always present; rotations replace them via `set_signature_keys`.
-        !self.signature_keys.0.is_empty()
+        Ok(!self.signature_keys.0.is_empty())
     }
 
     async fn set_signature_keys(
@@ -687,18 +687,18 @@ impl TokenProvider for SpireIdentityManager {
         Ok(())
     }
 
-    fn export_identity(&self) -> Option<ExportedIdentity> {
+    fn export_identity(&self) -> Result<Option<ExportedIdentity>, AuthError> {
         // The SPIRE credential (SVID) is externally managed and re-fetched from
         // the agent, so it is not persisted; only the MLS keypair is (always
         // present, since keys are generated at construction).
-        Some(ExportedIdentity {
+        Ok(Some(ExportedIdentity {
             // Informational only — the id is re-derived from the fresh SVID on
             // restore, not adopted from the snapshot.
             id: self.get_id().unwrap_or_default(),
             credential: Vec::new(),
             signature_secret_key: self.signature_keys.0.clone(),
             signature_public_key: self.signature_keys.1.clone(),
-        })
+        }))
     }
 
     fn with_restored_identity(mut self, identity: ExportedIdentity) -> Result<Self, AuthError> {
@@ -1171,6 +1171,7 @@ mod tests {
 
         let exported = original
             .export_identity()
+            .unwrap()
             .expect("SPIRE exports its MLS keypair");
         // The SVID credential is externally managed, not persisted.
         assert!(exported.credential.is_empty());
@@ -1181,7 +1182,7 @@ mod tests {
         // confirm it adopts the persisted keypair.
         let fresh = SpireIdentityManager::builder().build().unwrap();
         let restored = fresh.with_restored_identity(exported).unwrap();
-        assert!(restored.mls_signature_keys_installed());
+        assert!(restored.mls_signature_keys_installed().unwrap());
         let (rsk, rpk) = restored.get_signature_keys().unwrap();
         assert_eq!(rsk, sk);
         assert_eq!(rpk, pk);

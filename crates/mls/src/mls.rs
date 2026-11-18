@@ -744,7 +744,7 @@ where
         // (possibly of the wrong ciphersuite), so generate a fresh pair via our
         // own crypto provider and install it.
         let (private_key, signing_identity) =
-            if self.identity_provider.mls_signature_keys_installed() {
+            if self.identity_provider.mls_signature_keys_installed()? {
                 self.create_signing_identity(false)?
             } else {
                 self.generate_and_install_signing_identity(false).await?
@@ -800,7 +800,7 @@ where
         // Scoped to long-term keys: other providers hold per-clone keys but share
         // one app-identity record, so they can legitimately differ after a
         // rotation. A long-term (DID-bound) key cannot rotate.
-        if self.identity_provider.holds_long_term_signing_key() {
+        if self.identity_provider.holds_long_term_signing_key()? {
             let (_, current_key) = self.identity_provider.get_signature_keys()?;
             if group
                 .current_member_signing_identity()?
@@ -967,7 +967,11 @@ mod tests {
 
         // The group state (post-add) is now on disk. Simulate a restart: drop
         // Alice and rebuild her purely from the persisted snapshot.
-        let identity = alice.identity_provider().export_identity().unwrap();
+        let identity = alice
+            .identity_provider()
+            .export_identity()
+            .unwrap()
+            .unwrap();
         drop(alice);
 
         let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
@@ -1036,7 +1040,11 @@ mod tests {
         }
 
         // Restart Alice from the persisted snapshot.
-        let identity = alice.identity_provider().export_identity().unwrap();
+        let identity = alice
+            .identity_provider()
+            .export_identity()
+            .unwrap()
+            .unwrap();
         drop(alice);
         let reopened = SlimGroupStateStorage::open_sqlite(dir.path(), "alice", None)?;
         let mut alice_restored = Mls::new(
@@ -1078,14 +1086,14 @@ mod tests {
         fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), AuthError> {
             self.0.get_signature_keys()
         }
-        fn mls_signature_keys_installed(&self) -> bool {
+        fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
             self.0.mls_signature_keys_installed()
         }
         async fn set_signature_keys(&mut self, sk: Vec<u8>, pk: Vec<u8>) -> Result<(), AuthError> {
             self.0.set_signature_keys(sk, pk).await
         }
-        fn holds_long_term_signing_key(&self) -> bool {
-            true
+        fn holds_long_term_signing_key(&self) -> Result<bool, AuthError> {
+            Ok(true)
         }
     }
 

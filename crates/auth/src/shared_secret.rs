@@ -525,8 +525,8 @@ impl TokenProvider for SharedSecret {
         Ok((signing.keys.0.clone(), signing.keys.1.clone()))
     }
 
-    fn mls_signature_keys_installed(&self) -> bool {
-        self.inner.signing.read().mls_installed
+    fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
+        Ok(self.inner.signing.read().mls_installed)
     }
 
     async fn set_signature_keys(
@@ -543,14 +543,14 @@ impl TokenProvider for SharedSecret {
         Ok(())
     }
 
-    fn export_identity(&self) -> Option<ExportedIdentity> {
+    fn export_identity(&self) -> Result<Option<ExportedIdentity>, AuthError> {
         let signing = self.inner.signing.read();
-        Some(ExportedIdentity {
+        Ok(Some(ExportedIdentity {
             id: self.inner.id.clone(),
             credential: self.inner.shared_secret.clone().into_bytes(),
             signature_secret_key: signing.keys.0.clone(),
             signature_public_key: signing.keys.1.clone(),
-        })
+        }))
     }
 
     fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError> {
@@ -1098,6 +1098,7 @@ mod tests {
 
         let exported = original
             .export_identity()
+            .unwrap()
             .expect("SharedSecret exports its identity");
         assert_eq!(exported.id, original.get_id().unwrap());
 
@@ -1111,7 +1112,7 @@ mod tests {
         let (rsk, rpk) = restored.get_signature_keys().unwrap();
         assert_eq!(rsk, sk);
         assert_eq!(rpk, pk);
-        assert!(restored.mls_signature_keys_installed());
+        assert!(restored.mls_signature_keys_installed().unwrap());
 
         // A token from the restored provider verifies against the original
         // (same shared secret + id).
