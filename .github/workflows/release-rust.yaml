@@ -27,12 +27,21 @@ jobs:
       releases_created: ${{ steps.release-plz.outputs.releases_created }}
       releases: ${{ steps.release-plz.outputs.releases }}
     steps:
+      - name: Authenticate as the GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PROJECT_APP_ID }}
+          private-key: ${{ secrets.PROJECT_APP_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
-          token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
       - name: Run release-plz
@@ -43,7 +52,7 @@ jobs:
           manifest_path: ./Cargo.toml
           config: ./.release-plz.toml
         env:
-          GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
   # slimctl binaries are attached to the release that release-plz just created,
   # rather than built by a separate tag-triggered workflow that creates its own
@@ -247,12 +256,28 @@ jobs:
     name: Publish slimctl Homebrew cask
     needs: [release-crates, resolve-slimctl-release, release-slimctl-binaries, release-slimctl-sign]
     runs-on: ubuntu-latest
-    # For the build bot's token: a PR pushed with GITHUB_TOKEN gets no CI.
+    # For the GitHub App token: a PR pushed with GITHUB_TOKEN gets no CI.
     environment: release
     permissions:
       contents: write
       pull-requests: write
     steps:
+      - name: Authenticate as the GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PROJECT_APP_ID }}
+          private-key: ${{ secrets.PROJECT_APP_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Resolve the GitHub App's user id
+        id: app-user
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: echo "user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)" >> "$GITHUB_OUTPUT"
+
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -318,9 +343,9 @@ jobs:
       - name: Create Pull Request for Homebrew cask
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          token: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
-          author: Agntcy Build Bot <build@agntcy.io>
-          committer: Agntcy Build Bot <build@agntcy.io>
+          token: ${{ steps.app-token.outputs.token }}
+          author: ${{ steps.app-token.outputs.app-slug }}[bot] <${{ steps.app-user.outputs.user_id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>
+          committer: ${{ steps.app-token.outputs.app-slug }}[bot] <${{ steps.app-user.outputs.user_id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>
           signoff: true
           commit-message: "chore(slimctl): update the Homebrew cask to ${{ steps.version.outputs.version }}"
           title: "chore(slimctl): update the Homebrew cask to ${{ steps.version.outputs.version }}"
@@ -331,7 +356,7 @@ jobs:
 
             Release: ${{ steps.version.outputs.tag }}
 
-            Signed-off-by: Agntcy Build Bot <build@agntcy.io>
+            Signed-off-by: ${{ steps.app-token.outputs.app-slug }}[bot] <${{ steps.app-user.outputs.user_id }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>
           branch: update-slimctl-cask
           base: main
 
@@ -369,6 +394,15 @@ jobs:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
     steps:
+      - name: Authenticate as the GitHub App
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.PROJECT_APP_ID }}
+          private-key: ${{ secrets.PROJECT_APP_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -388,4 +422,4 @@ jobs:
           manifest_path: ./Cargo.toml
           config: ./.release-plz.toml
         env:
-          GITHUB_TOKEN: ${{ secrets.AGNTCY_BUILD_BOT_GH_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
