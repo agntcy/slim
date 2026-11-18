@@ -79,6 +79,8 @@ pub enum MlsError {
         "public key mismatch: identity public key does not match provided public key: expected: {expected}, found: {found}"
     )]
     PublicKeyMismatch { expected: String, found: String },
+    #[error("persisted group was saved under a different signing key than the current identity")]
+    SigningKeyMismatch,
     #[error("external commit not supported")]
     ExternalCommitNotSupported,
 }
