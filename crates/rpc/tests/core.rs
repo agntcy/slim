@@ -3134,13 +3134,17 @@ async fn test_dropping_a_unary_call_stops_its_handler() {
 
     let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = stopped.clone();
+    let started = Arc::new(tokio::sync::Notify::new());
+    let running = started.clone();
     env.server.register_unary_unary(
         "TestService",
         "Hang",
         move |_request: TestRequest, _ctx: Context| {
             let flag = flag.clone();
+            let running = running.clone();
             async move {
                 let _guard = SetOnDrop(flag);
+                running.notify_one();
                 std::future::pending::<()>().await;
                 Ok(TestResponse::default())
             }
@@ -3148,19 +3152,19 @@ async fn test_dropping_a_unary_call_stops_its_handler() {
     );
     env.start_server().await;
 
-    // The caller gives up after 200 ms, which drops the call.
-    let outcome = tokio::time::timeout(
-        Duration::from_millis(200),
-        env.channel.unary::<TestRequest, TestResponse>(
+    // The caller gives up once the handler is running, which drops the call. A
+    // fixed delay would race the setup of the session, and a call dropped before
+    // its request is sent never starts the handler.
+    tokio::select! {
+        _ = env.channel.unary::<TestRequest, TestResponse>(
             "TestService",
             "Hang",
             TestRequest::default(),
             None,
             None,
-        ),
-    )
-    .await;
-    assert!(outcome.is_err(), "the handler never answers");
+        ) => panic!("the handler never answers"),
+        _ = started.notified() => {}
+    }
 
     assert!(
         wait_until(&stopped).await,
