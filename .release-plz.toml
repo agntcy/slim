@@ -2,7 +2,7 @@
 release_always = false
 # do not release packages by default
 release = false
-semver_check = false
+semver_check = true
 
 # Remove agntcy- from git tag and release names
 git_tag_name = "{{ package | replace(from='agntcy-', to='') }}-v{{ version }}"
