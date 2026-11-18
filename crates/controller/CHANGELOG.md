@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.13.19](https://github.com/agntcy/slim/compare/slim-controller-v0.13.18...slim-controller-v0.13.19) - 2026-11-18
+## [0.14.0](https://github.com/agntcy/slim/compare/slim-controller-v0.13.18...slim-controller-v0.14.0) - 2026-11-18
+
+### Changed
+
+- **breaking**: depend on `agntcy-slim-auth` 0.18 and `agntcy-slim-session` 0.8, whose types are part of the public API (#2408)
 
 ### Other
 

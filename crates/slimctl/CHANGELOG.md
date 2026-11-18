@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.5.1](https://github.com/agntcy/slim/compare/slimctl-v3.5.0...slimctl-v3.5.1) - 2026-11-18
+## [4.0.0](https://github.com/agntcy/slim/compare/slimctl-v3.5.0...slimctl-v4.0.0) - 2026-11-18
+
+### Changed
+
+- **breaking**: depend on `agntcy-slim-auth` 0.18 and `agntcy-slim-session` 0.8, whose types are part of the public API (#2408)
 
 ### Other
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0](https://github.com/agntcy/slim/compare/slim-rpc-v3.5.0...slim-rpc-v4.0.0) - 2026-11-18
+
+### Changed
+
+- **breaking**: public API exposes `agntcy-slim-service` 0.14, `agntcy-slim-auth` 0.18 and `agntcy-slim-session` 0.8 types, incompatible with 3.5.0 as published (#2408)
+
 ## [3.5.0](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.6...slim-rpc-v3.5.0) - 2026-11-18
 
 ### Added
