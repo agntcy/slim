@@ -7,9 +7,11 @@
     ":dependencyDashboard"
   ],
   "configMigration": true,
-  "dependencyDashboardAutoclose": true,
-  "dependencyDashboardLabels": ["dependencies"],
-  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "dependencyDashboard": {
+    "autoclose": true,
+    "labels": ["dependencies"],
+    "osvVulnerabilitySummary": "all"
+  },
   "enabled": true,
   "minimumReleaseAge": "7 days",
   "schedule": ["before 8am on Monday"],

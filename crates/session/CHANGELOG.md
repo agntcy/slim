@@ -7,24 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.8.0](https://github.com/agntcy/slim/compare/slim-session-v0.7.27...slim-session-v0.8.0) - 2026-11-18
-
-### Added
-
-- *(auth,bindings)* custom identity providers and verifiers implemented in foreign languages ([#2389](https://github.com/agntcy/slim/pull/2389))
-- *(auth)* opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358))
-
-### Fixed
-
-- *(session)* re-establish peer routing when restoring P2P sessions ([#2364](https://github.com/agntcy/slim/pull/2364))
-
-### Other
-
-- *(auth,session)* [**breaking**] fallible identity queries, initialize sessions before they run ([#2392](https://github.com/agntcy/slim/pull/2392))
-- *(auth,session)* [**breaking**] ask the verifier for the key a control message is signed with ([#2390](https://github.com/agntcy/slim/pull/2390))
-- *(auth,mls)* let verifiers define how a token binds the MLS key ([#2369](https://github.com/agntcy/slim/pull/2369))
-- *(fuzz)* ignore lib-name imports in cargo-machete ([#2387](https://github.com/agntcy/slim/pull/2387))
-
 ## [0.7.27](https://github.com/agntcy/slim/compare/slim-session-v0.7.26...slim-session-v0.7.27) - 2026-10-20
 
 ### Other

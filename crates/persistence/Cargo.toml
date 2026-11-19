@@ -2,7 +2,7 @@
 name = "agntcy-slim-persistence"
 edition = { workspace = true }
 license = { workspace = true }
-version = "0.2.2"
+version = "0.2.3"
 description = "Encrypted, disk-backed persistence for SLIM MLS group and session state."
 
 [lib]

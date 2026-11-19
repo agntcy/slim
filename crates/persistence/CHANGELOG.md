@@ -7,12 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.2](https://github.com/agntcy/slim/compare/slim-persistence-v0.2.1...slim-persistence-v0.2.2) - 2026-11-18
-
-### Added
-
-- *(auth,bindings)* custom identity providers and verifiers implemented in foreign languages ([#2389](https://github.com/agntcy/slim/pull/2389))
-
 ## [0.2.1](https://github.com/agntcy/slim/compare/slim-persistence-v0.2.0...slim-persistence-v0.2.1) - 2026-10-16
 
 ### Other

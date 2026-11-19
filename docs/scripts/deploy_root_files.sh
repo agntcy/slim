@@ -66,8 +66,8 @@ if git diff --staged --quiet; then
   echo "Root files are up-to-date. No new commit needed."
 else
   echo "Committing and pushing updated root files..."
-  git config user.name "github-actions[bot]"
-  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  git config user.name "${BOT_NAME:-github-actions[bot]}"
+  git config user.email "${BOT_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
   git commit -m "docs: deploy root-level site files"
   # Reuse the runtime credential helper (clone's -c is not persisted to config).
   git -c credential.helper= -c credential.helper="${CRED_HELPER}" push origin gh-pages
