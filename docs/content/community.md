@@ -92,6 +92,10 @@ Stay up to date with announcements, tutorials, and technical deep dives from the
 
     SLIMRPC transport for the a2a-dotnet SDK.
 
+- :fontawesome-brands-github:{ .lg .middle } **[agntcy/slim-a2a-node](https://github.com/agntcy/slim-a2a-node)**
+
+    SLIMRPC transport for the a2a-js SDK.
+
 - :fontawesome-brands-github:{ .lg .middle } **[agntcy/slim-otel](https://github.com/agntcy/slim-otel)**
 
     SLIM components for OpenTelemetry.

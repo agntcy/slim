@@ -1,6 +1,6 @@
 # .NET SDK
 
-The SLIM .NET SDK (`Agntcy.Slim`) provides an idiomatic C# API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-cs](https://github.com/NordSecurity/uniffi-bindgen-cs), with full async/await support, `CancellationToken` integration, and native libraries bundled for all supported platforms.
+The SLIM .NET SDK (`Agntcy.Slim`) provides an idiomatic C# API for building applications on SLIM. Bindings are generated from the same Rust core as every other language binding via [uniffi-bindgen-cs](https://github.com/NordSecurity/uniffi-bindgen-cs), with full async/await support (`*Async` methods accept a `CancellationToken`, checked before the call starts; use the `timeout` parameters to bound waits), and native libraries bundled for all supported platforms.
 
 ## Requirements
 
@@ -35,6 +35,8 @@ The NuGet package ships native libraries for Linux (glibc and musl), macOS, and 
     ```powershell
     Install-Package Agntcy.Slim
     ```
+
+For SLIMRPC, also add the separate `Agntcy.Slim.SlimRpc` package (`dotnet add package Agntcy.Slim.SlimRpc`); see [SLIMRPC](#slimrpc).
 
 ## Getting Started
 
@@ -128,20 +130,24 @@ await service.RunServerAsync(serverConfig);
     "type": "oidc",
     "issuer_url": "https://auth.example.com",
     "client_id": "my-client",
-    "client_secret": "s3cr3t",
-    "audience": "slim",
-    "policy": { "cel": "\"admin\" in claims.groups" }
+    "client_secret": "s3cr3t"
   }
 }
 ```
 
-The schema matches the [client configuration schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json) in the slim repository.
+The format follows the [client configuration schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json) in the slim repository. The generated schema does not yet list the `oidc` auth type; its field names follow [`crates/config/src/client.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/client.rs) and [`crates/config/src/auth/oidc.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/auth/oidc.rs).
 
 ## SLIMRPC
 
-The .NET SDK includes SLIMRPC support for Protobuf-based RPC over SLIM. Install the `protoc-gen-slimrpc-csharp` plugin and add it to your `buf.gen.yaml` alongside the standard C# protobuf plugin. See the [SLIMRPC Compiler](./slimrpc/compiler.md) and the [Serving](./tutorials/slimrpc/tutorial-serve.md) and [Client](./tutorials/slimrpc/tutorial-client.md) tutorials.
+SLIMRPC support for Protobuf-based RPC over SLIM ships as a separate package, `Agntcy.Slim.SlimRpc`, which depends on `Agntcy.Slim` and `Google.Protobuf`:
 
-Generated code lives in the `Agntcy.Slim.SlimRpc` namespace.
+```bash
+dotnet add package Agntcy.Slim.SlimRpc
+```
+
+Install the `protoc-gen-slimrpc-csharp` plugin and add it to your `buf.gen.yaml` alongside the standard C# protobuf plugin. See the [SLIMRPC Compiler](./slimrpc/compiler.md) and the [Serving](./tutorials/slimrpc/tutorial-serve.md) and [Client](./tutorials/slimrpc/tutorial-client.md) tutorials.
+
+Generated stubs (`TestClient`, `TestGroupClient`, `ITestServer`, `TestServerRegistration`) are placed in your proto's C# namespace (set with `base_namespace`, e.g. `ExampleService`). The runtime helpers they use (`SlimRpcChannelFactory`, `SlimRpcServerFactory`, `SlimRpcContext`, `MulticastItem<T>`) live in the `Agntcy.Slim.SlimRpc` namespace of the `Agntcy.Slim.SlimRpc` package.
 
 ## Examples
 

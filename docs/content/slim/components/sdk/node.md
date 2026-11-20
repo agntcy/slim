@@ -128,18 +128,16 @@ await service.runServerAsync(config);
     "type": "oidc",
     "issuer_url": "https://auth.example.com",
     "client_id": "my-client",
-    "client_secret": "s3cr3t",
-    "audience": "slim",
-    "policy": { "cel": "\"admin\" in claims.groups" }
+    "client_secret": "s3cr3t"
   }
 }
 ```
 
-The schema matches the [client configuration schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json) in the slim repository.
+The format follows the [client configuration schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json) in the slim repository. The generated schema does not yet list the `oidc` auth type; its field names follow [`crates/config/src/client.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/client.rs) and [`crates/config/src/auth/oidc.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/auth/oidc.rs).
 
 ## SLIMRPC
 
-The Node.js SDK includes SLIMRPC support for Protobuf-based RPC over SLIM. Install the `protoc-gen-slimrpc-node` plugin and add it to your `buf.gen.yaml` alongside the standard protobuf-es plugin. See the [SLIMRPC Compiler](./slimrpc/compiler.md) and the [Serving](./tutorials/slimrpc/tutorial-serve.md) and [Client](./tutorials/slimrpc/tutorial-client.md) tutorials.
+The Node.js SDK includes SLIMRPC support for Protobuf-based RPC over SLIM. Install the `protoc-gen-slimrpc-node` plugin and add it to your `buf.gen.yaml` alongside the standard protobuf-es plugin. The generated code needs the protobuf-es runtime in your project: `npm install @bufbuild/protobuf` (v2). See the [SLIMRPC Compiler](./slimrpc/compiler.md) and the [Serving](./tutorials/slimrpc/tutorial-serve.md) and [Client](./tutorials/slimrpc/tutorial-client.md) tutorials.
 
 ## Examples
 
@@ -174,9 +172,12 @@ task example:slimrpc:client
 |---|---|---|
 | Linux | x86_64 | Supported |
 | Linux | aarch64 | Supported |
+| Linux (musl) | x86_64 | Supported |
+| Linux (musl) | aarch64 | Supported |
 | macOS | x86_64 | Supported |
 | macOS | aarch64 (Apple Silicon) | Supported |
 | Windows | x86_64 | Supported |
+| Windows | aarch64 | Supported |
 
 If install fails with a native-load error, your platform/version combination may not have a published binary yet. Build from source or check the [node README](https://github.com/agntcy/slim-bindings/blob/main/node/README_dev.md) for maintainer instructions.
 

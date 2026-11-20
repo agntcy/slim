@@ -172,14 +172,14 @@ hide:
           <p class="slimctl-terminal-intro" data-intro-level="node" hidden>
             Start a local node using the slimctl CLI. See the
             <a href="slim/slim-howto/">Getting Started guide</a> for a full walkthrough,
-            or the <a href="slim/deploy/index.html">Deployment docs</a> for Docker,
+            or the <a href="slim/deploy/">Deployment docs</a> for Docker,
             Kubernetes, and multi-cluster options.
           </p>
           <p class="slimctl-terminal-intro" data-intro-level="message" hidden>
             Use the SLIM SDK to connect your app and exchange messages.
-            See the <a href="slim/components/sdk/index.html">SLIM SDK overview</a>
-            and the <a href="slim/components/sdk/tutorials/tutorial-connect.html">Tutorials</a>
-            to get up and running in Python, Go, Java, Kotlin, .NET, or Node.js.
+            See the <a href="slim/components/sdk/">SLIM SDK overview</a>
+            and the <a href="slim/components/sdk/tutorials/">Tutorials</a>
+            to get up and running in Python, Go, Java, Kotlin, .NET, Node.js, or React Native.
           </p>
         </div>
         <div class="slimctl-terminal-actions">

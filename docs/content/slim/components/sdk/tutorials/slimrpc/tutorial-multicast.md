@@ -299,7 +299,8 @@ Each response item carries both the response payload and the context identifying
 
 - [Python group client example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/client_group.py)
 - [Go group client example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/client_group/client_group.go)
-- [Java/Kotlin group client example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Java group client example](https://github.com/agntcy/slim-bindings/blob/main/java/examples/slimrpc/simple/src/main/java/com/example_service/example/client/SlimrpcGroupClientMain.java)
+- [Kotlin group client example](https://github.com/agntcy/slim-bindings/blob/main/kotlin/examples/slimrpc/simple/src/main/kotlin/com/example_service/example/client/SlimrpcGroupClientMain.kt)
 - [Node.js group client example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/client_group.ts)
 - [.NET group client example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 

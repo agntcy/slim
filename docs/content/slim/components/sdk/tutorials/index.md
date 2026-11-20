@@ -2,7 +2,7 @@
 
 These tutorials walk you through using the SLIM SDK step by step — from establishing a connection to calling remote services with SLIMRPC. Each tutorial builds on the previous one, so work through them in order.
 
-Tutorials include code examples for Python, Go, Java, Kotlin, Node.js, .NET, and React Native where supported.
+Tutorials include code examples for Python, Go, Java, Kotlin, Node.js, .NET, React Native, and Rust where supported.
 
 ## Prerequisites
 

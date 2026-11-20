@@ -10,6 +10,7 @@ For Node.js servers, CLI tools, and non-mobile JavaScript applications, use [`@a
 |---|---|
 | **Native targets** | iOS (React Native); Android is not supported yet |
 | **Web target** | Modern browsers with WebAssembly support |
+| **React Native** | 0.72 or later |
 | **Package** | [`@agntcy/slim-bindings-react-native`](https://www.npmjs.com/package/@agntcy/slim-bindings-react-native) on npm |
 | **Build tools** | Node.js 18+, recent stable Rust, 1.88+ (for building from source) |
 | **Examples** | [react-native/examples](https://github.com/agntcy/slim-bindings/tree/main/react-native/examples) in slim-bindings |
@@ -99,7 +100,7 @@ All operations that wait for network or session state must use their async varia
 
 | Type | Description |
 |---|---|
-| Default export / `/web` entry | Static entry point for initialisation and global service access |
+| Default export (native) | Namespace with initialisation and global service access; on `/web` use `uniffiInitAsync()` and `new Service(id)` |
 | `App` | Application handle for sessions, subscriptions, and routing |
 | `Session` | Session for sending and receiving messages |
 | `Name` | Identity in `org/namespace/app` format |

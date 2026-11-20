@@ -716,6 +716,10 @@ An endpoint is a SLIM application that connects outbound â€” no inbound ports â€
 
     ```go
     import (
+        "crypto/ed25519"
+        "errors"
+        "time"
+
         slim_rpc "github.com/agntcy/slim-bindings-go/v3/slim_rpc"
         pb "example.com/gen/channel-manager/v1"
         "google.golang.org/protobuf/proto"
