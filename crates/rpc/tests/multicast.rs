@@ -1989,3 +1989,270 @@ async fn test_multicast_shared_responses_three_servers() {
 
     env.shutdown().await;
 }
+
+// ============================================================================
+// Test: single-server shared group — peer stream closes immediately
+// ============================================================================
+
+/// When only one server is in the group, expected_peers == 0 and the peer
+/// channel sender is dropped before the handler is called, so peer.next()
+/// must return None immediately without hanging.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_single_server() {
+    const NUM_MEMBERS: usize = 1;
+    let mut env = new_shared_env("test-shared-single", NUM_MEMBERS).await;
+
+    env.member_servers[0].register_unary_unary_shared(
+        "TestService",
+        "Echo",
+        |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| async move {
+            let result = tokio::time::timeout(Duration::from_secs(2), peer.next()).await;
+            match result {
+                Ok(None) => {}
+                Ok(Some(_)) => {
+                    return Err(RpcError::internal(
+                        "unexpected peer message in single-server group",
+                    ))
+                }
+                Err(_) => {
+                    return Err(RpcError::internal(
+                        "peer stream did not close for single-server group (timeout)",
+                    ))
+                }
+            }
+            Ok(TestResponse {
+                member_id: 0,
+                result: req.message,
+                count: req.value,
+            })
+        },
+    );
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "single".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "single-server").await;
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0].message.result, "single");
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: handler drops PeerResponseReceiver early
+// ============================================================================
+
+/// Dropping the peer stream before reading anything must not panic or corrupt
+/// state. A subsequent call on the same channel must also succeed.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_early_drop_peer_stream() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = new_shared_env("test-shared-early-drop", NUM_MEMBERS).await;
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        server.register_unary_unary_shared(
+            "TestService",
+            "Echo",
+            move |req: TestRequest, _ctx: Context, peer: PeerResponseReceiver| async move {
+                drop(peer);
+                Ok(TestResponse {
+                    member_id: i,
+                    result: req.message,
+                    count: req.value,
+                })
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    // First call: both servers drop their peer stream immediately.
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "drop".to_string(),
+            value: 1,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let responses =
+        collect_n_multicast(stream, NUM_MEMBERS, Duration::from_secs(10), "early-drop-1").await;
+    assert_eq!(responses.len(), NUM_MEMBERS);
+
+    // Second call: proves no state was corrupted by the early drop.
+    let stream2 = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "drop2".to_string(),
+            value: 2,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let responses2 =
+        collect_n_multicast(stream2, NUM_MEMBERS, Duration::from_secs(10), "early-drop-2").await;
+    assert_eq!(responses2.len(), NUM_MEMBERS);
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: stream-stream shared variant
+// ============================================================================
+
+/// Two servers register stream-stream-shared handlers. Each server yields one
+/// response per request and drains the peer stream in background.
+/// The client sends 3 requests and expects 2*3=6 response frames total.
+/// Each server must have seen >= 3 peer frames from the other server.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_stream_stream() {
+    use std::sync::Mutex;
+
+    const NUM_MEMBERS: usize = 2;
+    const REQUESTS: usize = 3;
+    let mut env = new_shared_env("test-shared-ss", NUM_MEMBERS).await;
+
+    let peer_counts: Vec<Arc<Mutex<usize>>> = (0..NUM_MEMBERS)
+        .map(|_| Arc::new(Mutex::new(0usize)))
+        .collect();
+
+    for (i, server) in env.member_servers.iter().enumerate() {
+        let counter = peer_counts[i].clone();
+        server.register_stream_stream_shared(
+            "TestService",
+            "StreamStream",
+            move |mut req_stream: DecodedStream<TestRequest>,
+                  _ctx: Context,
+                  mut peer: PeerResponseReceiver| {
+                let counter = counter.clone();
+                async move {
+                    tokio::spawn(async move {
+                        let mut seen = 0usize;
+                        while let Some(_) = peer.next().await {
+                            seen += 1;
+                        }
+                        *counter.lock().unwrap() = seen;
+                    });
+                    let mut responses = Vec::new();
+                    while let Some(r) = req_stream.next().await {
+                        let req = r?;
+                        responses.push(Ok(TestResponse {
+                            member_id: i,
+                            result: format!("M{i}: {}", req.message),
+                            count: req.value,
+                        }));
+                    }
+                    Ok(stream::iter(responses))
+                }
+            },
+        );
+    }
+    env.start_all_servers().await;
+
+    let requests: Vec<TestRequest> = (0..REQUESTS as i32)
+        .map(|v| TestRequest {
+            message: format!("r{v}"),
+            value: v,
+        })
+        .collect();
+    let result_stream = env.channel.multicast_stream_stream::<TestRequest, TestResponse>(
+        "TestService",
+        "StreamStream",
+        stream::iter(requests),
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let responses = collect_n_multicast(
+        result_stream,
+        NUM_MEMBERS * REQUESTS,
+        Duration::from_secs(10),
+        "stream-stream",
+    )
+    .await;
+    assert_eq!(responses.len(), NUM_MEMBERS * REQUESTS);
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    for (i, counter) in peer_counts.iter().enumerate() {
+        let seen = *counter.lock().unwrap();
+        assert!(
+            seen >= REQUESTS,
+            "server {i} saw {seen} peer frames, expected >= {REQUESTS}"
+        );
+    }
+
+    env.shutdown().await;
+}
+
+// ============================================================================
+// Test: error propagation on shared calls
+// ============================================================================
+
+/// When one server returns an error on a shared call, the client receives
+/// 1 error and 1 success. The server that returned success must not hang.
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_multicast_shared_responses_error_propagation() {
+    const NUM_MEMBERS: usize = 2;
+    let mut env = new_shared_env("test-shared-error-prop", NUM_MEMBERS).await;
+
+    // Server 0: returns an error.
+    env.member_servers[0].register_unary_unary_shared(
+        "TestService",
+        "Echo",
+        |_req: TestRequest, _ctx: Context, _peer: PeerResponseReceiver| async move {
+            Err::<TestResponse, _>(RpcError::internal("server 0 failed"))
+        },
+    );
+
+    // Server 1: drains peer stream in background, returns success.
+    env.member_servers[1].register_unary_unary_shared(
+        "TestService",
+        "Echo",
+        |req: TestRequest, _ctx: Context, mut peer: PeerResponseReceiver| async move {
+            tokio::spawn(async move {
+                while let Some(_) = peer.next().await {}
+            });
+            Ok(TestResponse {
+                member_id: 1,
+                result: req.message,
+                count: req.value,
+            })
+        },
+    );
+    env.start_all_servers().await;
+
+    let stream = env.channel.multicast_unary::<TestRequest, TestResponse>(
+        "TestService",
+        "Echo",
+        TestRequest {
+            message: "err-test".to_string(),
+            value: 0,
+        },
+        Some(Duration::from_secs(10)),
+        Some(shared_metadata()),
+    );
+    let results =
+        collect_n_mixed(stream, NUM_MEMBERS, Duration::from_secs(10), "error-prop").await;
+    assert_eq!(results.len(), NUM_MEMBERS);
+    let errors: Vec<_> = results.iter().filter(|r| r.is_err()).collect();
+    let successes: Vec<_> = results.iter().filter(|r| r.is_ok()).collect();
+    assert_eq!(errors.len(), 1, "expected exactly 1 error");
+    assert_eq!(successes.len(), 1, "expected exactly 1 success");
+
+    env.shutdown().await;
+}
