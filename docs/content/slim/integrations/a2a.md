@@ -40,6 +40,7 @@ SLIM carries A2A messages using [SLIMRPC](../components/sdk/slimrpc/index.md) â€
 | Go | [agntcy/slim-a2a-go](https://github.com/agntcy/slim-a2a-go) |
 | Java | [agntcy/slim-a2a-java](https://github.com/agntcy/slim-a2a-java) |
 | .NET | [agntcy/slim-a2a-dotnet](https://github.com/agntcy/slim-a2a-dotnet) |
+| Node.js | [agntcy/slim-a2a-node](https://github.com/agntcy/slim-a2a-node) |
 | Rust | [a2aproject/a2a-rs](https://github.com/a2aproject/a2a-rs/tree/main/a2a-slimrpc) |
 
 ## Compatibility Matrix

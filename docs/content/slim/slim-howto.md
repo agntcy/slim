@@ -11,7 +11,7 @@ By the end of this guide you will have a SLIM node running locally and an applic
 ## Prerequisites
 
 - macOS, Linux, or Windows
-- One of: Python 3.10+, Go 1.23+, Java 17+, Kotlin, Node.js 18+, .NET 8+
+- One of: Python 3.10+, Go 1.23+, Java (JDK 21, run with `--enable-preview`), Kotlin (JDK 17+), Node.js 18+, .NET 8+
 
 ## Step 1: Install slimctl
 
@@ -113,7 +113,22 @@ Install the SLIM bindings for your language:
     dependencies {
         implementation("io.agntcy.slim:slim-bindings-java:3.3.9")
     }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+    }
+
+    tasks.withType<JavaCompile> {
+        options.compilerArgs.add("--enable-preview")
+    }
+    tasks.withType<JavaExec> {
+        jvmArgs("--enable-preview")
+    }
     ```
+
+    The Java bindings need JDK 21 with preview features enabled and the native library on the library path. See the [Java guide](./components/sdk/java.md#requirements) for the JVM flags and native-library setup.
 
 === "Kotlin"
 

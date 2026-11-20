@@ -31,7 +31,7 @@ The SLIM service is the global runtime that manages connections and application 
     import slim_bindings
 
     async def main():
-        # Required for UniFFI async bindings
+        # Register the event loop for async callbacks from Rust (required for SLIMRPC servers)
         slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
 
         # Initialise the global SLIM service with defaults
@@ -236,9 +236,9 @@ With the service initialised, connect to a SLIM node. The connection returns a `
 === "React Native"
 
     ```tsx
-    // Create client config and connect — connect is synchronous in React Native
+    // Create client config and connect
     const config = slimBindings.newInsecureClientConfig("http://192.168.1.x:46357");
-    const connId = service.connect(config);
+    const connId = await service.connectAsync(config);
 
     console.log(`Connected, connId=${connId}`);
     ```
@@ -398,7 +398,7 @@ With the service initialised, connect to a SLIM node. The connection returns a `
     const service = slimBindings.getGlobalService();
 
     const config = slimBindings.newInsecureClientConfig("http://192.168.1.x:46357");
-    const connId = service.connect(config);
+    const connId = await service.connectAsync(config);
 
     console.log(`Connected, connId=${connId}`);
     // service and connId are passed to createApp in the next tutorial

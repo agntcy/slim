@@ -157,19 +157,21 @@ buf generate
 protoc --slimrpc-python_out=example_service --python_out=example_service example.proto
 
 # Go
-protoc --slimrpc-go_out=types --go_out=types example.proto
+protoc --slimrpc-go_out=types --go_out=types --go_opt=paths=source_relative example.proto
 
 # Java
 protoc --slimrpc-java_out=src/main/java --java_out=src/main/java example.proto
 
 # Kotlin
-protoc --slimrpc-kotlin_out=slimrpc --kotlin_out=types example.proto
+protoc --slimrpc-kotlin_out=slimrpc --java_out=types --kotlin_out=types example.proto
 
 # C#
 protoc --slimrpc-csharp_out=Generated --csharp_out=Generated example.proto
 
 # Node.js / TypeScript
-protoc --slimrpc-node_out=types --es_out=types example.proto
+protoc --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es \
+  --es_out=types --es_opt=target=ts,import_extension=js \
+  --slimrpc-node_out=types example.proto
 ```
 
 ## Generated Code

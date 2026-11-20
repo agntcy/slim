@@ -191,7 +191,7 @@ Subscribing tells the SLIM node to route inbound messages for this name to your 
 
     ```typescript
     // Subscribe — the SLIM node will now deliver messages for localName to this app
-    await app.subscribeAsync(localName, BigInt(connId));
+    await app.subscribeAsync(localName, connId);
 
     console.log(`Subscribed as: ${localName}`);
     ```

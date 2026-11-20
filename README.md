@@ -8,7 +8,7 @@
 
 **SLIM (Secure Low-Latency Interactive Messaging)** is a next-generation
 communication framework that provides the secure, scalable transport layer for
-AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
+AI agent protocols like [A2A (Agent-to-Agent)](https://a2a-protocol.org/) and
 [MCP (Model Context Protocol)](https://modelcontextprotocol.io).
 
 - 📖 **[Read the full documentation](https://docs.agntcy.org/slim/overview/)**
@@ -19,7 +19,7 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
   [Dotnet](https://github.com/agntcy/slim-bindings/tree/main/dotnet) |
   [Java](https://github.com/agntcy/slim-bindings/tree/main/java/examples) |
   [Kotlin](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples)
-- 🔌 **[Integrations](https://docs.agntcy.org/slim/slim-rpc/)** -
+- 🔌 **[Integrations](https://slim.agntcy.org/latest/slim/integrations/)** -
   [A2A](https://github.com/agntcy/slim-a2a-python) |
   [MCP](https://github.com/agntcy/slim-mcp-python) |
   [OpenTelemetry](https://github.com/agntcy/slim-otel)
@@ -28,7 +28,7 @@ AI agent protocols like [A2A (Agent-to-Agent)](https://a2a.ai) and
 ## Architecture
 
 SLIM uses a
-[distributed architecture](https://docs.agntcy.org/slim/overview/#slim-components)
+[distributed architecture](https://slim.agntcy.org/latest/slim/slim-overview/#components)
 with three main components:
 
 - **Data Plane**: Pure message routing layer that forwards packets based on
@@ -40,7 +40,7 @@ with three main components:
 
 This separation enables efficient deployment: SLIM routing nodes run only the
 lightweight data plane, while applications use language bindings with the full
-stack (data plane client + [session layer](https://docs.agntcy.org/slim/slim-data-plane/) +
+stack (data plane client + [session layer](https://slim.agntcy.org/latest/slim/architecture/sessions/) +
 [SLIMRPC](https://docs.agntcy.org/slim/slim-rpc/)) for secure, feature-rich
 communication.
 

@@ -19,7 +19,7 @@ An MCP server registers under a SLIM name and calls `run_mcp_server` to listen f
 ```python
 # Server
 name = slim_bindings.Name("org", "namespace", "my-mcp-server")
-slim_app, _ = await create_local_app(name, shared_secret="secret")
+slim_app, _ = await create_local_app(name, shared_secret="change-me-before-going-to-production")  # at least 32 characters
 await run_mcp_server(slim_app, mcp_app)
 
 # Client
@@ -38,6 +38,9 @@ The SLIM session layer handles key establishment, reliable delivery, and end-to-
 |---|---|---|
 | Python | [`slim-mcp`](https://pypi.org/project/slim-mcp/), for the MCP Python SDK | [agntcy/slim-mcp-python](https://github.com/agntcy/slim-mcp-python) |
 | Rust | [`agntcy-slim-mcp-transport`](https://crates.io/crates/agntcy-slim-mcp-transport), for [rmcp](https://crates.io/crates/rmcp) | [agntcy/slim-mcp-rust](https://github.com/agntcy/slim-mcp-rust) |
+
+!!! note "slim-mcp and slim-bindings versions"
+    The current `slim-mcp` release (0.2.3) depends on `slim-bindings` 1.x, so it can't yet be installed alongside `slim-bindings` 3.x, the version the [SDK guides](../components/sdk/index.md) use. Follow [agntcy/slim-mcp-python](https://github.com/agntcy/slim-mcp-python) for an update.
 
 To connect an existing MCP server without changing it, run [`mcp-proxy`](https://github.com/agntcy/slim-mcp-rust/tree/main/mcp-proxy) in front of it. The proxy forwards SLIM sessions to the server's Streamable HTTP endpoint.
 

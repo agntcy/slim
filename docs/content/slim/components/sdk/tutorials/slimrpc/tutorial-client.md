@@ -341,11 +341,11 @@ Stream a sequence of requests to the server and receive a single response.
             log.Fatal(err)
         }
     }
-    response, err := streamUnary.CloseAndRecv()
+    summary, err := streamUnary.CloseAndRecv()
     if err != nil {
         log.Fatal(err)
     }
-    fmt.Println("Response:", response.ExampleString, response.ExampleInteger)
+    fmt.Println("Response:", summary.ExampleString, summary.ExampleInteger)
     ```
 
 === "Java"
@@ -601,13 +601,14 @@ When finished, close the channel to release the underlying SLIM session.
 === "Java"
 
     ```java
-    channel.close();
+    channel.closeBlocking(null);
     ```
 
 === "Kotlin"
 
     ```kotlin
-    channel.close()
+    // inside a coroutine; outside one, use channel.closeBlocking(null)
+    channel.closeAsync(null)
     ```
 
 === "Node.js"
@@ -628,7 +629,8 @@ Complete client examples for each language:
 
 - [Python client example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/client.py)
 - [Go client example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/client/client.go)
-- [Java/Kotlin client example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Java client example](https://github.com/agntcy/slim-bindings/blob/main/java/examples/slimrpc/simple/src/main/java/com/example_service/example/client/SlimrpcClientMain.java)
+- [Kotlin client example](https://github.com/agntcy/slim-bindings/blob/main/kotlin/examples/slimrpc/simple/src/main/kotlin/com/example_service/example/client/SlimrpcClientMain.kt)
 - [Node.js client example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/client.ts)
 - [.NET client example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 

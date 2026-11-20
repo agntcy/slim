@@ -169,7 +169,7 @@ A point-to-point session connects your application to a single remote instance. 
     ```typescript
     import slimBindings from '@agntcy/slim-bindings';
 
-    async function runClient(app, remoteName) {
+    async function runClient(app: slimBindings.AppLike, remoteName: slimBindings.NameLike) {
         const sessionConfig = {
             sessionType: slimBindings.SessionType.PointToPoint,
             maxRetries: 5,
@@ -548,7 +548,7 @@ routing is required when `default_gateway` is set to `off`.
 === "Node.js"
 
     ```typescript
-    await session.publishAndWaitAsync(Buffer.from("hello"), undefined, undefined);
+    await session.publishAndWaitAsync(new TextEncoder().encode("hello").buffer, undefined, undefined);
     ```
 
 === ".NET"
@@ -560,8 +560,8 @@ routing is required when `default_gateway` is set to `off`.
 === "React Native"
 
     ```tsx
-    // Payload is Uint8Array in React Native
-    const payload = new Uint8Array("hello".split('').map(c => c.charCodeAt(0)));
+    // Payload is an ArrayBuffer
+    const payload = new Uint8Array("hello".split('').map(c => c.charCodeAt(0))).buffer;
     await session.publishAndWaitAsync(payload, undefined, undefined);
     ```
 
@@ -653,6 +653,7 @@ In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends 
 === "Rust"
 
     ```rust
+    // Inside a receive loop (see Receiving a Session), where msg is a received message
     // Reply to the sender of a received message, on the connection it arrived on
     session
         .publish_to(&msg.get_source(), msg.get_incoming_conn(), b"private reply".to_vec(), None, None)
@@ -701,7 +702,7 @@ In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends 
     // msg is obtained from session.getMessageAsync(...)
     await session.publishToAndWaitAsync(
         msg.context,
-        Buffer.from("private reply"),
+        new TextEncoder().encode("private reply").buffer,
         undefined,
         undefined
     );
@@ -718,7 +719,7 @@ In a group session, `publish_to_and_wait_async` / `PublishToAndWaitAsync` sends 
 
     ```tsx
     // msg is obtained from session.getMessageAsync(...)
-    const payload = new Uint8Array("private reply".split('').map(c => c.charCodeAt(0)));
+    const payload = new Uint8Array("private reply".split('').map(c => c.charCodeAt(0))).buffer;
     await session.publishToAndWaitAsync(msg.context, payload, undefined, undefined);
     ```
 
@@ -797,7 +798,7 @@ Provide an `MlsSettings` object in the `SessionConfig` to enable MLS-based end-t
 
 The session layer handles all key establishment automatically — your application code stays the same.
 
-The examples in this tutorial already have MLS enabled. To disable it, set `mls_settings=None` / `MlsSettings = null` / `mlsSettings = nil` / omit the `MlsSettings` argument.
+The examples in this tutorial already have MLS enabled. To disable it, set `mls_settings=None` / `MlsSettings = null` / `MlsSettings: nil` / omit the `MlsSettings` argument.
 
 ## Runnable Examples
 

@@ -11,7 +11,7 @@ For conceptual background see [Session State Persistence](../../../architecture/
 
 ## Step 1: Create an App with Persistence Enabled
 
-Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `PersistenceConfig` specifying the storage directory and a passphrase to encrypt the state at rest.
+Instead of `create_app_with_secret`, use `create_app_with_persistence` (Rust: `create_app_with_direction_and_persistence`). Pass a `PersistenceConfig` specifying the storage directory and a passphrase to encrypt the state at rest.
 
 !!! warning "Passphrase"
     Always set a passphrase in production. Without one, the store is authenticated but not confidential — anyone who can read the database file and knows the app name can decrypt it.
@@ -439,7 +439,7 @@ On the next startup, create a new app using the **same name, secret, store path,
 
     // Each restored session is immediately usable
     for (const session of sessions) {
-        await session.publishAndWaitAsync(Buffer.from("back online"), undefined, undefined);
+        await session.publishAndWaitAsync(new TextEncoder().encode("back online").buffer, undefined, undefined);
     }
     ```
 

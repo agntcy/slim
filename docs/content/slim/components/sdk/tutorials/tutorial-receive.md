@@ -15,15 +15,16 @@ The receiving side does not call `create_session`. Instead it calls `listen_for_
     ```rust
     use slim_session::Notification;
 
-    // The notification receiver rx comes from service.create_app(...)
+    // rx is the notification receiver from service.create_app(...): bind it as `mut rx`
     // Wait for an incoming session invitation
-    while let Some(Ok(notification)) = rx.recv().await {
-        if let Notification::NewSession(ctx) = notification {
-            println!("Session received");
-            // ctx is used in the Receive Messages step below
-            break;
+    let ctx = loop {
+        match rx.recv().await {
+            Some(Ok(Notification::NewSession(ctx))) => break ctx,
+            Some(_) => continue,
+            None => anyhow::bail!("app closed"),
         }
-    }
+    };
+    println!("Session received");
     ```
 
 === "Python"
@@ -78,7 +79,7 @@ The receiving side does not call `create_session`. Instead it calls `listen_for_
 === "Node.js"
 
     ```typescript
-    // Wait up to 60 seconds for an incoming session (pass null to wait forever)
+    // Wait up to 60 seconds for an incoming session (pass undefined to wait forever)
     const session = await app.listenForSessionAsync(60000);
 
     console.log("Session received");
@@ -109,14 +110,20 @@ Once the session is established, call `get_message_async` in a loop to receive m
 === "Rust"
 
     ```rust
+    // spawn_receiver consumes ctx, so keep a session handle first
+    let session = ctx.session_arc().unwrap();
+    let rx_session = session.clone();
+
     // Spawn a receiver task on the session context
     ctx.spawn_receiver(|mut msg_rx, _| async move {
+        let session = rx_session;
         loop {
             match msg_rx.recv().await {
                 Some(Ok(msg)) => {
                     if let Some(payload) = msg.get_payload().and_then(|c| c.as_application_payload().ok()) {
                         println!("Received: {}", String::from_utf8_lossy(&payload.blob));
                     }
+                    // Reply here, using session and msg (see Reply to Messages below)
                 }
                 Some(Err(e)) => {
                     eprintln!("Session error: {e}");
@@ -251,15 +258,19 @@ There are two ways to reply:
 === "Rust"
 
     ```rust
-    let session = ctx.session_arc().unwrap();
-
+    // Inside the receive loop above, where `msg` is the received message
     // Broadcast to all participants
-    session.publish(session.dst(), b"hello everyone".to_vec(), None, None).await?;
+    if let Err(e) = session.publish(session.dst(), b"hello everyone".to_vec(), None, None).await {
+        eprintln!("Publish failed: {e}");
+    }
 
     // Reply only to the sender, on the connection the received message arrived on
-    session
+    if let Err(e) = session
         .publish_to(&msg.get_source(), msg.get_incoming_conn(), b"hello back".to_vec(), None, None)
-        .await?;
+        .await
+    {
+        eprintln!("Reply failed: {e}");
+    }
     ```
 
 === "Python"
@@ -317,12 +328,12 @@ There are two ways to reply:
 
     ```typescript
     // Broadcast to all participants
-    await session.publishAndWaitAsync(Buffer.from("hello everyone"), undefined, undefined);
+    await session.publishAndWaitAsync(new TextEncoder().encode("hello everyone").buffer, undefined, undefined);
 
     // Reply only to the sender
     await session.publishToAndWaitAsync(
         msg.context,
-        Buffer.from("hello back"),
+        new TextEncoder().encode("hello back").buffer,
         undefined,
         undefined
     );
@@ -342,11 +353,11 @@ There are two ways to reply:
 
     ```tsx
     // Broadcast to all participants
-    const broadcast = new Uint8Array("hello everyone".split('').map(c => c.charCodeAt(0)));
+    const broadcast = new Uint8Array("hello everyone".split('').map(c => c.charCodeAt(0))).buffer;
     await session.publishAndWaitAsync(broadcast, undefined, undefined);
 
     // Reply only to the sender
-    const reply = new Uint8Array("hello back".split('').map(c => c.charCodeAt(0)));
+    const reply = new Uint8Array("hello back".split('').map(c => c.charCodeAt(0))).buffer;
     await session.publishToAndWaitAsync(msg.context, reply, undefined, undefined);
     ```
 

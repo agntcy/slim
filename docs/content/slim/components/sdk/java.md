@@ -16,7 +16,7 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
 !!! warning "JVM flags"
     The bindings are compiled for Java 21 with preview features enabled (the Foreign Function & Memory API is a preview API in Java 21), so code that uses them must be compiled with `--enable-preview` (javac rejects classes that use preview features otherwise) and run on JDK 21 started with `--enable-preview`. The examples also pass `--add-opens=java.base/java.lang=ALL-UNNAMED` and `--add-opens=java.base/java.lang.reflect=ALL-UNNAMED`.
 
-    The native library is loaded with `System.loadLibrary("slim_bindings")`, which does not look inside the JAR. Extract the library for your platform and point the JVM at it, either with `-Djava.library.path=<dir containing libslim_bindings>` or with an absolute path via `-Duniffi.component.slim_bindings.libraryOverride=/path/to/libslim_bindings.dylib`.
+    The native library is loaded with `System.loadLibrary("slim_bindings")`, which does not look inside the JAR. Extract the library for your platform and point the JVM at it, either with `-Djava.library.path=<dir containing libslim_bindings>` or with absolute paths via `-Duniffi.component.slim_bindings.libraryOverride=/path/to/libslim_bindings.dylib` and, if you use SLIMRPC, `-Duniffi.component.slim_rpc.libraryOverride=/path/to/libslim_bindings.dylib` (the same file).
 
     For example:
 
@@ -50,6 +50,7 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
     <plugin>
       <groupId>org.apache.maven.plugins</groupId>
       <artifactId>maven-compiler-plugin</artifactId>
+      <version>3.11.0</version>
       <configuration>
         <release>21</release>
         <compilerArgs>
@@ -64,6 +65,12 @@ The Maven artifact bundles native libraries for Linux, macOS, and Windows on x64
     ```kotlin
     dependencies {
         implementation("io.agntcy.slim:slim-bindings-java:3.3.9")
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
     }
 
     tasks.withType<JavaCompile> {
@@ -168,14 +175,12 @@ service.runServerAsync(config).get();
     "type": "oidc",
     "issuer_url": "https://auth.example.com",
     "client_id": "my-client",
-    "client_secret": "s3cr3t",
-    "audience": "slim",
-    "policy": { "cel": "\"admin\" in claims.groups" }
+    "client_secret": "s3cr3t"
   }
 }
 ```
 
-The schema matches the [client configuration schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json) in the slim repository.
+The format follows the [client configuration schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json) in the slim repository. The generated schema does not yet list the `oidc` auth type; its field names follow [`crates/config/src/client.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/client.rs) and [`crates/config/src/auth/oidc.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/auth/oidc.rs).
 
 ## SLIMRPC
 
