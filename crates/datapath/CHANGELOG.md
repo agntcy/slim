@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.17](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.16...slim-datapath-v0.19.17) - 2026-11-20
+
+### Fixed
+
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
 ## [0.19.15](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.14...slim-datapath-v0.19.15) - 2026-10-20
 
 ### Other

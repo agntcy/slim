@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.42](https://github.com/agntcy/slim/compare/slim-signal-v0.1.41...slim-signal-v0.1.42) - 2026-11-20
+
+### Fixed
+
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
 ## [0.1.40](https://github.com/agntcy/slim/compare/slim-signal-v0.1.39...slim-signal-v0.1.40) - 2026-10-20
 
 ### Other
