@@ -27,7 +27,6 @@ use futures::stream::Stream;
 use futures_timer::Delay;
 use parking_lot::RwLock as ParkingRwLock;
 use slim_session::session_config::{MlsSettings, SessionConfig};
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
@@ -123,9 +122,10 @@ impl<T> Response<T> {
 }
 
 use super::{
-    Context, METHOD_KEY, Metadata, RPC_DIR_CANCEL, RPC_DIR_KEY, RPC_DIR_REQ, RPC_ID_KEY,
-    ReceivedMessage, RpcCode, RpcError, SERVICE_KEY, SESSION_MARKER_KEY, SESSION_MARKER_VALUE,
-    STATUS_CODE_KEY, calculate_timeout_duration,
+    CallQueueRx, Context, METHOD_KEY, Metadata, RPC_DIR_CANCEL, RPC_DIR_KEY, RPC_DIR_REQ,
+    RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, SERVICE_KEY, SESSION_MARKER_KEY,
+    SESSION_MARKER_VALUE, STATUS_CODE_KEY, calculate_timeout_duration,
+    call_queue::{CallQueueTx, Pushed, call_queue, overflow_error},
     codec::{Decoder, Encoder},
     rpc_session::InFlightSends,
     send_eos,
@@ -134,13 +134,13 @@ use super::{
 
 // ── ResponseDispatcher ────────────────────────────────────────────────────────
 
-/// Routes incoming response messages to the correct per-RPC mpsc channel.
+/// Routes incoming response messages to the correct per-RPC queue.
 ///
 /// The background `response_dispatcher_task` calls `dispatch()` for each
 /// message it receives from the shared `SessionRx`. RPC callers register
 /// before sending their request and unregister after receiving all responses.
 struct ResponseDispatcher {
-    pending: ParkingRwLock<HashMap<String, mpsc::UnboundedSender<ReceivedMessage>>>,
+    pending: ParkingRwLock<HashMap<String, CallQueueTx>>,
 }
 
 impl ResponseDispatcher {
@@ -150,8 +150,8 @@ impl ResponseDispatcher {
         }
     }
 
-    fn register(&self, rpc_id: &str) -> mpsc::UnboundedReceiver<ReceivedMessage> {
-        let (tx, rx) = mpsc::unbounded_channel();
+    fn register(&self, rpc_id: &str) -> CallQueueRx {
+        let (tx, rx) = call_queue();
         self.pending.write().insert(rpc_id.to_string(), tx);
         rx
     }
@@ -164,12 +164,23 @@ impl ResponseDispatcher {
     ///
     /// Returns `true` on delivery to an active RPC caller, `false` if
     /// no caller is registered for this rpc-id (message is dropped).
+    ///
+    /// A caller that has fallen too far behind is unregistered. It reads what
+    /// is queued and then fails with `RESOURCE_EXHAUSTED`. Waiting for it here
+    /// would stall every other call on the session, including cancels.
     fn dispatch(&self, msg: ReceivedMessage, rpc_id: &str) -> bool {
-        let lock = self.pending.read();
-        if let Some(tx) = lock.get(rpc_id) {
-            tx.send(msg).is_ok()
-        } else {
-            false
+        let pushed = match self.pending.read().get(rpc_id) {
+            Some(tx) => tx.push(msg),
+            None => return false,
+        };
+        match pushed {
+            Pushed::Queued => true,
+            Pushed::Closed => false,
+            Pushed::Overflowed => {
+                tracing::warn!(%rpc_id, "Caller fell too far behind its responses");
+                self.pending.write().remove(rpc_id);
+                false
+            }
         }
     }
 
@@ -775,6 +786,11 @@ impl Channel {
 
                 let received = match received_opt {
                     Err(e) => { yield Err(e); break; }
+                    Ok(None) if rx.overflowed() => {
+                        // The servers are still sending, so the cancel stays armed.
+                        yield Err(overflow_error());
+                        break;
+                    }
                     Ok(None) => {
                         // The session closed: there is nothing left to cancel.
                         cancel.disarm();
@@ -1439,6 +1455,36 @@ mod tests {
             assert!(received.is_some());
             assert_eq!(received.unwrap().payload, vec![1, 2, 3]);
         });
+    }
+
+    #[tokio::test]
+    async fn test_response_dispatcher_unregisters_a_caller_that_falls_behind() {
+        let dispatcher = ResponseDispatcher::new();
+        let mut rx = dispatcher.register("rpc-slow");
+        let other = dispatcher.register("rpc-other");
+        let message = || ReceivedMessage {
+            metadata: HashMap::new(),
+            payload: vec![1],
+            source: Name::from_strings(["", "", ""]),
+        };
+
+        for _ in 0..crate::CALL_QUEUE_LEN {
+            assert!(dispatcher.dispatch(message(), "rpc-slow"));
+        }
+        // The queue is full: this response is refused and the call is dropped.
+        assert!(!dispatcher.dispatch(message(), "rpc-slow"));
+        assert!(!dispatcher.dispatch(message(), "rpc-slow"));
+
+        // The caller still reads what was queued, then sees that the queue overflowed.
+        for _ in 0..crate::CALL_QUEUE_LEN {
+            assert!(rx.recv().await.is_some());
+        }
+        assert!(rx.recv().await.is_none());
+        assert!(rx.overflowed());
+
+        // Another call on the session is not affected.
+        assert!(dispatcher.dispatch(message(), "rpc-other"));
+        assert!(!other.overflowed());
     }
 
     // ── DispatcherGuard ───────────────────────────────────────────────────────

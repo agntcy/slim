@@ -3134,13 +3134,17 @@ async fn test_dropping_a_unary_call_stops_its_handler() {
 
     let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let flag = stopped.clone();
+    let started = Arc::new(tokio::sync::Notify::new());
+    let running = started.clone();
     env.server.register_unary_unary(
         "TestService",
         "Hang",
         move |_request: TestRequest, _ctx: Context| {
             let flag = flag.clone();
+            let running = running.clone();
             async move {
                 let _guard = SetOnDrop(flag);
+                running.notify_one();
                 std::future::pending::<()>().await;
                 Ok(TestResponse::default())
             }
@@ -3148,19 +3152,19 @@ async fn test_dropping_a_unary_call_stops_its_handler() {
     );
     env.start_server().await;
 
-    // The caller gives up after 200 ms, which drops the call.
-    let outcome = tokio::time::timeout(
-        Duration::from_millis(200),
-        env.channel.unary::<TestRequest, TestResponse>(
+    // The caller gives up once the handler is running, which drops the call. A
+    // fixed delay would race the setup of the session, and a call dropped before
+    // its request is sent never starts the handler.
+    tokio::select! {
+        _ = env.channel.unary::<TestRequest, TestResponse>(
             "TestService",
             "Hang",
             TestRequest::default(),
             None,
             None,
-        ),
-    )
-    .await;
-    assert!(outcome.is_err(), "the handler never answers");
+        ) => panic!("the handler never answers"),
+        _ = started.notified() => {}
+    }
 
     assert!(
         wait_until(&stopped).await,
@@ -3225,6 +3229,222 @@ async fn test_a_finished_call_sends_no_cancel() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(!logs_contain("Call cancelled by its caller"));
     assert!(!logs_contain("Ignoring cancel"));
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_a_caller_that_falls_behind_its_responses_fails_and_stops_the_handler() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut env = TestEnv::new("test-slow-response-reader").await;
+
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let (flag, produced) = (stopped.clone(), sent.clone());
+    env.server.register_unary_stream(
+        "TestService",
+        "Flood",
+        move |_request: TestRequest, _ctx: Context| {
+            let (flag, produced) = (flag.clone(), produced.clone());
+            async move {
+                let guard = SetOnDrop(flag);
+                Ok(async_stream::stream! {
+                    let _guard = guard;
+                    for i in 0.. {
+                        produced.fetch_add(1, Ordering::SeqCst);
+                        yield Ok(TestResponse { result: String::new(), count: i });
+                    }
+                })
+            }
+        },
+    );
+    env.start_server().await;
+
+    {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Flood",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        stream.next().await.expect("a response").expect("ok");
+
+        // The caller stops reading while the server keeps sending.
+        let limit = 2 * slim_rpc::CALL_QUEUE_LEN;
+        for _ in 0..200 {
+            if sent.load(Ordering::SeqCst) > limit {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(
+            sent.load(Ordering::SeqCst) > limit,
+            "the server never flooded"
+        );
+
+        // It reads what was queued, then the call fails. The count is the limit or
+        // one less, depending on how many responses were queued when the first was read.
+        // The handler never stops, so without the limit this would read forever.
+        let (received, error) =
+            tokio::time::timeout(Duration::from_secs(30), collect_stream_until_error(stream))
+                .await
+                .expect("the response stream never failed");
+        assert!(
+            (slim_rpc::CALL_QUEUE_LEN - 1..=slim_rpc::CALL_QUEUE_LEN).contains(&received.len()),
+            "read {} responses",
+            received.len()
+        );
+        assert_error_with_code(
+            Err::<(), _>(error.expect("an error")),
+            RpcCode::ResourceExhausted,
+            None,
+        );
+    }
+
+    assert!(
+        wait_until(&stopped).await,
+        "the handler kept flooding a caller that had given up"
+    );
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_a_handler_that_falls_behind_its_requests_fails() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut env = TestEnv::new("test-slow-request-reader").await;
+
+    let release = Arc::new(tokio::sync::Notify::new());
+    let read = Arc::new(AtomicUsize::new(0));
+    let (gate, counted) = (release.clone(), read.clone());
+    env.server.register_stream_unary(
+        "TestService",
+        "Slow",
+        move |mut requests: DecodedStream<TestRequest>, _ctx: Context| {
+            let (gate, counted) = (gate.clone(), counted.clone());
+            async move {
+                // Reads nothing until released, while the caller keeps sending.
+                gate.notified().await;
+                while let Some(request) = requests.next().await {
+                    request?;
+                    counted.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(TestResponse::default())
+            }
+        },
+    );
+    env.start_server().await;
+
+    let total = slim_rpc::CALL_QUEUE_LEN + 300;
+    let channel = env.channel.clone();
+    let call = tokio::spawn(async move {
+        channel
+            .stream_unary::<TestRequest, TestResponse>(
+                "TestService",
+                "Slow",
+                stream::iter((0..total).map(|_| TestRequest::default())),
+                None,
+                None,
+            )
+            .await
+    });
+
+    for _ in 0..200 {
+        if logs_contain("Handler fell too far behind its request stream") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        logs_contain("Handler fell too far behind its request stream"),
+        "the server queued every request"
+    );
+
+    release.notify_one();
+    let outcome = call.await.unwrap();
+    assert_error_with_code(outcome, RpcCode::ResourceExhausted, None);
+    // The handler read the first request and what was queued behind it.
+    assert_eq!(read.load(Ordering::SeqCst), slim_rpc::CALL_QUEUE_LEN + 1);
+
+    env.shutdown().await;
+}
+
+#[tokio::test]
+#[tracing_test::traced_test]
+async fn test_streams_longer_than_the_queue_succeed_when_they_are_read_promptly() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let total = 4 * slim_rpc::CALL_QUEUE_LEN;
+    let mut env = TestEnv::new("test-long-streams").await;
+
+    env.server.register_unary_stream(
+        "TestService",
+        "Many",
+        move |_request: TestRequest, _ctx: Context| async move {
+            Ok(stream::iter((0..total as i32).map(|count| {
+                Ok::<_, RpcError>(TestResponse {
+                    result: String::new(),
+                    count,
+                })
+            })))
+        },
+    );
+    let read = Arc::new(AtomicUsize::new(0));
+    let counted = read.clone();
+    env.server.register_stream_unary(
+        "TestService",
+        "Upload",
+        move |mut requests: DecodedStream<TestRequest>, _ctx: Context| {
+            let counted = counted.clone();
+            async move {
+                while let Some(request) = requests.next().await {
+                    request?;
+                    counted.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(TestResponse::default())
+            }
+        },
+    );
+    env.start_server().await;
+
+    // Downloading.
+    let responses = {
+        let stream = env.channel.unary_stream::<TestRequest, TestResponse>(
+            "TestService",
+            "Many",
+            TestRequest::default(),
+            None,
+            None,
+        );
+        pin_mut!(stream);
+        tokio::time::timeout(Duration::from_secs(60), collect_stream_until_error(stream))
+            .await
+            .expect("the download stalled")
+    };
+    assert!(responses.1.is_none(), "download failed: {:?}", responses.1);
+    assert_eq!(responses.0.len(), total);
+
+    // Uploading.
+    tokio::time::timeout(
+        Duration::from_secs(60),
+        env.channel.stream_unary::<TestRequest, TestResponse>(
+            "TestService",
+            "Upload",
+            stream::iter((0..total).map(|_| TestRequest::default())),
+            None,
+            None,
+        ),
+    )
+    .await
+    .expect("the upload stalled")
+    .expect("the upload failed");
+    assert_eq!(read.load(Ordering::SeqCst), total);
 
     env.shutdown().await;
 }
