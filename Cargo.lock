@@ -2307,7 +2307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3849,7 +3849,7 @@ dependencies = [
  "maybe-async",
  "mls-rs-codec",
  "mls-rs-core",
- "mls-rs-identity-x509",
+ "mls-rs-identity-x509 0.21.0",
  "portable-atomic",
  "portable-atomic-util",
  "rand_core 0.6.4",
@@ -3904,33 +3904,18 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-crypto-awslc"
-version = "0.26.0"
+version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ef778ced473553363cf0de75cb01856a6b713b85a23a13ada94229035eb46e5"
+checksum = "7f71c5b6f7cedc60cc137ba7671f28fe778b15e5e8715750560d1425b329c990"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
  "aws-lc-sys",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-hpke 0.21.0",
+ "mls-rs-crypto-hpke",
  "mls-rs-crypto-traits",
- "mls-rs-identity-x509",
- "thiserror 2.0.21",
- "zeroize",
-]
-
-[[package]]
-name = "mls-rs-crypto-hpke"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b53db9a20568dec53e4f280ec8152c862b98efe105894e378d996be3305f32f2"
-dependencies = [
- "async-trait",
- "cfg-if",
- "maybe-async",
- "mls-rs-core",
- "mls-rs-crypto-traits",
+ "mls-rs-identity-x509 0.22.0",
  "thiserror 2.0.21",
  "zeroize",
 ]
@@ -3974,7 +3959,7 @@ dependencies = [
  "js-sys",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-hpke 0.22.0",
+ "mls-rs-crypto-hpke",
  "mls-rs-crypto-traits",
  "serde",
  "serde-wasm-bindgen",
@@ -3990,6 +3975,19 @@ name = "mls-rs-identity-x509"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec1ecb6a61a296b8240cea19171477293663dcc6540353dc8cbcda2d9f61039b"
+dependencies = [
+ "async-trait",
+ "maybe-async",
+ "mls-rs-core",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "mls-rs-identity-x509"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f50eeca93cbede255ded62621f8765e23a7652259ad5f95af74b10ecb353f8af"
 dependencies = [
  "async-trait",
  "maybe-async",
@@ -5311,7 +5309,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5368,7 +5366,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6072,7 +6070,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7247,7 +7245,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
