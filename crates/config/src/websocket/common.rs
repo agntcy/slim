@@ -44,6 +44,16 @@ impl WebSocketEndpoint {
             .host()
             .ok_or(ConfigError::InvalidWebSocketEndpointScheme)?
             .to_string();
+        // `http::Uri` accepts authorities with no host, such as `:80`,
+        // `user@:80` and `[]:80`, which would leave nothing to bind or
+        // connect to.
+        if host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .is_empty()
+        {
+            return Err(ConfigError::InvalidWebSocketEndpointScheme);
+        }
         let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
 
         let mut path = uri.path().to_string();
@@ -178,6 +188,22 @@ mod tests {
     fn test_websocket_endpoint_parse_invalid_scheme() {
         assert!(WebSocketEndpoint::parse("http://example.com").is_err());
         assert!(WebSocketEndpoint::parse("://nohost").is_err());
+    }
+
+    #[test]
+    fn test_websocket_endpoint_parse_rejects_empty_host() {
+        for endpoint in [
+            "ws://:80/",
+            "ws://@:80/",
+            "ws://user@:80/",
+            "ws://[]:80/",
+            "ws://[:@:1]:9000/",
+        ] {
+            assert!(
+                WebSocketEndpoint::parse(endpoint).is_err(),
+                "{endpoint:?} should be rejected"
+            );
+        }
     }
 
     #[test]
