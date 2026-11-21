@@ -16,6 +16,12 @@ license = "Apache-2.0"
 [package.metadata]
 cargo-fuzz = true
 
+# Imported as `slim_config` (the lib name), so machete cannot match the
+# `agntcy-slim-config` dependency key. Not covered by the root ignore list
+# because this crate is its own workspace.
+[package.metadata.cargo-machete]
+ignored = ["agntcy-slim-config"]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 
