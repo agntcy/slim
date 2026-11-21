@@ -561,10 +561,27 @@ impl Channel {
         let pin = (!self.is_group)
             .then(|| self.pin_for(&remote).map(str::to_string))
             .flatten();
+        let connection_id = self.connection_id;
         let runtime = &self.runtime;
 
         // Runs in a tokio task because create_session needs tokio runtime
         let handle = runtime.spawn(async move {
+            if let Some(conn_id) = connection_id {
+                tracing::debug!(
+                    remote = %remote,
+                    connection_id = conn_id,
+                    "Setting route before creating session"
+                );
+                if let Err(e) = app.set_route(&remote, conn_id).await {
+                    tracing::warn!(
+                        remote = %remote,
+                        connection_id = conn_id,
+                        error = %e,
+                        "Failed to set route"
+                    );
+                }
+            }
+
             tracing::debug!(remote = %remote, ?session_type, "Creating persistent session");
 
             let slim_config = session_config(session_type);
@@ -651,15 +668,14 @@ impl Channel {
 
         // When the stream was empty `first` is still true: the EOS must carry
         // service + method so the server can dispatch without a preceding data frame.
-        let extra = if first {
-            Some(HashMap::from([
-                (SERVICE_KEY.to_string(), service_name.to_string()),
-                (METHOD_KEY.to_string(), method_name.to_string()),
-            ]))
-        } else {
-            None
-        };
-        send_eos(session, session.destination(), rpc_id, extra).await?;
+        // Always include dir=req so servers in shared-responses mode don't treat this
+        // client-originated EOS as a peer server response.
+        let mut extra = HashMap::from([(RPC_DIR_KEY.to_string(), RPC_DIR_REQ.to_string())]);
+        if first {
+            extra.insert(SERVICE_KEY.to_string(), service_name.to_string());
+            extra.insert(METHOD_KEY.to_string(), method_name.to_string());
+        }
+        send_eos(session, session.destination(), rpc_id, Some(extra)).await?;
         Ok(())
     }
 
