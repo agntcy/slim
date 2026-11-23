@@ -44,5 +44,6 @@ jemallocator = { workspace = true }
 agntcy-slim-version = { workspace = true }
 
 [dev-dependencies]
+agntcy-slim-testing = { workspace = true }
 serde_json = { workspace = true }
 tracing-test = { workspace = true }

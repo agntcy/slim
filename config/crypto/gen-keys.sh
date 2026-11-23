@@ -2,6 +2,16 @@
 # Copyright AGNTCY Contributors (https://github.com/agntcy)
 # SPDX-License-Identifier: Apache-2.0
 
+# Generates the demo TLS keys/certs and JWT keys used by the example configs in
+# `config/`. Nothing generated here is committed (see .gitignore): run this
+# script, or `task config:keys`, before starting an example.
+#
+# Requires openssl.
+
+set -euo pipefail
+
+# The .cnf files and the output location are relative to this script.
+cd "$(dirname "$0")"
 
 CA_CNF="ca.cnf"
 
@@ -98,3 +108,21 @@ openssl x509                \
     -extfile ${CLIENT_CNF}  \
     -extensions req_ext     \
     -days 3650
+
+# Intermediate files are not needed once the certs are issued.
+rm -f ${SERVER_CSR} ${CLIENT_CSR} ./*.srl
+
+# JWT keys (private key + matching public key), one per supported family.
+mkdir -p jwt
+
+gen_jwt_key() {
+    local name=$1
+    shift
+    openssl genpkey "$@" -out "jwt/${name}.pem"
+    openssl pkey -in "jwt/${name}.pem" -pubout -out "jwt/${name}-public.pem"
+}
+
+gen_jwt_key ec256 -algorithm EC -pkeyopt ec_paramgen_curve:P-256
+gen_jwt_key ec384 -algorithm EC -pkeyopt ec_paramgen_curve:P-384
+gen_jwt_key eddsa -algorithm ED25519
+gen_jwt_key rsa   -algorithm RSA -pkeyopt rsa_keygen_bits:2048

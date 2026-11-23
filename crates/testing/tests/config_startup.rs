@@ -92,6 +92,24 @@ fn resolve_config_cases() -> Vec<ConfigCase> {
     out
 }
 
+/// The demo keys under `config/crypto/` are not committed; generate them once
+/// per test process with `gen-keys.sh` (requires openssl).
+fn ensure_demo_keys(repo_root: &Path) {
+    static GENERATED: std::sync::Once = std::sync::Once::new();
+    GENERATED.call_once(|| {
+        let script = repo_root.join("config/crypto/gen-keys.sh");
+        let output = Command::new("bash")
+            .arg(&script)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run {}: {e}", script.display()));
+        assert!(
+            output.status.success(),
+            "gen-keys.sh failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    });
+}
+
 /// Start server + client SLIM and wait for connection logs.
 fn run_config_startup_case(case: &ConfigCase) {
     let config_dir = case
@@ -140,6 +158,7 @@ fn run_config_startup_case(case: &ConfigCase) {
     );
 
     let repo_root = workspace_root();
+    ensure_demo_keys(&repo_root);
     let slim = require_slim_binary();
 
     let mut server_session = Some(

@@ -107,7 +107,11 @@ mod tests {
         tonic::transport::Server,
     };
 
-    static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata");
+    static TEST_DATA_PATH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        slim_testing::keys::testdata_dir()
+            .to_string_lossy()
+            .into_owned()
+    });
 
     async fn run_server(
         client_config: ClientConfig,
@@ -284,11 +288,11 @@ mod tests {
                 TlsClientConfig::new()
                     .with_insecure(false)
                     .with_tls_version("tls1.3")
-                    .with_ca_file(&(TEST_DATA_PATH.to_string() + "/tls/ca-1.crt")),
+                    .with_ca_file(&(TEST_DATA_PATH.clone() + "/tls/ca-1.crt")),
             );
 
         // create server config
-        let data_dir = std::path::PathBuf::from_iter([TEST_DATA_PATH]);
+        let data_dir = std::path::PathBuf::from(TEST_DATA_PATH.as_str());
         let cert = std::fs::read_to_string(data_dir.join("tls/server-1.crt"))?;
         let key = std::fs::read_to_string(data_dir.join("tls/server-1.key"))?;
         let server_config = ServerConfig::with_endpoint(&format!("[::1]:{}", port))
@@ -319,7 +323,7 @@ mod tests {
                 TlsClientConfig::new()
                     .with_insecure(false)
                     .with_tls_version("tls1.3")
-                    .with_ca_file(&(TEST_DATA_PATH.to_string() + "/tls/ca-1.crt")),
+                    .with_ca_file(&(TEST_DATA_PATH.clone() + "/tls/ca-1.crt")),
             )
             .with_connect_timeout(Duration::from_secs(5))
             .with_backoff(BackoffConfig::new_fixed_interval(
@@ -329,7 +333,7 @@ mod tests {
             .with_auth(auth_client_config);
 
         // create server config
-        let data_dir = std::path::PathBuf::from_iter([TEST_DATA_PATH]);
+        let data_dir = std::path::PathBuf::from(TEST_DATA_PATH.as_str());
         let cert = std::fs::read_to_string(data_dir.join("tls/server-1.crt")).unwrap();
         let key = std::fs::read_to_string(data_dir.join("tls/server-1.key")).unwrap();
         let server_config = ServerConfig::with_endpoint(&format!("[::1]:{}", port))
@@ -590,17 +594,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::RS256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::RS256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::RS256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-wrong.pem"),
             },
         )
         .await
@@ -614,17 +618,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::RS384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::RS384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::RS384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-wrong.pem"),
             },
         )
         .await
@@ -638,17 +642,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::RS512,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::RS512,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::RS512,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-wrong.pem"),
             },
         )
         .await
@@ -662,17 +666,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::ES256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec256.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/ec256.pem"),
             },
             Key {
                 algorithm: Algorithm::ES256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec256-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/ec256-public.pem"),
             },
             Key {
                 algorithm: Algorithm::ES256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec256-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/ec256-wrong.pem"),
             },
         )
         .await
@@ -686,17 +690,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::ES384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec384.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/ec384.pem"),
             },
             Key {
                 algorithm: Algorithm::ES384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec384-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/ec384-public.pem"),
             },
             Key {
                 algorithm: Algorithm::ES384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/ec384-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/ec384-wrong.pem"),
             },
         )
         .await
@@ -710,17 +714,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::PS256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::PS256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::PS256,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-wrong.pem"),
             },
         )
         .await
@@ -734,17 +738,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::PS384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::PS384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::PS384,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-wrong.pem"),
             },
         )
         .await
@@ -758,17 +762,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::PS512,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa.pem"),
             },
             Key {
                 algorithm: Algorithm::PS512,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::PS512,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/rsa-wrong.pem"),
             },
         )
         .await
@@ -782,17 +786,17 @@ mod tests {
             Key {
                 algorithm: Algorithm::EdDSA,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/eddsa.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/eddsa.pem"),
             },
             Key {
                 algorithm: Algorithm::EdDSA,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/eddsa-public.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/eddsa-public.pem"),
             },
             Key {
                 algorithm: Algorithm::EdDSA,
                 format: KeyFormat::Pem,
-                key: KeyData::File(TEST_DATA_PATH.to_string() + "/jwt/eddsa-wrong.pem"),
+                key: KeyData::File(TEST_DATA_PATH.clone() + "/jwt/eddsa-wrong.pem"),
             },
         )
         .await
@@ -826,15 +830,15 @@ mod tests {
         ));
 
         let key_path = match algorithm {
-            Algorithm::ES256 => TEST_DATA_PATH.to_string() + "/jwt/ec256-wrong.pem",
-            Algorithm::ES384 => TEST_DATA_PATH.to_string() + "/jwt/ec384-wrong.pem",
+            Algorithm::ES256 => TEST_DATA_PATH.clone() + "/jwt/ec256-wrong.pem",
+            Algorithm::ES384 => TEST_DATA_PATH.clone() + "/jwt/ec384-wrong.pem",
             Algorithm::RS256
             | Algorithm::RS384
             | Algorithm::RS512
             | Algorithm::PS256
             | Algorithm::PS384
-            | Algorithm::PS512 => TEST_DATA_PATH.to_string() + "/jwt/rsa-wrong.pem",
-            Algorithm::EdDSA => TEST_DATA_PATH.to_string() + "/jwt/eddsa-wrong.pem",
+            | Algorithm::PS512 => TEST_DATA_PATH.clone() + "/jwt/rsa-wrong.pem",
+            Algorithm::EdDSA => TEST_DATA_PATH.clone() + "/jwt/eddsa-wrong.pem",
             _ => panic!("Unsupported algorithm for test"),
         };
 
@@ -1016,7 +1020,7 @@ mod tests {
         // Server TLS config uses dynamic SPIFFE resolver (no cert/key files)
         let server_tls = TlsServerConfig::new()
             .with_spire(spiffe_cfg.clone())
-            .with_client_ca_file(&(TEST_DATA_PATH.to_string() + "/tls/ca-1.crt"))
+            .with_client_ca_file(&(TEST_DATA_PATH.clone() + "/tls/ca-1.crt"))
             .with_tls_version("tls1.3");
 
         let server_config =
