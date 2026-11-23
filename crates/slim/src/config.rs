@@ -218,10 +218,35 @@ mod tests {
         concat!(env!("CARGO_MANIFEST_DIR"), "/testdata").to_string()
     }
 
+    /// Path of `testdata/config.yaml` with its relative TLS file references
+    /// rewritten to freshly generated key material.
+    fn full_config_path() -> String {
+        static PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        PATH.get_or_init(write_full_config).clone()
+    }
+
+    fn write_full_config() -> String {
+        let keys = slim_testing::keys::grpc_dir();
+        let template = std::fs::read_to_string(format!("{}/config.yaml", testdata_path()))
+            .expect("read config.yaml");
+        let rewritten =
+            ["ca.crt", "server.crt", "server.key"]
+                .iter()
+                .fold(template, |cfg, file| {
+                    cfg.replace(
+                        &format!("\"testdata/{file}\""),
+                        &format!("\"{}\"", keys.join(file).display()),
+                    )
+                });
+        let path = keys.join("config.yaml");
+        std::fs::write(&path, rewritten).expect("write config.yaml");
+        path.to_string_lossy().into_owned()
+    }
+
     #[test]
     #[traced_test]
     fn test_full_config_components() {
-        let path = format!("{}/config.yaml", testdata_path());
+        let path = full_config_path();
         let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
 
         let tracing = loader.tracing().expect("tracing config should load");
@@ -286,7 +311,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_services_config() {
-        let path = format!("{}/config.yaml", testdata_path());
+        let path = full_config_path();
         let mut loader = ConfigLoader::new(&path).expect("loader init should succeed");
 
         // Get service configurations without building Service objects

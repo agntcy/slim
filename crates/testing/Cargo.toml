@@ -61,6 +61,7 @@ jsonwebtoken = { workspace = true }
 libc = { version = "0.2.177" }
 parking_lot = { workspace = true }
 rand = { workspace = true }
+rcgen = { workspace = true }
 regex = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

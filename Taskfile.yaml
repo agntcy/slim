@@ -299,6 +299,16 @@ tasks:
       - task: licenses
       - task: typos
 
+  # ─── Demo key material ────────────────────────────────────────────────
+
+  config:keys:
+    desc: "Generate the (git-ignored) demo TLS and JWT keys used by the example configs in config/"
+    cmds:
+      - bash config/crypto/gen-keys.sh
+    status:
+      - test -f config/crypto/server-cert.pem
+      - test -f config/crypto/jwt/rsa.pem
+
   # ─── Test & coverage ──────────────────────────────────────────────────
 
   test:
