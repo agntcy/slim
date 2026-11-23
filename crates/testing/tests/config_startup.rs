@@ -92,11 +92,19 @@ fn resolve_config_cases() -> Vec<ConfigCase> {
     out
 }
 
-/// The demo keys under `config/crypto/` are not committed; generate them once
-/// per test process with `gen-keys.sh` (requires openssl).
+/// The demo keys under `config/crypto/` are not committed; generate them with
+/// `gen-keys.sh` (requires openssl) unless they already exist, so existing demo
+/// keys are not replaced under a running server.
 fn ensure_demo_keys(repo_root: &Path) {
     static GENERATED: std::sync::Once = std::sync::Once::new();
     GENERATED.call_once(|| {
+        let crypto = repo_root.join("config/crypto");
+        if crypto.join("server-cert.pem").is_file()
+            && crypto.join("client-cert.pem").is_file()
+            && crypto.join("jwt/rsa.pem").is_file()
+        {
+            return;
+        }
         let script = repo_root.join("config/crypto/gen-keys.sh");
         let output = Command::new("bash")
             .arg(&script)

@@ -101,6 +101,21 @@ fn write(dir: &Path, file: &str, contents: &str) {
     fs::write(dir.join(file), contents).expect("write test key file");
 }
 
+/// Creates a fresh, randomly named directory under the system temp dir.
+/// `create_dir` (not `create_dir_all`) fails if the name is already taken, so a
+/// stale directory is never reused.
+fn create_unique_dir() -> PathBuf {
+    use std::hash::{BuildHasher, Hasher, RandomState};
+    for _ in 0..16 {
+        let suffix = RandomState::new().build_hasher().finish();
+        let dir = std::env::temp_dir().join(format!("slim-test-keys-{suffix:016x}"));
+        if fs::create_dir(&dir).is_ok() {
+            return dir;
+        }
+    }
+    panic!("could not create a unique test key dir");
+}
+
 fn sub_dir(root: &Path, name: &str) -> PathBuf {
     let dir = root.join(name);
     fs::create_dir_all(&dir).expect("create test key dir");
@@ -160,7 +175,7 @@ fn generate_jwt(dir: &Path) {
 pub fn testdata_dir() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
-        let root = std::env::temp_dir().join(format!("slim-test-keys-{}", std::process::id()));
+        let root = create_unique_dir();
         generate_tls(&sub_dir(&root, "tls"));
         generate_grpc(&sub_dir(&root, "grpc"));
         generate_jwt(&sub_dir(&root, "jwt"));

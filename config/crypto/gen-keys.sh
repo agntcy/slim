@@ -6,9 +6,24 @@
 # `config/`. Nothing generated here is committed (see .gitignore): run this
 # script, or `task config:keys`, before starting an example.
 #
-# Requires openssl.
+# Requires OpenSSL >= 1.1.1 (LibreSSL, the macOS default, is not supported:
+# it lacks ED25519 and writes v1 CA certificates). On macOS: `brew install
+# openssl` and put it first on PATH, or point OPENSSL at it.
 
 set -euo pipefail
+
+OPENSSL="${OPENSSL:-openssl}"
+if ! version="$("$OPENSSL" version 2>/dev/null)" || [[ "$version" != OpenSSL\ * ]]; then
+    echo "gen-keys.sh: OpenSSL >= 1.1.1 is required, found: ${version:-none}" >&2
+    echo "On macOS: brew install openssl, then re-run with OPENSSL=\$(brew --prefix openssl)/bin/openssl" >&2
+    exit 1
+fi
+ver_num="${version#OpenSSL }"
+ver_num="${ver_num%% *}"
+if [[ "$(printf '%s\n1.1.1\n' "$ver_num" | sort -V | head -n1)" != "1.1.1" ]]; then
+    echo "gen-keys.sh: OpenSSL >= 1.1.1 is required, found: $version" >&2
+    exit 1
+fi
 
 # The .cnf files and the output location are relative to this script.
 cd "$(dirname "$0")"
@@ -30,13 +45,13 @@ CLIENT_CERT="client-cert.pem"
 CLIENT_KEY="client-key.pem"
 
 # Server CA Key
-openssl ecparam             \
+"$OPENSSL" ecparam             \
     -genkey                 \
     -name secp384r1         \
     -out ${SERVER_CA_KEY}
 
 # Server CA Cert
-openssl req                 \
+"$OPENSSL" req                 \
     -x509                   \
     -new                    \
     -key ${SERVER_CA_KEY}   \
@@ -45,20 +60,20 @@ openssl req                 \
     -days 3650
 
 # Server Key
-openssl ecparam     \
+"$OPENSSL" ecparam     \
     -genkey         \
     -name secp384r1 \
     -out ${SERVER_KEY}
 
 # Server CSR
-openssl req                 \
+"$OPENSSL" req                 \
     -new                    \
     -key ${SERVER_KEY}      \
     -out ${SERVER_CSR}      \
     -config ${SERVER_CNF}
 
 # Server Cert
-openssl x509                \
+"$OPENSSL" x509                \
     -req                    \
     -in ${SERVER_CSR}       \
     -CA ${SERVER_CA_CERT}   \
@@ -70,13 +85,13 @@ openssl x509                \
     -days 3650
 
 # Client CA Key
-openssl ecparam             \
+"$OPENSSL" ecparam             \
     -genkey                 \
     -name secp384r1         \
     -out ${CLIENT_CA_KEY}
 
 # Client CA Cert
-openssl req                 \
+"$OPENSSL" req                 \
     -x509                   \
     -new                    \
     -key ${CLIENT_CA_KEY}   \
@@ -85,20 +100,20 @@ openssl req                 \
     -days 3650
 
 # Client Key
-openssl ecparam     \
+"$OPENSSL" ecparam     \
     -genkey         \
     -name secp384r1 \
     -out ${CLIENT_KEY}
 
 # Client CSR
-openssl req                 \
+"$OPENSSL" req                 \
     -new                    \
     -key ${CLIENT_KEY}      \
     -out ${CLIENT_CSR}      \
     -config ${CLIENT_CNF}
 
 # Client Cert
-openssl x509                \
+"$OPENSSL" x509                \
     -req                    \
     -in ${CLIENT_CSR}       \
     -CA ${CLIENT_CA_CERT}   \
@@ -118,8 +133,8 @@ mkdir -p jwt
 gen_jwt_key() {
     local name=$1
     shift
-    openssl genpkey "$@" -out "jwt/${name}.pem"
-    openssl pkey -in "jwt/${name}.pem" -pubout -out "jwt/${name}-public.pem"
+    "$OPENSSL" genpkey "$@" -out "jwt/${name}.pem"
+    "$OPENSSL" pkey -in "jwt/${name}.pem" -pubout -out "jwt/${name}-public.pem"
 }
 
 gen_jwt_key ec256 -algorithm EC -pkeyopt ec_paramgen_curve:P-256
