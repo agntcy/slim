@@ -9,7 +9,8 @@ use slim_config::tls::common::{CaSource, Config, RustlsConfigLoader, TlsSource};
 use slim_config::tls::errors::ConfigError;
 use slim_config::tls::server::TlsServerConfig;
 
-static TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/tls");
+static TEST_PATH: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| slim_testing::keys::tls_dir().to_string_lossy().into_owned());
 
 #[test]
 fn test_new_config() {
@@ -125,7 +126,7 @@ async fn test_load_rustls_client() {
             build: Box::new(|| TlsClientConfig {
                 config: Config {
                     ca_source: CaSource::File {
-                        path: format!("{}/{}", TEST_PATH, "ca-1.crt"),
+                        path: format!("{}/{}", TEST_PATH.as_str(), "ca-1.crt"),
                     },
                     ..Default::default()
                 },
@@ -139,7 +140,7 @@ async fn test_load_rustls_client() {
             build: Box::new(|| TlsClientConfig {
                 config: Config {
                     ca_source: CaSource::File {
-                        path: format!("{}/{}", TEST_PATH, "ca-2.crt"),
+                        path: format!("{}/{}", TEST_PATH.as_str(), "ca-2.crt"),
                     },
                     ..Default::default()
                 },
@@ -154,7 +155,7 @@ async fn test_load_rustls_client() {
             build: Box::new(|| TlsClientConfig {
                 config: Config {
                     ca_source: CaSource::File {
-                        path: format!("{}/{}", TEST_PATH, "ca-.crt"),
+                        path: format!("{}/{}", TEST_PATH.as_str(), "ca-.crt"),
                     },
                     ..Default::default()
                 },
@@ -168,8 +169,8 @@ async fn test_load_rustls_client() {
             build: Box::new(|| TlsClientConfig {
                 config: Config {
                     source: TlsSource::File {
-                        cert: format!("{}/{}", TEST_PATH, "client-1.crt"),
-                        key: format!("{}/{}", TEST_PATH, "client-1.key"),
+                        cert: format!("{}/{}", TEST_PATH.as_str(), "client-1.crt"),
+                        key: format!("{}/{}", TEST_PATH.as_str(), "client-1.key"),
                     },
                     ..Default::default()
                 },
@@ -206,7 +207,8 @@ async fn test_load_rustls_client() {
             name: "ca-pem-valid",
             build: Box::new(|| {
                 let ca_pem =
-                    std::fs::read_to_string(format!("{}/{}", TEST_PATH, "ca-2.crt")).expect("read");
+                    std::fs::read_to_string(format!("{}/{}", TEST_PATH.as_str(), "ca-2.crt"))
+                        .expect("read");
                 TlsClientConfig {
                     config: Config {
                         ca_source: CaSource::Pem { data: ca_pem },
@@ -236,10 +238,12 @@ async fn test_load_rustls_client() {
         ClientCase {
             name: "client-certificate-pem-valid",
             build: Box::new(|| {
-                let cert_pem = std::fs::read_to_string(format!("{}/{}", TEST_PATH, "client-1.crt"))
-                    .expect("read cert");
-                let key_pem = std::fs::read_to_string(format!("{}/{}", TEST_PATH, "client-1.key"))
-                    .expect("read key");
+                let cert_pem =
+                    std::fs::read_to_string(format!("{}/{}", TEST_PATH.as_str(), "client-1.crt"))
+                        .expect("read cert");
+                let key_pem =
+                    std::fs::read_to_string(format!("{}/{}", TEST_PATH.as_str(), "client-1.key"))
+                        .expect("read key");
                 TlsClientConfig {
                     config: Config {
                         source: TlsSource::Pem {
@@ -344,8 +348,8 @@ async fn test_load_rustls_server() {
             build: Box::new(|| TlsServerConfig {
                 config: Config {
                     source: TlsSource::File {
-                        cert: format!("{}/{}", TEST_PATH, "server-1.crt"),
-                        key: format!("{}/{}", TEST_PATH, "server-1.key"),
+                        cert: format!("{}/{}", TEST_PATH.as_str(), "server-1.crt"),
+                        key: format!("{}/{}", TEST_PATH.as_str(), "server-1.key"),
                     },
                     ..Default::default()
                 },
@@ -360,8 +364,8 @@ async fn test_load_rustls_server() {
                 config: Config {
                     tls_version: "tls1.2".to_string(),
                     source: TlsSource::File {
-                        cert: format!("{}/{}", TEST_PATH, "server-1.crt"),
-                        key: format!("{}/{}", TEST_PATH, "server-1.key"),
+                        cert: format!("{}/{}", TEST_PATH.as_str(), "server-1.crt"),
+                        key: format!("{}/{}", TEST_PATH.as_str(), "server-1.key"),
                     },
                     ..Default::default()
                 },
@@ -376,8 +380,8 @@ async fn test_load_rustls_server() {
                 config: Config {
                     tls_version: "tls1.4".to_string(),
                     source: TlsSource::File {
-                        cert: format!("{}/{}", TEST_PATH, "server-1.crt"),
-                        key: format!("{}/{}", TEST_PATH, "server-1.key"),
+                        cert: format!("{}/{}", TEST_PATH.as_str(), "server-1.crt"),
+                        key: format!("{}/{}", TEST_PATH.as_str(), "server-1.key"),
                     },
                     ..Default::default()
                 },
@@ -391,13 +395,13 @@ async fn test_load_rustls_server() {
             build: Box::new(|| TlsServerConfig {
                 config: Config {
                     source: TlsSource::File {
-                        cert: format!("{}/{}", TEST_PATH, "server-1.crt"),
-                        key: format!("{}/{}", TEST_PATH, "server-1.key"),
+                        cert: format!("{}/{}", TEST_PATH.as_str(), "server-1.crt"),
+                        key: format!("{}/{}", TEST_PATH.as_str(), "server-1.key"),
                     },
                     ..Default::default()
                 },
                 client_ca: CaSource::File {
-                    path: format!("{}/{}", TEST_PATH, "ca-1.crt"),
+                    path: format!("{}/{}", TEST_PATH.as_str(), "ca-1.crt"),
                 },
                 ..Default::default()
             }),
@@ -410,13 +414,13 @@ async fn test_load_rustls_server() {
             build: Box::new(|| TlsServerConfig {
                 config: Config {
                     source: TlsSource::File {
-                        cert: format!("{}/{}", TEST_PATH, "server-1.crt"),
-                        key: format!("{}/{}", TEST_PATH, "server-1.key"),
+                        cert: format!("{}/{}", TEST_PATH.as_str(), "server-1.crt"),
+                        key: format!("{}/{}", TEST_PATH.as_str(), "server-1.key"),
                     },
                     ..Default::default()
                 },
                 client_ca: CaSource::File {
-                    path: format!("{}/{}", TEST_PATH, "ca1.crt"),
+                    path: format!("{}/{}", TEST_PATH.as_str(), "ca1.crt"),
                 },
                 ..Default::default()
             }),
@@ -426,13 +430,14 @@ async fn test_load_rustls_server() {
         ServerCase {
             name: "client-ca-pem-valid",
             build: Box::new(|| {
-                let ca_pem = std::fs::read_to_string(format!("{}/{}", TEST_PATH, "ca-2.crt"))
-                    .expect("read ca");
+                let ca_pem =
+                    std::fs::read_to_string(format!("{}/{}", TEST_PATH.as_str(), "ca-2.crt"))
+                        .expect("read ca");
                 TlsServerConfig {
                     config: Config {
                         source: TlsSource::File {
-                            cert: format!("{}/{}", TEST_PATH, "server-1.crt"),
-                            key: format!("{}/{}", TEST_PATH, "server-1.key"),
+                            cert: format!("{}/{}", TEST_PATH.as_str(), "server-1.crt"),
+                            key: format!("{}/{}", TEST_PATH.as_str(), "server-1.key"),
                         },
                         ..Default::default()
                     },
@@ -448,8 +453,8 @@ async fn test_load_rustls_server() {
             build: Box::new(|| TlsServerConfig {
                 config: Config {
                     source: TlsSource::File {
-                        cert: format!("{}/{}", TEST_PATH, "server-1.crt"),
-                        key: format!("{}/{}", TEST_PATH, "server-1.key"),
+                        cert: format!("{}/{}", TEST_PATH.as_str(), "server-1.crt"),
+                        key: format!("{}/{}", TEST_PATH.as_str(), "server-1.key"),
                     },
                     ..Default::default()
                 },

@@ -646,8 +646,6 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn test_to_grpc_channel() {
-        let test_path: &str = env!("CARGO_MANIFEST_DIR");
-
         // create a new client config
         let mut client = ClientConfig::default();
 
@@ -670,7 +668,10 @@ mod tests {
             let mut tls = TLSSetting::default();
             // Updated for new Config fields: set CA via ca_source and leave source as default (None)
             tls.config.ca_source = CaSource::File {
-                path: format!("{}/testdata/grpc/{}", test_path, "ca.crt"),
+                path: slim_testing::keys::grpc_dir()
+                    .join("ca.crt")
+                    .to_string_lossy()
+                    .into_owned(),
             };
             tls.insecure = false;
             tls

@@ -48,7 +48,7 @@ RUST_LOG=debug slimctl slim start --config data-plane/config/base/server-config.
 
 ### Configuration File Examples
 
-Sample configuration files are available in the [`config/`](https://github.com/agntcy/slim/tree/main/config) directory of the repository:
+Sample configuration files are available in the [`config/`](https://github.com/agntcy/slim/tree/main/config) directory of the repository. Configs that use TLS or JWT keys need them generated first with `task config:keys` (requires OpenSSL >= 1.1.1):
 
 | Directory | Description |
 |-----------|-------------|

@@ -4,6 +4,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 pub mod common;
+pub mod keys;
 pub mod stress;
 pub mod stress_session;
 pub mod utils;

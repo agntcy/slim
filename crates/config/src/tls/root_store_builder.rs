@@ -168,7 +168,8 @@ mod tests {
     use super::*;
     use std::fs;
 
-    const TEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/tls");
+    static TEST_PATH: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| slim_testing::keys::tls_dir().to_string_lossy().into_owned());
 
     #[test]
     fn test_empty_builder_no_system() {
@@ -178,7 +179,8 @@ mod tests {
 
     #[test]
     fn test_add_pem_single() {
-        let pem = fs::read_to_string(format!("{}/server-1.crt", TEST_PATH)).expect("read pem");
+        let pem =
+            fs::read_to_string(format!("{}/server-1.crt", TEST_PATH.as_str())).expect("read pem");
         let store = RootStoreBuilder::new()
             .add_pem(&pem)
             .expect("add pem")
@@ -189,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_add_file_single() {
-        let path = format!("{}/server-1.crt", TEST_PATH);
+        let path = format!("{}/server-1.crt", TEST_PATH.as_str());
         let store = RootStoreBuilder::new()
             .add_file(&path)
             .expect("add file")
@@ -200,8 +202,9 @@ mod tests {
 
     #[test]
     fn test_add_pem_then_file_accumulates() {
-        let pem = fs::read_to_string(format!("{}/server-1.crt", TEST_PATH)).expect("read pem");
-        let path = format!("{}/client-1.crt", TEST_PATH);
+        let pem =
+            fs::read_to_string(format!("{}/server-1.crt", TEST_PATH.as_str())).expect("read pem");
+        let path = format!("{}/client-1.crt", TEST_PATH.as_str());
 
         let store = RootStoreBuilder::new()
             .add_pem(&pem)
@@ -215,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_source_file_variant() {
-        let path = format!("{}/server-1.crt", TEST_PATH);
+        let path = format!("{}/server-1.crt", TEST_PATH.as_str());
         let src = CaSource::File { path: path.clone() };
         let store = RootStoreBuilder::new()
             .add_source(&src)
@@ -228,7 +231,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_source_pem_variant() {
-        let pem = fs::read_to_string(format!("{}/server-1.crt", TEST_PATH)).expect("read pem");
+        let pem =
+            fs::read_to_string(format!("{}/server-1.crt", TEST_PATH.as_str())).expect("read pem");
         let src = CaSource::Pem { data: pem };
         let store = RootStoreBuilder::new()
             .add_source(&src)

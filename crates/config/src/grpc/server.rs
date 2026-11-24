@@ -310,7 +310,11 @@ mod tests {
     use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
     use crate::tls::common::TlsSource;
 
-    static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
+    static TEST_DATA_PATH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        slim_testing::keys::grpc_dir()
+            .to_string_lossy()
+            .into_owned()
+    });
 
     #[tokio::test]
     async fn test_to_incoming_server_config() {
@@ -351,8 +355,8 @@ mod tests {
         // Set insecure to false and configure certificate/key via TlsSource::File
         server_config.tls_setting.insecure = false;
         server_config.tls_setting.config.source = TlsSource::File {
-            cert: format!("{}/server.crt", TEST_DATA_PATH),
-            key: format!("{}/server.key", TEST_DATA_PATH),
+            cert: format!("{}/server.crt", TEST_DATA_PATH.as_str()),
+            key: format!("{}/server.key", TEST_DATA_PATH.as_str()),
         };
         let ret = server_config
             .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])
