@@ -33,10 +33,6 @@ services:
             format: pem
             algorithm: "ES256"
             key:
-              data: |
-                -----BEGIN PUBLIC KEY-----
-                MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE3AOXRAbY5xP09w79HcbI6Fwz3jHE
-                UukerJKoy4HHeI7YjEu/WXSm69C7ve8IdyLgFnX+KRUkWfj0R2wTRU4VYQ==
-                -----END PUBLIC KEY-----
+              file: "./config/crypto/jwt/ec256-public.pem"
 
       clients: []

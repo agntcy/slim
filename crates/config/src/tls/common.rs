@@ -463,80 +463,17 @@ mod tests {
 
     use crate::tls::provider;
 
-    // spellchecker:off
-
-    // Test certificates (for testing purposes only)
-    const TEST_CA_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
-MIIDNjCCAh4CCQDkU3rM23H5hzANBgkqhkiG9w0BAQsFADBdMQswCQYDVQQGEwJB
-VTESMBAGA1UECAwJQXVzdHJhbGlhMQ8wDQYDVQQHDAZTeWRuZXkxEjAQBgNVBAoM
-CU15T3JnTmFtZTEVMBMGA1UEAwwMTXlDb21tb25OYW1lMB4XDTIyMDgwMzA0MTgx
-OFoXDTMyMDczMTA0MTgxOFowXTELMAkGA1UEBhMCQVUxEjAQBgNVBAgMCUF1c3Ry
-YWxpYTEPMA0GA1UEBwwGU3lkbmV5MRIwEAYDVQQKDAlNeU9yZ05hbWUxFTATBgNV
-BAMMDE15Q29tbW9uTmFtZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
-AK836YUxmCDcznt11ReI5fY/DSJzz+Fs7czoE72RMvW+SMH2YhX9XC55xAMPZ+IV
-szoG5Fatd/GWBfoACmaM3ZEmYskuRnu4pxqOEpRIsBukOiILBMxa/cwqiDyLiacC
-w0B1NhysG28XnxUWrYxd9jFlJ+wAIx7XT+1QM0xGCGr9agSQ/ow6+QMWZ5Qc1n2e
-EmaoU861qlF+0LeyZeBNeo+C7jTikIC+CRKVNX5t9MLqSmlxfrXe0qCS99zmPKfg
-OhtteZVAKbdPKSoi2ls6EQ1dNB2Mq3GHkd8kGi30FuRCTQLKaXacUdjtQfbKxuGl
-RjXlN6mDoUs8mIO861mVFXECAwEAATANBgkqhkiG9w0BAQsFAAOCAQEAUrgRTBBO
-pwYjZsLNw10FYK19P6FpVm/nbbzTJmqKlxReLRkkTyNm/tB5W1LdRN9RG15h62Ii
-JBGxpeCMDElwCwXN2OOwqdXczafLa9AhPnPw/DYuQAd9dS7/XHG/ArQFTL+GLd8T
-bdlnED9Z9qMygF13btLQUHzKaOk6dndLsquoTjgjj4SNBe2Isj7z4upZOix2cgJB
-9ddZGlv8/zKSgRp9UotGOOxG7HJ1KWhYLU7E0aERqambNv8UFvhmf+biHq3nCeAF
-HBeua27MNj4kGCzqHS7sVqZKVU81aFyhV2WmfIUA0Qp+nh9QEW0yrgI+pTnOx6np
-JUHGleZ3rKHQZw==
------END CERTIFICATE-----"#; // spellchecker:disable-line
-
-    const TEST_CLIENT_CERT_PEM: &str = r#"-----BEGIN CERTIFICATE-----
-MIIDVDCCAjygAwIBAgIJANt5fkUlfxyeMA0GCSqGSIb3DQEBCwUAMF0xCzAJBgNV
-BAYTAkFVMRIwEAYDVQQIDAlBdXN0cmFsaWExDzANBgNVBAcMBlN5ZG5leTESMBAG
-A1UECgwJTXlPcmdOYW1lMRUwEwYDVQQDDAxNeUNvbW1vbk5hbWUwHhcNMjIwODAz
-MDQxODE5WhcNMzIwNzMxMDQxODE5WjBdMQswCQYDVQQGEwJBVTESMBAGA1UECAwJ
-QXVzdHJhbGlhMQ8wDQYDVQQHDAZTeWRuZXkxEjAQBgNVBAoMCU15T3JnTmFtZTEV
-MBMGA1UEAwwMTXlDb21tb25OYW1lMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB
-CgKCAQEAwDgNEcPTkTASpfFa0AwPlUFPWhlm2Av1mh3oNsf3kHOBXQymJ3HkXDq/
-7durWduubkP1jsOGqO9rcXD1Q3mmNYqsqRRydi5DbMHcFcSSA6g2QncTJwhRE/q/
-/00t6e5BhBLXscK+uJEDzEGu9CJVFkkdbeMccfb26C3os1VHGzcp5c/pCNjj93TM
-3iwlQYMoEgCo7iUDxyIQ5tjQBn/QmEPcytut11tAIlGPy+SxQjMCykREPOVuwvNh
-hZFscpCkvQPTEvv7KBZFBvYafa820CY3z++IIqQ7YBZdxYpYwBuVamUyPKB+lpsn
-aD5G2LQjENdjYcRXys04bWgafalZJQIDAQABoxcwFTATBgNVHREEDDAKgghleGFt
-cGxlMTANBgkqhkiG9w0BAQsFAAOCAQEAoN6fyv+0ri3wnYMZaP2+m4NA/gk+I4Lp
-eP4OpQHkHbm3wjbWZUYLJZ6IvhPHfCNAXdqCs+mpG35HI6Bg+x1CVFrNeueInKTg
-0v+0q1FlvSQhsQJoumX2bk/uSLHMIU3hhYIts0vFC0k04Vf7n9hEq7pOZD/akTaw
-haLsQe/SRXSTjkar+Csi4DXyi/qshlkV6FOUz9vogAR0W3l8x7dqzwBHL4gRMddM
-ZdSfhVFOMwKqUrucYebYZhdAvYqMtlTph46lk+hd5TarFDFJ2zEjbx9NU5gY1b8V
-/Kfm2ZHR0yWKGfg9I4TRGZgufm1HBEMnMq1b15DUZxNTagFtPAP18Q==
------END CERTIFICATE-----"#; // spellchecker:disable-line
-
-    const TEST_PRIVATE_KEY_PEM: &str = r#"-----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEAwDgNEcPTkTASpfFa0AwPlUFPWhlm2Av1mh3oNsf3kHOBXQym
-J3HkXDq/7durWduubkP1jsOGqO9rcXD1Q3mmNYqsqRRydi5DbMHcFcSSA6g2QncT
-JwhRE/q//00t6e5BhBLXscK+uJEDzEGu9CJVFkkdbeMccfb26C3os1VHGzcp5c/p
-CNjj93TM3iwlQYMoEgCo7iUDxyIQ5tjQBn/QmEPcytut11tAIlGPy+SxQjMCykRE
-POVuwvNhhZFscpCkvQPTEvv7KBZFBvYafa820CY3z++IIqQ7YBZdxYpYwBuVamUy
-PKB+lpsnaD5G2LQjENdjYcRXys04bWgafalZJQIDAQABAoIBAFemN29uWD7QKPC6
-SaqslT599W0kQB0r9uY71POF44Fe6hI//lPmPzc/It2XWV80KSnmm0ZqKjFGWzvz
-QiNuiTfI8Ep5JGh3WA9zpqPWaq54OaW9HmKiDDaMFJiZ3OHa3s0Wunw4TTdkCNNO
-8DQqo5nx5RWChioBbz0YEhAURsRFbGqFavDPvlEPOSanCB+mDOliKqX0XizffRZ3
-UBQuWa6VjDxHH93b+oJ2/zR5UOlXKHgcqNWeBofxBiiX8ZF5ylwNGOCEE2Gm+KfZ
-KUYxGlDKohSYxVjmcyLPoWGrUX83lDKD2u9VrVdgCJwA+IHEsIg9KARb6jFLzACp
-RYSDM9ECgYEA7gm8+h44D27I1yRF/3rbhxggsgRo0j5ag9NVLehp11G0ZsdoklJx
-uVhDJbjHG9HVqEMfduljr4GpyeMt2ayEmo/ejcWyl0JBMFXPXRvrubM5qoCVOqUu
-WYo/JtvIyEAQQicwo5okiPddhFvcQebSH7NXRpKWROMftnlisgtv/xsCgYEAzrk1
-vB2O/DTydcLxkY2m8E5qo1ZvTMPW6211ZCKNyQ475ZE/QxZ5iuodwErCQOHjAlV7
-n6FeWWZveOsVQeTkSvUOnPCocct+/Dx+sMcRO8k9HuC33bNcw9eHwBoztginIxEb
-s7ee+S06AT6r7SQScgBrhD6uevW+dUVbdw/6TL8CgYEAzOyNSDZjxMV3GeAccsjt
-3Oukmhy5sOYFPp/dINyI4dlxGVpqaC2Zwhp+FCdzIjwPWAARQmnCbAGQjkGJ429l
-6ToaOqsMCLP9MwNstZen5AKrjmGMFyTFNkiR/X4Q6HReitT6Rp4Y/eEXHS+H+yQf
-mTLn29WukDeHwavWj7jQ/ikCgYBDPYEZ+C9bH8nBvjAfHQkw3wDWsjWvrX/JwifN
-82NVA3k+GbmPE89i/PXCZ066Ff9l8fItISr0P1qA5U5byZzsOLuRFsJjiUJ7vx2i
-WI3leXaVBZko1r+UwBVayesKCdR7loQBN/fQqwJUB1Oa5gHN7Q8Ly+uq+SYDNRUk
-LCFJNwKBgGWcVuIarQ2mCLqqZ0zxeAp3lFTNeWG2ZMQtzeuo0iGx0xTTUEaZSiNW
-MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
-7emViVNVfzLW7L//IkxtEamV0yc6gYwcCfzUckxxXVRD4z2aM78q
------END RSA PRIVATE KEY-----"#;
-
-    // spellchecker:on
+    // Throwaway chain generated once per test process (RSA leaf keys).
+    static TEST_CHAIN: std::sync::LazyLock<slim_testing::keys::TlsChain> =
+        std::sync::LazyLock::new(|| {
+            slim_testing::keys::generate_chain("slim-test-ca", &slim_testing::keys::RSA_SHA256)
+        });
+    static TEST_CA_CERT_PEM: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| TEST_CHAIN.ca.cert.clone());
+    static TEST_CLIENT_CERT_PEM: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| TEST_CHAIN.client.cert.clone());
+    static TEST_PRIVATE_KEY_PEM: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| TEST_CHAIN.client.key.clone());
 
     fn create_temp_file_simple(content: &str, suffix: u32) -> String {
         use std::env;
@@ -642,7 +579,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
     async fn test_load_ca_cert_pool_with_ca_pem() {
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
-            .with_ca_pem(TEST_CA_CERT_PEM);
+            .with_ca_pem(TEST_CA_CERT_PEM.as_str());
 
         let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
@@ -652,7 +589,8 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[tokio::test]
     async fn test_load_ca_cert_pool_with_ca_file() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
+        let ca_file_path =
+            create_temp_file_simple(TEST_CA_CERT_PEM.as_str(), rand::random::<u32>());
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_file(&ca_file_path);
@@ -668,12 +606,13 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[tokio::test]
     async fn test_load_ca_cert_pool_override_file_with_pem() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
+        let ca_file_path =
+            create_temp_file_simple(TEST_CA_CERT_PEM.as_str(), rand::random::<u32>());
         // Applying with_ca_file then with_ca_pem should result in Pem source taking precedence without error.
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_file(&ca_file_path)
-            .with_ca_pem(TEST_CA_CERT_PEM);
+            .with_ca_pem(TEST_CA_CERT_PEM.as_str());
 
         let result = config.load_ca_cert_pool().await;
         // Expect success (no CannotUseBoth in new enum-based model)
@@ -729,7 +668,7 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
     async fn test_load_ca_certificates_from_pem() {
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
-            .with_ca_pem(TEST_CA_CERT_PEM);
+            .with_ca_pem(TEST_CA_CERT_PEM.as_str());
         let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
         let root_store = result.unwrap();
@@ -738,7 +677,8 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[tokio::test]
     async fn test_load_ca_certificates_from_file() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
+        let ca_file_path =
+            create_temp_file_simple(TEST_CA_CERT_PEM.as_str(), rand::random::<u32>());
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_file(&ca_file_path);
@@ -751,11 +691,12 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[tokio::test]
     async fn test_load_ca_certificates_override_file_with_pem() {
-        let ca_file_path = create_temp_file_simple(TEST_CA_CERT_PEM, rand::random::<u32>());
+        let ca_file_path =
+            create_temp_file_simple(TEST_CA_CERT_PEM.as_str(), rand::random::<u32>());
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_file(&ca_file_path)
-            .with_ca_pem(TEST_CA_CERT_PEM);
+            .with_ca_pem(TEST_CA_CERT_PEM.as_str());
 
         let result = config.load_ca_cert_pool().await;
         assert!(result.is_ok());
@@ -766,7 +707,11 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[tokio::test]
     async fn test_load_ca_certificates_multiple_from_pem() {
-        let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
+        let multiple_certs = format!(
+            "{}\n{}",
+            TEST_CA_CERT_PEM.as_str(),
+            TEST_CLIENT_CERT_PEM.as_str()
+        );
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_pem(&multiple_certs);
@@ -778,7 +723,11 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[tokio::test]
     async fn test_load_ca_certificates_multiple_from_file() {
-        let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
+        let multiple_certs = format!(
+            "{}\n{}",
+            TEST_CA_CERT_PEM.as_str(),
+            TEST_CLIENT_CERT_PEM.as_str()
+        );
         let ca_file_path = create_temp_file_simple(&multiple_certs, rand::random::<u32>());
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
@@ -792,7 +741,11 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
 
     #[tokio::test]
     async fn test_load_ca_certificates_multiple() {
-        let multiple_certs = format!("{}\n{}", TEST_CA_CERT_PEM, TEST_CLIENT_CERT_PEM);
+        let multiple_certs = format!(
+            "{}\n{}",
+            TEST_CA_CERT_PEM.as_str(),
+            TEST_CLIENT_CERT_PEM.as_str()
+        );
         let config = Config::default()
             .with_include_system_ca_certs_pool(false)
             .with_ca_pem(&multiple_certs);
@@ -835,7 +788,11 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         provider::initialize_crypto_provider();
         let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
-        let result = StaticCertResolver::new(TEST_PRIVATE_KEY_PEM, TEST_CLIENT_CERT_PEM, provider);
+        let result = StaticCertResolver::new(
+            TEST_PRIVATE_KEY_PEM.as_str(),
+            TEST_CLIENT_CERT_PEM.as_str(),
+            provider,
+        );
 
         // This test might fail due to the test certificates not being valid
         // but we're testing that the function doesn't panic during creation
@@ -856,8 +813,8 @@ MSAvYjGrRzM6XpGEYasfwy0Zoc3loi9nzP5uE4tv8vE72nyMf+OhaPG+Rn+mdBv4
         let provider = rustls::crypto::CryptoProvider::get_default().unwrap();
 
         let suffix = rand::random::<u32>();
-        let key_file_path = create_temp_file_simple(TEST_PRIVATE_KEY_PEM, suffix);
-        let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM, suffix);
+        let key_file_path = create_temp_file_simple(TEST_PRIVATE_KEY_PEM.as_str(), suffix);
+        let cert_file_path = create_temp_file_simple(TEST_CLIENT_CERT_PEM.as_str(), suffix);
 
         let result = WatcherCertResolver::new(&key_file_path, &cert_file_path, provider);
         assert!(result.is_err_and(|e| matches!(e, ConfigError::InvalidPem(_))));

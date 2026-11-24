@@ -337,7 +337,9 @@ mod tests {
     #[traced_test]
     async fn test_websocket_connection_wss() -> anyhow::Result<()> {
         let port = reserve_local_port();
-        let grpc_tls_testdata = format!("{}/../config/testdata/grpc", env!("CARGO_MANIFEST_DIR"));
+        let grpc_tls_testdata = slim_testing::keys::grpc_dir()
+            .to_string_lossy()
+            .into_owned();
 
         let server_tls = TlsServerConfig::new().with_cert_and_key_file(
             &format!("{}/server.crt", grpc_tls_testdata),

@@ -163,7 +163,8 @@ server and connecting to another SLIM instance at the same time).
 
 To run SLIM binary as server, a configuration file is needed to setup the
 basic runtime options. Some basic examples are provided in the
-[config](./config/) folder:
+[config](./config/) folder. Examples that use TLS or JWT keys need them
+generated first with `task config:keys` (requires OpenSSL >= 1.1.1):
 
 - [reference](./config/reference/config.yaml) is a reference configuration, with
   comments explaining all the available options.
