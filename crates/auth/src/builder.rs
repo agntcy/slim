@@ -75,7 +75,6 @@ pub struct JwtBuilder<S = state::Initial> {
 
     // Key resolution
     auto_resolve_keys: bool,
-    key_resolver: Option<KeyResolver>,
 
     // Required claims
     required_claims: Vec<String>,
@@ -108,7 +107,6 @@ impl Default for JwtBuilder<state::Initial> {
             algorithm: Algorithm::HS256, // Default algorithm
             token_duration: Duration::from_secs(3600), // Default 1 hour
             auto_resolve_keys: false,
-            key_resolver: None,
             required_claims: Vec::new(),
             custom_claims: MetadataMap::new(),
             token_file: None,
@@ -244,7 +242,6 @@ impl JwtBuilder<state::Initial> {
             algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
-            key_resolver: None,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
@@ -263,7 +260,6 @@ impl JwtBuilder<state::Initial> {
             algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
-            key_resolver: None,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
@@ -282,19 +278,10 @@ impl JwtBuilder<state::Initial> {
             algorithm: self.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: enable,
-            key_resolver: None,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
             _state: PhantomData,
-        }
-    }
-
-    /// Verify with the given resolver and transition to WithPublicKey state.
-    pub fn key_resolver(self, resolver: KeyResolver) -> JwtBuilder<state::WithPublicKey> {
-        JwtBuilder::<state::WithPublicKey> {
-            key_resolver: Some(resolver),
-            ..self.auto_resolve_keys(false)
         }
     }
 
@@ -308,7 +295,6 @@ impl JwtBuilder<state::Initial> {
             algorithm: self.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
-            key_resolver: None,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: Some(token_file.into()),
@@ -469,10 +455,6 @@ impl JwtBuilder<state::WithPublicKey> {
         let validation = self.build_validation();
 
         let verifier = VerifierJwt::new(self.build_claims(), self.token_duration, validation)?;
-
-        if let Some(resolver) = self.key_resolver {
-            return Ok(verifier.with_key_resolver(resolver));
-        }
 
         // Autoresolver is enabled
         if self.auto_resolve_keys {

@@ -13,8 +13,7 @@ use mls_rs_crypto_awslc::AwsLcCryptoProvider;
 
 // The single source of truth for the MLS ciphersuite: `agntcy-slim-mls` reads
 // this constant, so the keys an identity ships are always valid for the
-// ciphersuite MLS uses. The default is P-256; `curve25519` (also enabled by
-// `insecure-self-certified-did`) switches both.
+// ciphersuite MLS uses. The default is P-256; `curve25519` switches both.
 #[cfg(all(not(target_arch = "wasm32"), feature = "curve25519"))]
 pub const MLS_CIPHERSUITE: mls_rs_core::crypto::CipherSuite =
     mls_rs_core::crypto::CipherSuite::CURVE25519_AES128;
