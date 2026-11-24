@@ -799,7 +799,7 @@ where
 
         // Scoped to long-term keys: other providers hold per-clone keys but share
         // one app-identity record, so they can legitimately differ after a
-        // rotation. A long-term (DID-bound) key cannot rotate.
+        // rotation. A long-term key cannot rotate.
         if self.identity_provider.holds_long_term_signing_key()? {
             let (_, current_key) = self.identity_provider.get_signature_keys()?;
             if group
@@ -1067,7 +1067,7 @@ mod tests {
         Ok(())
     }
 
-    /// `SharedSecret` that claims a long-term signing key, like a DID-bound signer.
+    /// `SharedSecret` that claims a long-term signing key.
     #[cfg(not(target_arch = "wasm32"))]
     #[derive(Clone)]
     struct LongTermKey(SharedSecret);
@@ -1954,76 +1954,5 @@ mod tests {
         assert_eq!(bob_msg, decrypted_charlie.as_slice());
 
         Ok(())
-    }
-
-    /// Two members whose identity is a self-certified `did:key`, built as the
-    /// config layer builds them: a DID-bound signer and a self-certified verifier.
-    #[cfg(all(not(target_arch = "wasm32"), feature = "insecure-self-certified-did"))]
-    mod self_certified_did {
-        use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-        use slim_auth::did_key::{
-            did_bound_signer, ed25519_public_key_from_did_key, self_certified_verifier,
-        };
-
-        use super::*;
-
-        async fn did_bound_member() -> (Mls<AuthProvider, AuthVerifier>, String) {
-            let (signer, did) = did_bound_signer();
-            let mut mls = Mls::new(
-                AuthProvider::jwt_signer(signer),
-                AuthVerifier::jwt_verifier(self_certified_verifier()),
-            );
-            mls.initialize().await.unwrap();
-            (mls, did)
-        }
-
-        fn leaf_keys(mls: &Mls<AuthProvider, AuthVerifier>) -> Vec<Vec<u8>> {
-            mls.group
-                .as_ref()
-                .unwrap()
-                .roster()
-                .members()
-                .iter()
-                .map(|m| m.signing_identity.signature_key.as_ref().to_vec())
-                .collect()
-        }
-
-        /// Joining validates the other member's credential through the
-        /// verifier's sync `try_get_claims` (`SlimIdentityProvider::validate_member`),
-        /// so a successful add and welcome exercises that path.
-        #[tokio::test]
-        async fn did_bound_members_form_a_group_and_exchange_messages() {
-            let (mut alice, alice_did) = did_bound_member().await;
-            let (mut bob, bob_did) = did_bound_member().await;
-
-            alice.create_group().unwrap();
-            let key_package = bob.generate_key_package().unwrap();
-            let added = alice.add_member(&key_package).unwrap();
-            bob.process_welcome(&added.welcome_message).unwrap();
-            assert_eq!(added.member_identity, bob_did.as_bytes());
-
-            // The leaves are signed by each member's DID key.
-            let expected = [
-                ed25519_public_key_from_did_key(&alice_did).unwrap(),
-                ed25519_public_key_from_did_key(&bob_did).unwrap(),
-            ];
-            for member in [&alice, &bob] {
-                let mut keys = leaf_keys(member);
-                keys.sort();
-                let mut want = expected.to_vec();
-                want.sort();
-                assert_eq!(keys, want);
-            }
-
-            let (got, _) = bob
-                .decrypt_message(&alice.encrypt_message(b"hi bob", vec![]).unwrap())
-                .unwrap();
-            assert_eq!(got, b"hi bob");
-            let (got, _, sender) = alice
-                .decrypt_message_from_sender(&bob.encrypt_message(b"hi alice", vec![]).unwrap())
-                .unwrap();
-            assert_eq!(got, b"hi alice");
-            assert_eq!(sender, bob_did.as_bytes());
-        }
     }
 }

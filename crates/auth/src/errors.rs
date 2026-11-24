@@ -24,10 +24,6 @@ pub enum AuthError {
     JwtMissingPrivateKey,
     #[error("invalid Ed25519 key: {0}")]
     InvalidEd25519Key(String),
-    #[error("invalid did:key: {0}")]
-    InvalidDidKey(String),
-    #[error("self-certified did: {0}")]
-    SelfCertifiedDid(String),
     /// A persisted identity was rejected because it does not belong to this provider.
     /// The session layer turns persistence off when it sees this on restore.
     #[error("persisted identity does not match: {0}")]
