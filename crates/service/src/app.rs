@@ -412,7 +412,9 @@ where
     ) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "unsubscribe");
 
-        let subscription_id = self.session_layer.remove_app_name(name);
+        // Match the name that subscribe registered in the datapath.
+        let name = name.clone().with_id(self.session_layer.app_id());
+        let subscription_id = self.session_layer.remove_app_name(&name);
         match subscription_id {
             Some(subscription_id) => {
                 let flags = if let Some(c) = conn {
@@ -802,6 +804,28 @@ mod tests {
             .resolve_ack(ack_msg.get_subscription_ack());
 
         subscribe_fut.await.expect("subscribe should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_unsubscribe_uses_the_same_app_id_as_subscribe() {
+        let (app, mut rx_slim) = create_isolated_test_app("unsubscribe-app-id");
+        let dst = create_test_name("channel");
+        app.session_layer.add_app_name(dst.clone(), 42);
+
+        let mut unsubscribe_fut = Box::pin(app.unsubscribe(&dst, None));
+        let outbound = tokio::select! {
+            res = &mut unsubscribe_fut => panic!("unsubscribe completed before ack handling: {:?}", res),
+            msg = recv_outbound_message(&mut rx_slim) => msg,
+        };
+
+        assert_eq!(outbound.get_dst().id(), app.session_layer.app_id());
+        let ack_id = outbound
+            .get_subscription_id()
+            .expect("missing ack id in outbound unsubscribe message");
+        let ack_msg = build_subscription_ack_message(ack_id, true, None);
+        app.subscription_manager
+            .resolve_ack(ack_msg.get_subscription_ack());
+        unsubscribe_fut.await.expect("unsubscribe should succeed");
     }
 
     #[tokio::test]
