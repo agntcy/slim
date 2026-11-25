@@ -1,6 +1,6 @@
 [package]
 name = "agntcy-slim-auth"
-version = "0.18.1"
+version = "0.19.0"
 license = { workspace = true }
 edition = { workspace = true }
 description = "Authentication utilities for the Agntcy Slim framework"
@@ -65,7 +65,7 @@ notify = { workspace = true }
 pin-project = { workspace = true }
 regorus = { workspace = true }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 tower-layer = { workspace = true }
@@ -94,6 +94,7 @@ tokio = { workspace = true, features = [
     "process",
     "fs",
     "time",
+    "test-util",
 ] }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }

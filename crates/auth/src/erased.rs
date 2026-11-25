@@ -74,10 +74,8 @@ pub trait ErasedProvider: Send + Sync {
 #[async_trait::async_trait]
 pub trait ErasedVerifier: Send + Sync {
     async fn init(&self) -> Result<(), AuthError>;
-    async fn verify_async(&self, token: &str) -> Result<(), AuthError>;
-    fn verify_sync(&self, token: &str) -> Result<(), AuthError>;
-    async fn claims_async(&self, token: &str) -> Result<serde_json::Value, AuthError>;
-    fn claims_sync(&self, token: &str) -> Result<serde_json::Value, AuthError>;
+    fn verify(&self, token: &str) -> Result<(), AuthError>;
+    fn claims(&self, token: &str) -> Result<serde_json::Value, AuthError>;
     async fn public_key(&self, token: &str) -> Result<Vec<u8>, AuthError>;
     fn subject(&self, token: &str) -> Result<String, AuthError>;
     fn key_binding(&self, token: &str, public_key: &[u8]) -> Result<(), AuthError>;
@@ -184,23 +182,12 @@ where
         .await
     }
 
-    async fn verify_async(&self, token: &str) -> Result<(), AuthError> {
-        // An owned handle, not a guard, across the await.
-        let verifier = self.inner.load_full();
-        verifier.verify(token).await
+    fn verify(&self, token: &str) -> Result<(), AuthError> {
+        self.inner.load().verify(token)
     }
 
-    fn verify_sync(&self, token: &str) -> Result<(), AuthError> {
-        self.inner.load().try_verify(token)
-    }
-
-    async fn claims_async(&self, token: &str) -> Result<serde_json::Value, AuthError> {
-        let verifier = self.inner.load_full();
-        verifier.get_claims(token).await
-    }
-
-    fn claims_sync(&self, token: &str) -> Result<serde_json::Value, AuthError> {
-        self.inner.load().try_get_claims(token)
+    fn claims(&self, token: &str) -> Result<serde_json::Value, AuthError> {
+        self.inner.load().get_claims(token)
     }
 
     async fn public_key(&self, token: &str) -> Result<Vec<u8>, AuthError> {
@@ -209,11 +196,11 @@ where
     }
 
     fn subject(&self, token: &str) -> Result<String, AuthError> {
-        self.inner.load().try_get_subject(token)
+        self.inner.load().get_subject(token)
     }
 
     fn key_binding(&self, token: &str, public_key: &[u8]) -> Result<(), AuthError> {
-        self.inner.load().try_verify_key_binding(token, public_key)
+        self.inner.load().verify_key_binding(token, public_key)
     }
 }
 
@@ -224,39 +211,29 @@ impl Verifier for Arc<dyn ErasedVerifier> {
         self.init().await
     }
 
-    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
-        self.verify_async(token.as_ref()).await
+    fn verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
+        ErasedVerifier::verify(self.as_ref(), token.as_ref())
     }
 
-    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
-        self.verify_sync(token.as_ref())
-    }
-
-    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
+    fn get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send,
     {
-        Ok(serde_json::from_value(
-            self.claims_async(token.as_ref()).await?,
-        )?)
-    }
-
-    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
-    where
-        Claims: DeserializeOwned + Send,
-    {
-        Ok(serde_json::from_value(self.claims_sync(token.as_ref())?)?)
+        Ok(serde_json::from_value(ErasedVerifier::claims(
+            self.as_ref(),
+            token.as_ref(),
+        )?)?)
     }
 
     async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
         self.public_key(token.as_ref()).await
     }
 
-    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+    fn get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         self.subject(token.as_ref())
     }
 
-    fn try_verify_key_binding(
+    fn verify_key_binding(
         &self,
         token: impl AsRef<str>,
         public_key: &[u8],
@@ -338,46 +315,37 @@ mod tests {
             *self.initialized.write() = true;
             Ok(())
         }
-        async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
-            self.try_verify(token)
-        }
-        fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
+        fn verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
             if token.as_ref() == "tok" {
                 Ok(())
             } else {
                 Err(AuthError::TokenInvalid)
             }
         }
-        async fn get_claims<C>(&self, token: impl AsRef<str> + Send) -> Result<C, AuthError>
+        fn get_claims<C>(&self, token: impl AsRef<str>) -> Result<C, AuthError>
         where
             C: serde::de::DeserializeOwned + Send,
         {
-            self.try_get_claims(token)
-        }
-        fn try_get_claims<C>(&self, token: impl AsRef<str>) -> Result<C, AuthError>
-        where
-            C: serde::de::DeserializeOwned + Send,
-        {
-            self.try_verify(token)?;
+            self.verify(token)?;
             Ok(serde_json::from_value(serde_json::json!({ "sub": "id" }))?)
         }
         async fn get_public_key(
             &self,
             token: impl AsRef<str> + Send,
         ) -> Result<Vec<u8>, AuthError> {
-            self.try_verify(token)?;
+            self.verify(token)?;
             Ok(b"key".to_vec())
         }
-        fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
-            self.try_verify(token)?;
+        fn get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+            self.verify(token)?;
             Ok("id".into())
         }
-        fn try_verify_key_binding(
+        fn verify_key_binding(
             &self,
             token: impl AsRef<str>,
             public_key: &[u8],
         ) -> Result<(), AuthError> {
-            self.try_verify(token)?;
+            self.verify(token)?;
             if public_key == b"key" {
                 Ok(())
             } else {
@@ -613,19 +581,17 @@ mod tests {
 
         verifier.initialize().await.unwrap();
         assert!(*initialized.read());
-        verifier.verify("tok").await.unwrap();
-        assert!(verifier.try_verify("nope").is_err());
+        verifier.verify("tok").unwrap();
+        assert!(verifier.verify("nope").is_err());
 
-        let claims: Claims = verifier.get_claims("tok").await.unwrap();
+        let claims: Claims = verifier.get_claims("tok").unwrap();
         assert_eq!(claims.sub, "id");
-        let claims: Claims = verifier.try_get_claims("tok").unwrap();
-        assert_eq!(claims.sub, "id");
-        assert_eq!(verifier.try_get_subject("tok").unwrap(), "id");
+        assert_eq!(verifier.get_subject("tok").unwrap(), "id");
         assert_eq!(verifier.get_public_key("tok").await.unwrap(), b"key");
 
-        verifier.try_verify_key_binding("tok", b"key").unwrap();
+        verifier.verify_key_binding("tok", b"key").unwrap();
         assert!(matches!(
-            verifier.try_verify_key_binding("tok", b"x"),
+            verifier.verify_key_binding("tok", b"x"),
             Err(AuthError::PublicKeyMismatch { .. })
         ));
     }

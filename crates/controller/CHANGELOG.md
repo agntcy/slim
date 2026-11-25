@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/agntcy/slim/compare/slim-controller-v0.13.18...slim-controller-v0.14.0) - 2026-11-25
+
+### Fixed
+
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
 ## [0.13.17](https://github.com/agntcy/slim/compare/slim-controller-v0.13.16...slim-controller-v0.13.17) - 2026-10-20
 
 ### Other

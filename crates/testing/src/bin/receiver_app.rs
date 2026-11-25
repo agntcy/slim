@@ -31,7 +31,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::client::ClientConfig;
 use slim_config::component::ComponentBuilder;
 use slim_config::tls::client::TlsClientConfig;
@@ -133,7 +132,7 @@ async fn run_receiver(args: Args) -> Result<()> {
     tprintln!("Connected to control plane with connection ID: {}", conn_id);
 
     // Build auth provider and verifier based on selected method
-    let (mut provider, mut verifier) = match args.auth_method.as_str() {
+    let (provider, verifier) = match args.auth_method.as_str() {
         "shared_secret" => {
             let name_str = local_name.to_string();
             let p = AuthProvider::shared_secret_from_str(&name_str, &args.shared_secret)
@@ -166,16 +165,9 @@ async fn run_receiver(args: Args) -> Result<()> {
         }
         other => anyhow::bail!("unsupported auth method: {other}"),
     };
-    provider
-        .initialize()
-        .await
-        .map_err(|e| anyhow!("provider init failed: {e}"))?;
-    verifier
-        .initialize()
-        .await
-        .map_err(|e| anyhow!("verifier init failed: {e}"))?;
     let (app, mut notification_rx) = service
         .create_app_with_direction(&local_name, provider, verifier, Direction::Bidirectional)
+        .await
         .context("failed to create app")?;
 
     let full_name = app.app_name().to_string();

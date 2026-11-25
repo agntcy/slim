@@ -40,8 +40,6 @@ use tower_layer::Stack;
 use tracing::{debug, warn};
 
 use crate::auth::ServerAuthenticator;
-use crate::auth::jwt::Config as JwtAuthenticationConfig;
-use crate::auth::oidc::Config as OidcConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::errors::ConfigError;
@@ -153,16 +151,11 @@ async fn build_auth_kind(config: &ServerConfig) -> Result<AuthKind, ConfigError>
             Ok(AuthKind::Basic(layer))
         }
         ServerAuthConfig::Jwt(jwt) => {
-            let layer = <JwtAuthenticationConfig as ServerAuthenticator<
-                Response<Empty<Bytes>>,
-            >>::get_server_layer(jwt)?;
+            let layer = jwt.get_initialized_server_layer().await?;
             Ok(AuthKind::Jwt(layer))
         }
         ServerAuthConfig::Oidc(oidc) => {
-            let layer =
-                <OidcConfig as ServerAuthenticator<Response<Empty<Bytes>>>>::get_server_layer(
-                    oidc,
-                )?;
+            let layer = oidc.get_initialized_server_layer().await?;
             Ok(AuthKind::Oidc(layer))
         }
         #[cfg(not(target_family = "windows"))]

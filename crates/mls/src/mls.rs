@@ -1610,7 +1610,7 @@ mod tests {
 
     fn verify_token_embeds_pubkey(token: &str, expected_pubkey_bytes: &[u8]) {
         let verifier = SharedSecret::new("alice", SHARED_SECRET).unwrap();
-        let claims_json: serde_json::Value = verifier.try_get_claims(token).expect("claims");
+        let claims_json: serde_json::Value = verifier.get_claims(token).expect("claims");
         let claims = IdentityClaims::from_json(&claims_json).expect("identity claims");
         assert_eq!(
             claims.public_key,
@@ -1667,7 +1667,7 @@ mod tests {
 
         // Show claims mismatch
         let claims_json: serde_json::Value = verifier
-            .try_get_claims(alice_token.as_str())
+            .get_claims(alice_token.as_str())
             .expect("claims parse");
         let claims = IdentityClaims::from_json(&claims_json).expect("claims map");
         assert_ne!(

@@ -69,6 +69,44 @@ With a trust list of peer keys, such as a JWKS of `did:key` identities, every li
 
 **Use when:** Service-to-service authentication with an existing identity provider, or when per-application credential differentiation is needed without a full PKI.
 
+### did:key
+
+The application's identity is the [`did:key`](https://w3c-ccg.github.io/did-key-spec/) of an Ed25519 key that it holds. When the application sends a message, SLIM signs a short-lived JWT with that key (`EdDSA`) whose issuer and subject are the `did:key`. A receiver verifies it against a **trust anchor**, the JWKS of the public keys of the applications it accepts, and checks that the token's subject is the `did:key` of the key that signed it. No identity provider, certificate authority or shared secret is involved: an application is identified by its key, and the receiver decides whose keys it trusts.
+
+An application is created from two inputs:
+
+- **The private key**: an Ed25519 key as a PKCS#8 PEM document (`-----BEGIN PRIVATE KEY-----`), such as `openssl genpkey -algorithm ed25519` writes. The application's identity is its `did:key`.
+- **The trust anchor**: a JWKS (JSON) with one `OKP` `Ed25519` JWK (`{"kty":"OKP","crv":"Ed25519","x":"…"}`) per application that it accepts. It has to list the application's own key too, because MLS verifies the application's own token against it. SLIM rejects a JWKS that doesn't, and the error names the `did:key` to add.
+
+In Rust, with `slim-service`:
+
+```rust
+let (app, notifications) = service
+    .create_app_with_did_key(&app_name, &private_key_pem, &trusted_keys_jwks)
+    .await?;
+```
+
+`create_app_with_did_key_and_direction` also takes the traffic direction. The `slim-bindings` crate exposes the same helper as `Service.create_app_with_did_key` and `create_app_with_did_key_async`, and as the `App` constructors `new_with_did_key` and `new_with_did_key_async`, with the two keys as strings. `did_key_of_private_key` returns the `did:key` of a private key, which is the identity that peers list in their trust anchor. In every case the identity is initialized when the application is created.
+
+To try it, the Rust `sender` and `receiver` examples of `slim-bindings` take `--private-key` (a PEM file) and `--trusted-keys` (a JWKS file) instead of a shared secret, and `examples/did_key/generate-keys.sh` writes one key per application and a JWKS that lists them all:
+
+```bash
+crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
+cargo run --example receiver -- --local agntcy/ns/alice \
+  --private-key /tmp/keys/alice.pem --trusted-keys /tmp/keys/trusted-keys.jwks
+cargo run --example sender -- --local agntcy/ns/bob \
+  --private-key /tmp/keys/bob.pem --trusted-keys /tmp/keys/trusted-keys.jwks \
+  --session-type p2p --participants agntcy/ns/alice
+```
+
+**Properties:**
+- Each application has its own credential, so with MLS and identity binding set to `enforce`, one compromised application can't impersonate the others
+- The identity is the key itself: there is nothing to issue, renew or revoke centrally. Removing a key from a trust anchor stops that application from being accepted by those that use it
+- Only Ed25519 keys are supported
+- The members of a group session verify each other, so every member's trust anchor must list every other member. A peer that is not in an application's trust anchor can't start a session with it
+
+**Use when:** You want per-application credentials without running an identity provider or a SPIRE deployment, and the set of applications that trust each other can be distributed as a list of public keys.
+
 ### SPIRE / SPIFFE
 
 [SPIFFE](https://spiffe.io/) (Secure Production Identity Framework For Everyone) is a standard for workload identity. [SPIRE](https://spiffe.io/docs/latest/spire-about/) is its reference implementation, issuing JWT-SVIDs to workloads via a local agent socket.
@@ -89,6 +127,7 @@ SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. T
 | Shared secret | Base name + random suffix | Manual | No | Development, trusted LANs |
 | JWT (external IdP) | `sub` claim from token | Token expiry | IdP-dependent | Existing IdP integration |
 | JWT (SLIM-issued) | `sub` claim from token | Token expiry | No | Simple production, no IdP |
+| did:key | `did:key` of the application's Ed25519 key | Replace the key and the trust anchors | No | Per-application keys without an IdP |
 | SPIRE | SPIFFE ID | Automatic | Yes | Production, Kubernetes |
 
 ## Related

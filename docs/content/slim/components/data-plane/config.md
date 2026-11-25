@@ -677,17 +677,21 @@ All authentication options documented in this section can be used in any context
         Static JWT authentication is only available for clients.
 
 === "JWT - Autoresolve"
-    Automatically determine encoding/decoding based on context.
+    Verify tokens with the keys that the issuer publishes. The keys are fetched from the issuer's JWKS endpoint when the node starts, which fails if the issuer is unreachable. A background task then refreshes them before they expire, retries with a backoff if the issuer is down, and refreshes early (at most every 30 s) when a token names a key id that is not cached.
   
     ```yaml
     auth:
       type: jwt
       claims:
+        issuer: "https://issuer.example.com"
         audience: ["remote-slim"]
       duration: "1h"
       key:
-        type: autoresolve  # Auto-detect encoding vs decoding
+        type: autoresolve  # Fetch the issuer's keys
     ```
+
+    !!! warning
+        `claims.issuer` is required. Without it the configuration is rejected, unless `allow_any_issuer: true` is set. In that case keys are fetched from whichever issuer a token names, before the token is verified, so any sender can make the node send a request to a URL of its choosing.
 
 === "No Authentication"
     ```yaml
@@ -705,7 +709,7 @@ The following key types are supported:
 
 - `encoding` for signing JWTs (typically client-side)
 - `decoding` for verifying JWTs (typically server-side)
-- `autoresolve` automatically determine based on context
+- `autoresolve` for verifying JWTs with the keys fetched from the issuer (`claims.issuer`, required unless `allow_any_issuer` is set)
 
 #### Key Formats
 
@@ -1740,6 +1744,7 @@ The `endpoint` field can be configured as either a network address or a Unix soc
 - `key.algorithm` - Required when `type` is `encoding` or `decoding`
 - `key.format` - Required when `type` is `encoding` or `decoding` (values: `pem`, `jwk`, `jwks`)
 - `key.key.file` or `key.key.data` - Required: one must be provided
+- `claims.issuer` - Required when `type` is `autoresolve`, unless `allow_any_issuer: true`
 
 ### TLS Source Types
 

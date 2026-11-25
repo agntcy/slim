@@ -363,6 +363,37 @@ impl App {
             .await
     }
 
+    /// Create a new App whose identity is a `did:key` (blocking version)
+    ///
+    /// The app signs with an Ed25519 key and accepts the peers that a trust anchor lists.
+    /// It uses the global service. See [`crate::Service::create_app_with_did_key_async`]
+    /// for the arguments.
+    #[uniffi::constructor]
+    pub fn new_with_did_key(
+        name: Arc<Name>,
+        private_key_pem: String,
+        trusted_keys: String,
+        direction: Direction,
+    ) -> Result<Arc<App>, SlimError> {
+        get_global_service().create_app_with_did_key(name, private_key_pem, trusted_keys, direction)
+    }
+
+    /// Create a new App whose identity is a `did:key` (async version)
+    ///
+    /// Same as [`App::new_with_did_key`], without blocking the caller. Prefer it from
+    /// async code.
+    #[uniffi::constructor]
+    pub async fn new_with_did_key_async(
+        name: Arc<Name>,
+        private_key_pem: String,
+        trusted_keys: String,
+        direction: Direction,
+    ) -> Result<Arc<App>, SlimError> {
+        get_global_service()
+            .create_app_with_did_key_async(name, private_key_pem, trusted_keys, direction)
+            .await
+    }
+
     /// Create a new App with traffic direction (blocking version)
     ///
     /// This is a convenience function for creating a SLIM application with configurable

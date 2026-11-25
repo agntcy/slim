@@ -51,7 +51,7 @@ Instead of `create_app_with_secret`, use `create_app_with_persistence`. Pass a `
             verifier,
             Direction::Bidirectional,
             Some(persistence),
-        )?;
+        ).await?;
         app.subscribe(&name, Some(conn_id)).await?;
         println!("App ready with persistence: myorg/default/my-service");
 
@@ -314,7 +314,7 @@ On the next startup, create a new app using the **same name, secret, store path,
         verifier,
         Direction::Bidirectional,
         Some(persistence),
-    )?;
+    ).await?;
     app.subscribe(&name, Some(conn_id)).await?;
 
     // Restore all previously active sessions

@@ -214,9 +214,7 @@ mod tests {
         use slim_auth::traits::Verifier;
 
         let verifier = MockVerifier;
-        verifier.verify("some-token").await.unwrap();
-        verifier.try_verify("some-token").unwrap();
-        let _: Result<String, _> = verifier.get_claims("some-token").await;
-        let _: Result<String, _> = verifier.try_get_claims("some-token");
+        verifier.verify("some-token").unwrap();
+        let _: Result<String, _> = verifier.get_claims("some-token");
     }
 }

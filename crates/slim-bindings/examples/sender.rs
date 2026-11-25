@@ -4,7 +4,7 @@
 //! # SLIM Sender App
 //!
 //! This app demonstrates an active sender that:
-//! 1. Creates a SLIM application with specified identity and shared secret
+//! 1. Creates a SLIM application with specified identity: a shared secret, or a did:key
 //! 2. Creates a session (point-to-point or group)
 //! 3. Sends messages at regular intervals
 //! 4. Receives and validates replies from participants
@@ -24,6 +24,19 @@
 //!   --shared-secret a-very-long-shared-secret-abcdef1234567890 \
 //!   --session-type group \
 //!   --participants agntcy/ns/alice agntcy/ns/charlie
+//!
+//! # With a did:key identity instead of a shared secret: an Ed25519 key per app (a PEM
+//! # file), and the JWKS of the keys the apps trust (here, the one the script writes)
+//! crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
+//! cargo run --example sender -- \
+//!   --local agntcy/ns/bob \
+//!   --private-key /tmp/keys/bob.pem \
+//!   --trusted-keys /tmp/keys/trusted-keys.jwks \
+//!   --session-type p2p \
+//!   --participants agntcy/ns/alice
+//!
+//! # In a group session the members verify each other (MLS), so every app's JWKS lists the
+//! # public key of every other member, not only the sender's.
 //! ```
 
 #[cfg(feature = "web")]
@@ -36,6 +49,9 @@ cfg_if::cfg_if! {
         use std::time::Duration;
 
         use clap::Parser;
+
+        #[path = "common/identity.rs"]
+        mod identity;
         use slim_bindings::{
             MlsSettings, Name, SessionConfig, SessionType, get_global_service,
             initialize_with_defaults, new_insecure_client_config, shutdown,
@@ -48,9 +64,8 @@ cfg_if::cfg_if! {
             #[arg(long)]
             local: String,
 
-            /// Shared secret for authentication
-            #[arg(long)]
-            shared_secret: String,
+            #[command(flatten)]
+            identity: identity::IdentityArgs,
 
             /// SLIM control plane endpoint
             #[arg(long, default_value = "http://localhost:46357")]
@@ -133,9 +148,11 @@ cfg_if::cfg_if! {
 
             println!("Connected to control plane with connection ID: {conn_id}");
 
-            // Create the slim application using global service with shared secret
-            let app = service
-                .create_app_with_secret_async(local_name_arc.clone(), args.shared_secret)
+            // Create the slim application using global service, with the identity chosen
+            // on the command line
+            let app = args
+                .identity
+                .create_app(&service, local_name_arc.clone())
                 .await?;
 
             let full_name = app.name();

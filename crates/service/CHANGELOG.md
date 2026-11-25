@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/agntcy/slim/compare/slim-service-v0.14.0...slim-service-v0.15.0) - 2026-11-25
+
+### Fixed
+
+- *(service)* include app id when unsubscribing ([#2430](https://github.com/agntcy/slim/pull/2430))
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(service)* initialize the identity in create_app ([#2450](https://github.com/agntcy/slim/pull/2450))
+
 ## [0.13.15](https://github.com/agntcy/slim/compare/slim-service-v0.13.14...slim-service-v0.13.15) - 2026-10-20
 
 ### Other

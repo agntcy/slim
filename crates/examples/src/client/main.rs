@@ -124,6 +124,7 @@ async fn main() -> Result<()> {
             SharedSecret::new(&local_name.to_string(), secret)
                 .expect("Failed to create SharedSecret"),
         )
+        .await
         .with_context(|| format!("Failed to create app for name {}", local_name))?;
 
     // Start service (establish client connections)

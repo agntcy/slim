@@ -75,6 +75,7 @@ pub struct JwtBuilder<S = state::Initial> {
 
     // Key resolution
     auto_resolve_keys: bool,
+    allow_any_issuer: bool,
 
     // Required claims
     required_claims: Vec<String>,
@@ -107,6 +108,7 @@ impl Default for JwtBuilder<state::Initial> {
             algorithm: Algorithm::HS256, // Default algorithm
             token_duration: Duration::from_secs(3600), // Default 1 hour
             auto_resolve_keys: false,
+            allow_any_issuer: false,
             required_claims: Vec::new(),
             custom_claims: MetadataMap::new(),
             token_file: None,
@@ -152,6 +154,14 @@ impl<S> JwtBuilder<S> {
 
 // Implementation for the Initial state
 impl JwtBuilder<state::Initial> {
+    /// Let automatic key resolution work without an issuer: keys are then fetched from
+    /// whichever issuer a token names, before the token is verified. Off by default, in
+    /// which case `build` fails for `auto_resolve_keys` without an issuer.
+    pub fn allow_any_issuer(mut self, allow: bool) -> Self {
+        self.allow_any_issuer = allow;
+        self
+    }
+
     /// Create a new JWT builder with default values.
     pub fn new() -> Self {
         Self::default()
@@ -242,6 +252,7 @@ impl JwtBuilder<state::Initial> {
             algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
+            allow_any_issuer: self.allow_any_issuer,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
@@ -260,6 +271,7 @@ impl JwtBuilder<state::Initial> {
             algorithm: key.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
+            allow_any_issuer: self.allow_any_issuer,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
@@ -278,6 +290,7 @@ impl JwtBuilder<state::Initial> {
             algorithm: self.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: enable,
+            allow_any_issuer: self.allow_any_issuer,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: None,
@@ -295,6 +308,7 @@ impl JwtBuilder<state::Initial> {
             algorithm: self.algorithm,
             token_duration: self.token_duration,
             auto_resolve_keys: self.auto_resolve_keys,
+            allow_any_issuer: self.allow_any_issuer,
             required_claims: self.required_claims,
             custom_claims: self.custom_claims,
             token_file: Some(token_file.into()),
@@ -458,6 +472,11 @@ impl JwtBuilder<state::WithPublicKey> {
 
         // Autoresolver is enabled
         if self.auto_resolve_keys {
+            // Without an issuer of its own, the verifier would fetch keys from whichever
+            // issuer a token names: that has to be asked for.
+            if self.issuer.is_none() && !self.allow_any_issuer {
+                return Err(AuthError::JwtAutoResolveNeedsIssuer);
+            }
             return Ok(verifier.with_key_resolver(KeyResolver::new()));
         }
 
@@ -650,7 +669,7 @@ mod tests {
 
         let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
-        let verified: crate::traits::StandardClaims = verifier.get_claims(&token).await.unwrap();
+        let verified: crate::traits::StandardClaims = verifier.get_claims(&token).unwrap();
 
         assert_eq!(verified.iss.unwrap(), "test-issuer");
         assert_eq!(verified.aud.unwrap(), &["test-audience"]);
@@ -706,7 +725,7 @@ mod tests {
         };
 
         let token = signer.sign(&custom_claims).unwrap();
-        let verified: CustomClaims = verifier.get_claims(&token).await.unwrap();
+        let verified: CustomClaims = verifier.get_claims(&token).unwrap();
 
         assert_eq!(verified, custom_claims);
     }
@@ -724,6 +743,28 @@ mod tests {
             .auto_resolve_keys(true)
             .build();
         assert!(jwt.is_ok());
+    }
+
+    #[test]
+    fn test_jwt_builder_auto_resolve_keys_needs_an_issuer() {
+        initialize_crypto_provider();
+
+        let without_issuer = || {
+            JwtBuilder::new()
+                .audience(&["test-audience"])
+                .subject("test-subject")
+        };
+        assert!(matches!(
+            without_issuer().auto_resolve_keys(true).build(),
+            Err(AuthError::JwtAutoResolveNeedsIssuer)
+        ));
+        assert!(
+            without_issuer()
+                .allow_any_issuer(true)
+                .auto_resolve_keys(true)
+                .build()
+                .is_ok()
+        );
     }
 
     #[tokio::test]
