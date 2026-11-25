@@ -368,12 +368,15 @@ where
             })
     }
 
+    fn subscription_name(&self, name: &ProtoName) -> ProtoName {
+        name.clone().with_id(self.session_layer.app_id())
+    }
+
     /// Subscribe the app to receive messages for a name
     pub async fn subscribe(&self, name: &ProtoName, conn: Option<u64>) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "subscribe");
 
-        // Set the ID in the name to be the one of this app
-        let name = name.clone().with_id(self.session_layer.app_id());
+        let name = self.subscription_name(name);
 
         let flags = if let Some(c) = conn {
             SlimHeaderFlags::default().with_forward_to(c)
@@ -412,8 +415,7 @@ where
     ) -> Result<(), ServiceError> {
         debug!(?name, ?conn, "unsubscribe");
 
-        // Match the name that subscribe registered in the datapath.
-        let name = name.clone().with_id(self.session_layer.app_id());
+        let name = self.subscription_name(name);
         let subscription_id = self.session_layer.remove_app_name(&name);
         match subscription_id {
             Some(subscription_id) => {
@@ -795,6 +797,7 @@ mod tests {
             msg = recv_outbound_message(&mut rx_slim) => msg,
         };
 
+        assert_eq!(outbound.get_dst().id(), app.session_layer.app_id());
         let ack_id = outbound
             .get_subscription_id()
             .expect("missing ack id in outbound subscribe message");
