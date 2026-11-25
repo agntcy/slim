@@ -12,9 +12,13 @@ fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let base = std::path::Path::new(&manifest_dir);
 
-    // The proto files live in this crate's `proto/` directory, which is part of the
-    // published package: the code is generated into OUT_DIR at every build.
+    // The canonical proto files live in this crate's `proto/` directory.
     let proto_dir = base.join("proto");
+
+    if !proto_dir.exists() {
+        // Published package: rely on the pre-generated src/gen/ files.
+        return;
+    }
 
     let dataplane_proto = proto_dir.join("data-plane/v1/data_plane.proto");
     let controller_proto = proto_dir.join("controller/v1/controller.proto");
@@ -26,10 +30,10 @@ fn main() {
     println!("cargo:rerun-if-changed={}", controlplane_proto.display());
     println!("cargo:rerun-if-changed={}", channel_manager_proto.display());
 
-    // Compile all protos together in a single invocation, into OUT_DIR (a build script
-    // must not write anywhere else, and `cargo publish` rejects one that does).
+    // Compile all protos together in a single invocation.
     // Gate tonic client/server modules to non-wasm32 targets.
     tonic_prost_build::configure()
+        .out_dir("src/gen")
         .client_mod_attribute(".", "#[cfg(not(target_arch = \"wasm32\"))]")
         .server_mod_attribute(".", "#[cfg(not(target_arch = \"wasm32\"))]")
         .compile_protos(

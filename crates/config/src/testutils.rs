@@ -4,9 +4,7 @@
 use tonic::{Request, Response, Status};
 
 #[rustfmt::skip]
-pub mod helloworld {
-    include!(concat!(env!("OUT_DIR"), "/helloworld.rs"));
-}
+pub mod helloworld;
 pub mod tower_service;
 
 #[derive(Default)]
