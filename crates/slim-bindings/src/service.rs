@@ -1515,29 +1515,7 @@ mod tests {
     const PUBLIC_1: &str = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo";
     const PUBLIC_2: &str = "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw";
 
-    /// The PKCS#8 PEM of the Ed25519 seed `seed`, as openssl writes it.
-    fn pem_of(seed: &str) -> String {
-        let hex = format!("302e020100300506032b657004220420{seed}");
-        let der: Vec<u8> = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect();
-        slim_auth::utils::bytes_to_pem(
-            &der,
-            "-----BEGIN PRIVATE KEY-----\n",
-            "\n-----END PRIVATE KEY-----\n",
-        )
-    }
-
-    fn jwks_of(public_keys: &[&str]) -> String {
-        let keys: Vec<String> = public_keys
-            .iter()
-            .map(|x| {
-                format!(r#"{{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","x":"{x}"}}"#)
-            })
-            .collect();
-        format!(r#"{{"keys":[{}]}}"#, keys.join(","))
-    }
+    use slim_testing::keys::{ed25519_jwks_of as jwks_of, ed25519_pem_of_seed as pem_of};
 
     fn did_app_name() -> Arc<Name> {
         Arc::new(Name::new(
@@ -1583,12 +1561,12 @@ mod tests {
     #[test]
     fn test_did_key_of_private_key() {
         // RFC 8032 section 7.1, test 1: its public key is d75a98...
-        let did = crate::identity_config::did_key_of_private_key(pem_of(SEED_1)).unwrap();
+        let did = crate::identity_config::did_key_of_private_key(&pem_of(SEED_1)).unwrap();
         assert_eq!(
             did,
             "did:key:z6MktwupdmLXVVqTzCw4i46r4uGyosGXRnR3XjN4Zq7oMMsw"
         );
-        assert!(crate::identity_config::did_key_of_private_key("not a pem".to_string()).is_err());
+        assert!(crate::identity_config::did_key_of_private_key("not a pem").is_err());
     }
 
     /// Keys that are not what the helper takes are an error, not a panic.

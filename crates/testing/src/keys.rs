@@ -203,6 +203,30 @@ pub fn path_in(dir: &Path, file: &str) -> String {
     dir.join(file).to_string_lossy().into_owned()
 }
 
+/// The PKCS#8 PEM of the Ed25519 private key with the hex-encoded `seed`, as openssl
+/// writes it.
+pub fn ed25519_pem_of_seed(seed_hex: &str) -> String {
+    use base64::Engine as _;
+
+    let hex = format!("302e020100300506032b657004220420{seed_hex}");
+    let der: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    let body = base64::engine::general_purpose::STANDARD.encode(der);
+    format!("-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----\n")
+}
+
+/// A JWKS with the Ed25519 public keys `public_keys`, each given as base64url (the `x`
+/// of its JWK).
+pub fn ed25519_jwks_of(public_keys: &[&str]) -> String {
+    let keys: Vec<String> = public_keys
+        .iter()
+        .map(|x| format!(r#"{{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","x":"{x}"}}"#))
+        .collect();
+    format!(r#"{{"keys":[{}]}}"#, keys.join(","))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

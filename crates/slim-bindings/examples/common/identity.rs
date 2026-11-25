@@ -54,7 +54,7 @@ impl IdentityArgs {
     ) -> Result<Arc<App>, Box<dyn std::error::Error>> {
         if let (Some(private_key), Some(trusted_keys)) = (&self.private_key, &self.trusted_keys) {
             let private_key = read(private_key)?;
-            println!("Identity: {}", did_key_of_private_key(private_key.clone())?);
+            println!("Identity: {}", did_key_of_private_key(&private_key)?);
             Ok(service
                 .create_app_with_did_key_async(
                     name,

@@ -678,11 +678,10 @@ impl Service {
             private_key: KeyData::Data(private_key_pem.to_string()),
             trusted_keys: KeyData::Data(trusted_keys.to_string()),
         };
-        // Reads the key, and checks that the trust anchor lists the app's own key. A trust
-        // anchor that is not a JWKS is reported when the verifier is built.
-        auth.validate().map_err(invalid)?;
+        // Reads the key once, and checks that the trust anchor lists the app's own key. A
+        // trust anchor that is not a JWKS is reported when the verifier is built.
         let (provider, verifier) = auth
-            .to_identity_configs(&app_name.to_string())
+            .to_validated_identity_configs(&app_name.to_string())
             .map_err(invalid)?;
 
         self.create_app_with_direction(
@@ -1125,29 +1124,7 @@ mod tests {
     const PUBLIC_1: &str = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo";
     const PUBLIC_2: &str = "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw";
 
-    /// The PKCS#8 PEM of the Ed25519 seed `seed`, as openssl writes it.
-    fn pem_of(seed: &str) -> String {
-        let hex = format!("302e020100300506032b657004220420{seed}");
-        let der: Vec<u8> = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect();
-        slim_auth::utils::bytes_to_pem(
-            &der,
-            "-----BEGIN PRIVATE KEY-----\n",
-            "\n-----END PRIVATE KEY-----\n",
-        )
-    }
-
-    fn jwks_of(public_keys: &[&str]) -> String {
-        let keys: Vec<String> = public_keys
-            .iter()
-            .map(|x| {
-                format!(r#"{{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","x":"{x}"}}"#)
-            })
-            .collect();
-        format!(r#"{{"keys":[{}]}}"#, keys.join(","))
-    }
+    use slim_testing::keys::{ed25519_jwks_of as jwks_of, ed25519_pem_of_seed as pem_of};
 
     /// The helper builds the provider and the verifier from a PEM key and a JWKS that lists
     /// it, and creates the app.
@@ -1190,6 +1167,7 @@ mod tests {
     /// A private key that is not an Ed25519 PEM document is an invalid configuration.
     #[tokio::test]
     async fn test_create_app_with_did_key_rejects_a_private_key_that_is_not_a_pem() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let service = Service::builder()
             .build("svc-did-key-3".to_string())
             .unwrap();

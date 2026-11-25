@@ -12,7 +12,7 @@
 # --trusted-keys. Apps that share that JWKS accept each other. An app's JWKS has to list its
 # own key too.
 #
-# Needs openssl (3.x or later, for Ed25519) and base64.
+# Needs openssl (1.1.1 or later) and base64.
 
 set -euo pipefail
 
@@ -23,8 +23,8 @@ fi
 
 out="$1"
 shift
-mkdir -p "$out"
 umask 077
+mkdir -p "$out"
 
 public_jwks=""
 for name in "$@"; do

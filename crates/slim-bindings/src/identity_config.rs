@@ -157,9 +157,9 @@ impl From<slim_auth::jwt::KeyData> for JwtKeyData {
 /// An app created with `create_app_with_did_key` has this identity; peers list the
 /// matching public key in their trust anchor.
 #[uniffi::export]
-pub fn did_key_of_private_key(private_key_pem: String) -> Result<String, crate::errors::SlimError> {
+pub fn did_key_of_private_key(private_key_pem: &str) -> Result<String, crate::errors::SlimError> {
     Ok(slim_auth::did_key::ed25519_did_key_from_pkcs8_pem(
-        &private_key_pem,
+        private_key_pem,
     )?)
 }
 
