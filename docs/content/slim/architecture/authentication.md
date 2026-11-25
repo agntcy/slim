@@ -71,7 +71,7 @@ With a trust list of peer keys, such as a JWKS of `did:key` identities, every li
 
 ### did:key
 
-The application's identity is the [`did:key`](https://w3c-ccg.github.io/did-method-key/) of an Ed25519 key that it holds. When the application sends a message, SLIM signs a short-lived JWT with that key (`EdDSA`) whose issuer and subject are the `did:key`. A receiver verifies it against a **trust anchor**, the JWKS of the public keys of the applications it accepts, and checks that the token's subject is the `did:key` of the key that signed it. No identity provider, certificate authority or shared secret is involved: an application is identified by its key, and the receiver decides whose keys it trusts.
+The application's identity is the [`did:key`](https://w3c-ccg.github.io/did-key-spec/) of an Ed25519 key that it holds. When the application sends a message, SLIM signs a short-lived JWT with that key (`EdDSA`) whose issuer and subject are the `did:key`. A receiver verifies it against a **trust anchor**, the JWKS of the public keys of the applications it accepts, and checks that the token's subject is the `did:key` of the key that signed it. No identity provider, certificate authority or shared secret is involved: an application is identified by its key, and the receiver decides whose keys it trusts.
 
 An application is created from two inputs:
 
