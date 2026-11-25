@@ -25,18 +25,18 @@
 //!   --session-type group \
 //!   --participants agntcy/ns/alice agntcy/ns/charlie
 //!
-//! # With a did:key identity instead of a shared secret: an Ed25519 key per app, and the
-//! # public keys of the apps each one accepts (here, bob accepts alice's reply)
+//! # With a did:key identity instead of a shared secret: an Ed25519 key per app (a JWK),
+//! # and the JWKS of the keys the apps trust (here, the one the script writes)
 //! crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
 //! cargo run --example sender -- \
 //!   --local agntcy/ns/bob \
-//!   --private-key "$(cat /tmp/keys/bob.private)" \
-//!   --trusted-key "$(cat /tmp/keys/alice.public)" \
+//!   --private-key /tmp/keys/bob.jwk \
+//!   --trusted-keys /tmp/keys/trusted-keys.jwks \
 //!   --session-type p2p \
 //!   --participants agntcy/ns/alice
 //!
-//! # In a group session the members verify each other (MLS), so every app lists the public
-//! # key of every other member as --trusted-key, not only the sender's.
+//! # In a group session the members verify each other (MLS), so every app's JWKS lists the
+//! # public key of every other member, not only the sender's.
 //! ```
 
 #[cfg(feature = "web")]

@@ -2,40 +2,47 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The identity options shared by the sender and the receiver: a shared secret, or a
-//! `did:key` (an Ed25519 private key and the public keys of the apps it trusts).
+//! `did:key` (the app's private key as a JWK, and the JWKS of the keys it trusts).
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Args;
-use slim_bindings::{App, Direction, KeyBytes, Name, Service, SlimError, did_key_of_private_key};
+use slim_bindings::{App, Direction, Name, Service, SlimError, did_key_of_private_key};
 
-/// How the app authenticates: pass `--shared-secret`, or `--private-key` with at least one
-/// `--trusted-key`.
+/// How the app authenticates: pass `--shared-secret`, or `--private-key` and
+/// `--trusted-keys`.
 #[derive(Args, Debug)]
 pub struct IdentityArgs {
     /// Shared secret for authentication (every app of the mesh uses the same one)
     #[arg(
         long,
-        conflicts_with_all = ["private_key", "trusted_key"],
+        conflicts_with_all = ["private_key", "trusted_keys"],
         required_unless_present = "private_key"
     )]
     shared_secret: Option<String>,
 
-    /// did:key identity: the app's Ed25519 private key, in base64 (the 32-byte seed, or a
-    /// 48-byte PKCS#8 document). The app's identity is the did:key of this key.
+    /// did:key identity: a file with the app's private key as a JWK (kty OKP, crv
+    /// Ed25519, d). The app's identity is the did:key of this key.
     /// `examples/did_key/generate-keys.sh` generates keys.
     #[arg(
         long,
-        env = "SLIM_DID_KEY_PRIVATE_KEY",
-        hide_env_values = true,
+        requires = "trusted_keys",
         required_unless_present = "shared_secret"
     )]
-    private_key: Option<String>,
+    private_key: Option<PathBuf>,
 
-    /// did:key identity: the base64 public key (32 bytes) of an app this one accepts.
-    /// Repeat it for every peer. The app's own key is trusted without being listed.
+    /// did:key identity: a file with the JWKS of the keys this app trusts, one OKP
+    /// Ed25519 JWK per app it accepts. The app's own key is trusted without being listed.
     #[arg(long, requires = "private_key")]
-    trusted_key: Vec<String>,
+    trusted_keys: Option<PathBuf>,
+}
+
+fn read(path: &PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(
+        std::fs::read_to_string(path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?,
+    )
 }
 
 impl IdentityArgs {
@@ -45,27 +52,14 @@ impl IdentityArgs {
         service: &Service,
         name: Arc<Name>,
     ) -> Result<Arc<App>, Box<dyn std::error::Error>> {
-        if let Some(private_key) = &self.private_key {
-            let private_key = KeyBytes::Base64 {
-                value: private_key.clone(),
-            };
-            let trusted_keys: Vec<KeyBytes> = self
-                .trusted_key
-                .iter()
-                .map(|value| KeyBytes::Base64 {
-                    value: value.clone(),
-                })
-                .collect();
-            println!(
-                "Identity: {} (trusting {} other key(s))",
-                did_key_of_private_key(private_key.clone())?,
-                trusted_keys.len()
-            );
+        if let (Some(private_key), Some(trusted_keys)) = (&self.private_key, &self.trusted_keys) {
+            let private_key = read(private_key)?;
+            println!("Identity: {}", did_key_of_private_key(private_key.clone())?);
             Ok(service
                 .create_app_with_did_key_async(
                     name,
                     private_key,
-                    trusted_keys,
+                    read(trusted_keys)?,
                     Direction::Bidirectional,
                 )
                 .await?)
@@ -74,7 +68,7 @@ impl IdentityArgs {
                 .shared_secret
                 .clone()
                 .ok_or_else(|| SlimError::InvalidArgument {
-                    message: "pass --shared-secret, or --private-key and --trusted-key".into(),
+                    message: "pass --shared-secret, or --private-key and --trusted-keys".into(),
                 })?;
             println!("Identity: shared secret");
             Ok(service.create_app_with_secret_async(name, secret).await?)

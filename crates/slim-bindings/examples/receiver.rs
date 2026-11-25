@@ -16,12 +16,12 @@
 //!   --local agntcy/ns/alice \
 //!   --shared-secret a-very-long-shared-secret-abcdef1234567890
 //!
-//! # did:key: an Ed25519 key per app, and the public keys of the apps each one accepts
+//! # did:key: an Ed25519 key per app (a JWK), and the JWKS of the keys the apps trust
 //! crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
 //! cargo run --example receiver -- \
 //!   --local agntcy/ns/alice \
-//!   --private-key "$(cat /tmp/keys/alice.private)" \
-//!   --trusted-key "$(cat /tmp/keys/bob.public)"
+//!   --private-key /tmp/keys/alice.jwk \
+//!   --trusted-keys /tmp/keys/trusted-keys.jwks
 //! ```
 
 #[cfg(feature = "web")]

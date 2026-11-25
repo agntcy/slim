@@ -371,8 +371,8 @@ impl App {
     #[uniffi::constructor]
     pub fn new_with_did_key(
         name: Arc<Name>,
-        private_key: crate::identity_config::KeyBytes,
-        trusted_keys: Vec<crate::identity_config::KeyBytes>,
+        private_key: String,
+        trusted_keys: String,
         direction: Direction,
     ) -> Result<Arc<App>, SlimError> {
         get_global_service().create_app_with_did_key(name, private_key, trusted_keys, direction)
@@ -385,8 +385,8 @@ impl App {
     #[uniffi::constructor]
     pub async fn new_with_did_key_async(
         name: Arc<Name>,
-        private_key: crate::identity_config::KeyBytes,
-        trusted_keys: Vec<crate::identity_config::KeyBytes>,
+        private_key: String,
+        trusted_keys: String,
         direction: Direction,
     ) -> Result<Arc<App>, SlimError> {
         get_global_service()

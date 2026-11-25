@@ -151,37 +151,14 @@ impl From<slim_auth::jwt::KeyData> for JwtKeyData {
     }
 }
 
-/// Key material of a `did:key` identity: the bytes, or their base64 text.
-///
-/// The keys are Ed25519: a private key is the 32-byte seed (RFC 8032) or a 48-byte
-/// PKCS#8 document, and a public key is its 32 bytes. Base64 may use the standard or
-/// the URL-safe alphabet, with or without padding.
-#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
-pub enum KeyBytes {
-    /// The bytes of the key
-    Raw { bytes: Vec<u8> },
-    /// The key as base64 text
-    Base64 { value: String },
-}
-
-impl From<KeyBytes> for slim_service::did_key::KeyBytes {
-    fn from(key: KeyBytes) -> Self {
-        match key {
-            KeyBytes::Raw { bytes } => slim_service::did_key::KeyBytes::Raw(bytes),
-            KeyBytes::Base64 { value } => slim_service::did_key::KeyBytes::Base64(value),
-        }
-    }
-}
-
-/// The `did:key` of an Ed25519 private key (see [`KeyBytes`]).
+/// The `did:key` of a private key, given as a JWK (see [`crate::Service::create_app_with_did_key`]).
 ///
 /// An app created with `create_app_with_did_key` has this identity; peers list the
 /// matching public key in their trust anchor.
 #[uniffi::export]
-pub fn did_key_of_private_key(private_key: KeyBytes) -> Result<String, crate::errors::SlimError> {
-    Ok(slim_service::did_key::did_key_of_private_key(
-        &private_key.into(),
-    )?)
+pub fn did_key_of_private_key(private_key: String) -> Result<String, crate::errors::SlimError> {
+    let private_key = slim_service::did_key::PrivateJwk::from_json(&private_key)?;
+    Ok(slim_service::did_key::did_key_of_private_key(&private_key)?)
 }
 
 /// JWT key configuration
