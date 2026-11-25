@@ -15,7 +15,6 @@ use jsonwebtoken::{
 
 use parking_lot::RwLock;
 use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::AuthError;
@@ -429,7 +428,7 @@ fn is_signature_error(err: &AuthError) -> bool {
 }
 
 impl<V> Jwt<V> {
-    fn try_verify_claims<Claims: serde::de::DeserializeOwned>(
+    fn verify_claims<Claims: serde::de::DeserializeOwned>(
         &self,
         token: impl AsRef<str>,
     ) -> Result<Claims, AuthError> {
@@ -443,24 +442,6 @@ impl<V> Jwt<V> {
         // Collect candidate keys from the cache first; if resolution would require
         // async, return WouldBlockOn. Try each until the signature verifies.
         let decoding_keys = self.decoding_keys(token)?;
-
-        self.verify_with_keys::<Claims>(token, decoding_keys)
-    }
-
-    async fn verify_claims<Claims: serde::de::DeserializeOwned>(
-        &self,
-        token: impl AsRef<str>,
-    ) -> Result<Claims, AuthError> {
-        let token = token.as_ref();
-
-        // Check if the token is in the cache first for cacheable claim types
-        if let Some(cached_claims) = self.get_cached_claims::<Claims>(token) {
-            return Ok(cached_claims);
-        }
-
-        // Resolve every candidate key for verification, then try each until the
-        // signature verifies.
-        let decoding_keys = self.resolve_decoding_keys(token).await?;
 
         self.verify_with_keys::<Claims>(token, decoding_keys)
     }
@@ -585,16 +566,6 @@ impl<V> Jwt<V> {
         self.token_cache.store(token, expiry);
     }
 
-    fn unsecure_get_token_data<T: DeserializeOwned>(
-        &self,
-        token: &str,
-    ) -> Result<TokenData<T>, AuthError> {
-        // Get issuer from claims
-        let ret = jsonwebtoken::dangerous::insecure_decode(token)?;
-
-        Ok(ret)
-    }
-
     /// A key configured directly: one trusted signer, not a list of peer keys.
     fn configured_key(&self, key: &RwLock<DecodingKey>) -> Candidate {
         Candidate {
@@ -626,47 +597,27 @@ impl<V> Jwt<V> {
                 .ok_or(AuthError::JwtMissingIssuer)?;
 
             match resolver.cached_candidates(issuer, &token_data.header) {
-                Ok(k) => return Ok(k),
-                Err(_e) => {
-                    // No cached key yet; async resolution would be required.
+                Ok(k) => {
+                    // Refresh ahead of expiry, so keys do not run out under load.
+                    if resolver.needs_refresh(issuer) {
+                        resolver.refresh_in_background(issuer);
+                    }
+                    return Ok(k);
+                }
+                Err(AuthError::JwksCacheMiss { .. } | AuthError::JwksCacheExpired { .. }) => {
+                    // Not cached yet: fetch in the background and reject this token.
+                    // Verification is synchronous, so a retry succeeds once it lands.
+                    resolver.refresh_in_background(issuer);
                     return Err(AuthError::WouldBlockOn);
                 }
+                // The keys are there but do not fit the token (or a static trust list
+                // has none): fetching would not change that.
+                Err(e) => return Err(e),
             }
         }
 
         // If we don't have a decoder
         Err(AuthError::JwtNoKeyResolver)
-    }
-
-    /// Resolve a decoding key for token verification
-    async fn resolve_decoding_keys(&self, token: &str) -> Result<Vec<Candidate>, AuthError> {
-        // First check if we already have a decoding key
-        {
-            if let Some(key) = &self.decoding_key {
-                return Ok(vec![self.configured_key(key)]);
-            }
-        }
-
-        // As we don't have a decoding key, we need to resolve it. The resolver
-        // should be set, otherwise we can't proceed.
-        let resolver = self
-            .key_resolver
-            .as_ref()
-            .ok_or(AuthError::JwtNoKeyResolver)?;
-
-        // Parse the token header to get the key ID and algorithm
-        let token_data = self.unsecure_get_token_data::<StandardClaims>(token)?;
-
-        let issuer = token_data
-            .claims
-            .iss
-            .as_ref()
-            .ok_or(AuthError::JwtMissingIssuer)?;
-
-        // Resolve every candidate key
-        resolver
-            .resolve_candidates(issuer, &token_data.header)
-            .await
     }
 }
 
@@ -774,38 +725,31 @@ impl TokenProvider for StaticTokenProvider {
 }
 
 impl Verifier for VerifierJwt {
+    /// Fetches the signing keys of the configured issuer, if there is one and keys are
+    /// resolved from it, so the first token is verified from the cache, and fails if it
+    /// cannot. Without a configured issuer the keys are fetched in the background when a
+    /// token first names one.
     async fn initialize(&mut self) -> Result<(), AuthError> {
-        Ok(()) // no-op
+        if let (Some(resolver), Some(issuer)) = (&self.key_resolver, &self.claims.iss) {
+            resolver.prefetch(issuer).await?;
+        }
+        Ok(())
     }
 
-    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+    fn verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         // Just verify the token is valid, don't extract claims
-        self.verify_claims::<StandardClaims>(token)
-            .await
-            .map(|_| ())
-    }
-
-    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
-        // Just verify the token is valid, don't extract claims
-        self.try_verify_claims::<StandardClaims>(token).map(|_| ())
-    }
-
-    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
-    where
-        Claims: serde::de::DeserializeOwned + Send,
-    {
-        self.verify_claims(token).await
+        self.verify_claims::<StandardClaims>(token).map(|_| ())
     }
 
     async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
         crate::traits::public_key_from_claims(self, token).await
     }
 
-    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+    fn get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         crate::traits::subject_from_claims(self, token)
     }
 
-    fn try_verify_key_binding(
+    fn verify_key_binding(
         &self,
         token: impl AsRef<str>,
         public_key: &[u8],
@@ -813,11 +757,11 @@ impl Verifier for VerifierJwt {
         crate::traits::verify_pubkey_claim_binding(self, token, public_key)
     }
 
-    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
+    fn get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        self.try_verify_claims(token)
+        self.verify_claims(token)
     }
 }
 
@@ -857,6 +801,24 @@ mod tests {
     use std::{env, fs, vec};
 
     use super::*;
+
+    /// Retry `f` while it reports `WouldBlockOn`: verification is synchronous and signing
+    /// keys are fetched in the background, so a cold cache succeeds a moment later.
+    async fn eventually<T>(mut f: impl FnMut() -> Result<T, AuthError>) -> T {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match f() {
+                    Ok(value) => return value,
+                    Err(AuthError::WouldBlockOn) => {
+                        tokio::time::sleep(Duration::from_millis(10)).await
+                    }
+                    Err(e) => panic!("verification failed: {e:?}"),
+                }
+            }
+        })
+        .await
+        .expect("the signing keys should be cached by now")
+    }
     use jsonwebtoken::{Algorithm, Header};
     use tokio::time;
     use tracing_test::traced_test;
@@ -974,7 +936,7 @@ mod tests {
     }
 
     #[test]
-    fn test_jwt_try_verify_would_block_on_missing_cached_key_valid_token() {
+    fn test_jwt_verify_would_block_on_missing_cached_key_valid_token() {
         // Build verifier with auto_resolve (no cached key yet)
         let verifier = JwtBuilder::new()
             .issuer("test-issuer")
@@ -990,7 +952,7 @@ mod tests {
             "test-subject",
         );
 
-        let res = verifier.try_verify(&token);
+        let res = verifier.verify(&token);
         assert!(
             matches!(res, Err(AuthError::WouldBlockOn)),
             "Expected WouldBlockOn, got {:?}",
@@ -1039,7 +1001,7 @@ mod tests {
         let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
 
-        let verified_claims: StandardClaims = jwt.get_claims(token.clone()).await.unwrap();
+        let verified_claims: StandardClaims = jwt.get_claims(token.clone()).unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
         assert_eq!(verified_claims.aud.unwrap(), &["test-audience"]);
@@ -1068,7 +1030,7 @@ mod tests {
         let claims = signer.create_claims();
         let token = signer.sign(&claims).unwrap();
 
-        let verified_claims: StandardClaims = jwt.get_claims(token.clone()).await.unwrap();
+        let verified_claims: StandardClaims = jwt.get_claims(token.clone()).unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
         assert_eq!(verified_claims.aud.unwrap(), &["test-audience"]);
@@ -1106,7 +1068,7 @@ mod tests {
         let claims = signer.create_claims();
         let token = signer.sign_claims(&claims).unwrap();
 
-        let verified_claims: StandardClaims = verifier.get_claims(token.clone()).await.unwrap();
+        let verified_claims: StandardClaims = verifier.get_claims(token.clone()).unwrap();
 
         assert_eq!(verified_claims.iss.unwrap(), "test-issuer");
         assert_eq!(verified_claims.aud.unwrap(), ["test-audience"]);
@@ -1114,8 +1076,7 @@ mod tests {
 
         // Try to verify with an invalid token
         let invalid_token = "invalid.token.string";
-        let result: Result<StandardClaims, AuthError> =
-            verifier.get_claims(invalid_token.to_string()).await;
+        let result: Result<StandardClaims, AuthError> = verifier.get_claims(invalid_token);
         assert!(
             result.is_err(),
             "Expected verification to fail for invalid token"
@@ -1133,8 +1094,7 @@ mod tests {
             })
             .build()
             .unwrap();
-        let wrong_result: Result<StandardClaims, AuthError> =
-            wrong_verifier.get_claims(token).await;
+        let wrong_result: Result<StandardClaims, AuthError> = wrong_verifier.get_claims(token);
         assert!(
             wrong_result.is_err(),
             "Expected verification to fail with wrong key"
@@ -1178,7 +1138,7 @@ mod tests {
         claims.custom_claims = custom_claims;
         let token = signer.sign_claims(&claims).unwrap();
 
-        let verified_claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        let verified_claims: StandardClaims = verifier.get_claims(token).unwrap();
 
         let role: String = verified_claims
             .custom_claims
@@ -1209,6 +1169,105 @@ mod tests {
     #[tokio::test]
     async fn test_validate_jwt_with_provided_key() {}
 
+    /// With an issuer configured, `initialize` fetches its keys, so the first token is
+    /// verified at once, with no `WouldBlockOn` in between.
+    #[tokio::test]
+    async fn test_jwt_initialize_prefetches_the_configured_issuer() {
+        initialize_crypto_provider();
+
+        let (test_key, mock_server, _alg_str) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let signer = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(test_key),
+            })
+            .build()
+            .unwrap();
+        let mut verifier = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        verifier.initialize().await.unwrap();
+
+        let token = signer.sign_claims(&signer.create_claims()).unwrap();
+        let claims: StandardClaims = verifier.get_claims(&token).unwrap();
+        assert_eq!(claims.sub.unwrap(), "test-subject");
+    }
+
+    /// Keys that do not fit the token are not a cache miss: the token is rejected at once,
+    /// and nothing is fetched from the issuer the token names.
+    #[tokio::test]
+    async fn test_a_key_that_does_not_fit_is_not_reported_as_would_block() {
+        initialize_crypto_provider();
+
+        let (test_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let signer = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(test_key),
+            })
+            .build()
+            .unwrap();
+        let mut verifier = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        verifier.initialize().await.unwrap();
+        let requests_after_initialize = mock_server.received_requests().await.unwrap().len();
+
+        // The cached set holds an RS256 key; this token asks for HS256.
+        let mut header = jsonwebtoken::Header::new(Algorithm::HS256);
+        header.kid = None;
+        let token = jsonwebtoken::encode(
+            &header,
+            &signer.create_claims(),
+            &jsonwebtoken::EncodingKey::from_secret(b"secret"),
+        )
+        .unwrap();
+
+        let result: Result<StandardClaims, _> = verifier.get_claims(&token);
+        assert!(
+            !matches!(result, Err(AuthError::WouldBlockOn)),
+            "got {result:?}"
+        );
+        assert!(result.is_err());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            mock_server.received_requests().await.unwrap().len(),
+            requests_after_initialize,
+            "no fetch for a key that does not fit"
+        );
+    }
+
+    /// `initialize` fails when the configured issuer's keys cannot be fetched.
+    #[tokio::test]
+    async fn test_jwt_initialize_fails_when_the_issuer_is_unreachable() {
+        initialize_crypto_provider();
+
+        let mut verifier = JwtBuilder::new()
+            .issuer("http://127.0.0.1:1")
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        assert!(verifier.initialize().await.is_err());
+    }
+
     async fn test_jwt_resolve_with_algorithm(algorithm: Algorithm) {
         initialize_crypto_provider();
 
@@ -1237,7 +1296,8 @@ mod tests {
 
         // Sign and verify the token
         let token = signer.sign_claims(&signer.create_claims()).unwrap();
-        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        // The keys are fetched in the background: the first calls report WouldBlockOn.
+        let claims: StandardClaims = eventually(|| verifier.get_claims(&token)).await;
 
         // Validate the claims
         assert_eq!(claims.iss.unwrap(), mock_server.uri());
@@ -1370,7 +1430,7 @@ mod tests {
             token_signed_by(&pem_b, Some("member-b"), "member-b"),
             token_signed_by(&pem_b, None, "member-b"),
         ] {
-            let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+            let claims: StandardClaims = verifier.get_claims(token).unwrap();
             assert_eq!(claims.sub.as_deref(), Some("member-b"));
         }
 
@@ -1380,9 +1440,9 @@ mod tests {
             token_signed_by(&pem_b, Some("member-b"), "member-a"),
             token_signed_by(&pem_b, None, "member-a"),
         ] {
-            let result: Result<StandardClaims, _> = verifier.get_claims(token.clone()).await;
+            let result: Result<StandardClaims, _> = verifier.get_claims(token.clone());
             assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
-            let result: Result<StandardClaims, _> = verifier.try_get_claims(token);
+            let result: Result<StandardClaims, _> = verifier.get_claims(token);
             assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
         }
     }
@@ -1396,7 +1456,7 @@ mod tests {
         let verifier = trust_list_verifier(vec![jwk_a, jwk_b], Some(IdentityBinding::Warn));
 
         let token = token_signed_by(&pem_b, Some("member-b"), "member-a");
-        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        let claims: StandardClaims = verifier.get_claims(token).unwrap();
         assert_eq!(claims.sub.as_deref(), Some("member-a"));
         assert!(logs_contain(
             "token subject does not belong to the trusted key that signed it"
@@ -1412,13 +1472,11 @@ mod tests {
 
         let claims: StandardClaims = verifier
             .get_claims(token_signed_by(&pem_a, None, &did_a))
-            .await
             .unwrap();
         assert_eq!(claims.sub.as_deref(), Some(did_a.as_str()));
 
-        let result: Result<StandardClaims, _> = verifier
-            .get_claims(token_signed_by(&pem_a, None, &did_b))
-            .await;
+        let result: Result<StandardClaims, _> =
+            verifier.get_claims(token_signed_by(&pem_a, None, &did_b));
         assert!(matches!(result, Err(AuthError::TokenInvalid)), "{result:?}");
     }
 
@@ -1431,7 +1489,7 @@ mod tests {
         let verifier = trust_list_verifier(vec![jwk_a, jwk_b], None);
 
         let token = token_signed_by(&pem_b, Some("member-b"), "member-a");
-        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        let claims: StandardClaims = verifier.get_claims(token).unwrap();
         assert_eq!(claims.sub.as_deref(), Some("member-a"));
     }
 
@@ -1506,7 +1564,7 @@ mod tests {
         // member other than keys[0] failed with InvalidSignature.
         let signer_b = signer_pem(&pem_b, "member-b");
         let token = signer_b.sign_claims(&signer_b.create_claims()).unwrap();
-        let claims: StandardClaims = verifier.get_claims(token).await.unwrap();
+        let claims: StandardClaims = verifier.get_claims(token).unwrap();
         assert_eq!(claims.sub.as_deref(), Some("member-b"));
 
         // Fallback: a legacy kid-less token from member-b must still verify by trying
@@ -1515,14 +1573,14 @@ mod tests {
         header.kid = None;
         let enc = EncodingKey::from_ed_pem(pem_b.as_bytes()).unwrap();
         let kidless = encode(&header, &signer_b.create_claims(), &enc).unwrap();
-        let claims: StandardClaims = verifier.get_claims(kidless).await.unwrap();
+        let claims: StandardClaims = verifier.get_claims(kidless).unwrap();
         assert_eq!(claims.sub.as_deref(), Some("member-b"));
 
         // A token from a key that is NOT in the allow-list must still be rejected.
         let (pem_x, _) = make_key("outsider");
         let signer_x = signer_pem(&pem_x, "outsider");
         let bad = signer_x.sign_claims(&signer_x.create_claims()).unwrap();
-        let res: Result<StandardClaims, _> = verifier.get_claims(bad).await;
+        let res: Result<StandardClaims, _> = verifier.get_claims(bad);
         assert!(
             res.is_err(),
             "a token signed by a non-member key must not verify against the allow-list"
@@ -1560,14 +1618,14 @@ mod tests {
         let token = signer.sign_claims(&claims).unwrap();
 
         // First verification
-        let first_result: StandardClaims = verifier.try_get_claims(token.clone()).unwrap();
+        let first_result: StandardClaims = verifier.get_claims(token.clone()).unwrap();
 
         // Alter the decoding_key to simulate a situation where signature verification would fail
         // if attempted again. Since we're using the cache, it should still work.
         verifier.decoding_key = None;
 
         // Second verification with the same token - should use the cache
-        let second_result: StandardClaims = verifier.try_get_claims(token.clone()).unwrap();
+        let second_result: StandardClaims = verifier.get_claims(token.clone()).unwrap();
 
         // Both results should be the same
         assert_eq!(first_result.iss, second_result.iss);
@@ -1585,7 +1643,7 @@ mod tests {
         let token2 = signer.sign_claims(&claims2).unwrap();
 
         // Verify the new token - should fail because we removed the decoding_key
-        let result = verifier.try_get_claims::<StandardClaims>(token2);
+        let result = verifier.get_claims::<StandardClaims>(token2);
         assert!(
             result.is_err(),
             "Should have failed due to missing decoding key"
@@ -1744,7 +1802,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_verifier_jwt_verify_async() {
+    async fn test_verifier_jwt_verify() {
         use crate::traits::Verifier;
 
         let signer = JwtBuilder::new()
@@ -1774,7 +1832,7 @@ mod tests {
         let claims = signer.create_claims();
         let token = signer.sign_claims(&claims).unwrap();
 
-        // Exercise Verifier::verify (async) — the one patch line that was uncovered
-        verifier.verify(token).await.unwrap();
+        // Exercise Verifier::verify — the one patch line that was uncovered
+        verifier.verify(token).unwrap();
     }
 }

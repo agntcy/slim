@@ -3,6 +3,7 @@
 
 use std::marker::PhantomData;
 use std::pin::Pin;
+use std::time::{Duration, Instant};
 use std::{
     convert::TryFrom,
     task::{Context, Poll},
@@ -108,6 +109,9 @@ pub struct ValidateJwtLayer<Claim, V: Verifier> {
 
     /// Claims to validate against. Not used for now.
     _claims: Claim,
+
+    /// How long a request waits for signing keys that are not cached yet.
+    key_wait: Duration,
 }
 
 impl<Claim: Clone, V: Verifier + Clone> ValidateJwtLayer<Claim, V> {
@@ -117,7 +121,18 @@ impl<Claim: Clone, V: Verifier + Clone> ValidateJwtLayer<Claim, V> {
         Self {
             verifier,
             _claims: claims,
+            key_wait: Self::DEFAULT_KEY_WAIT,
         }
+    }
+
+    /// How long a request waits for the signing keys when they are not cached yet.
+    pub const DEFAULT_KEY_WAIT: Duration = Duration::from_secs(3);
+
+    /// Set how long a request waits for signing keys that are not cached yet, before it
+    /// is answered with `503 Service Unavailable` and a `Retry-After` header.
+    pub fn with_key_wait(mut self, key_wait: Duration) -> Self {
+        self.key_wait = key_wait;
+        self
     }
 
     /// Asynchronously initialize the underlying `Verifier` before
@@ -136,6 +151,7 @@ impl<S, Claim: Clone, V: Verifier + Clone> Layer<S> for ValidateJwtLayer<Claim, 
         ValidateJwt {
             inner,
             verifier: std::sync::Arc::new(self.verifier.clone()),
+            key_wait: self.key_wait,
             _phantom: PhantomData::<Claim>,
         }
     }
@@ -146,6 +162,7 @@ impl<S, Claim: Clone, V: Verifier + Clone> Layer<S> for ValidateJwtLayer<Claim, 
 pub struct ValidateJwt<S, Claim, V: Clone> {
     inner: S,
     verifier: std::sync::Arc<V>,
+    key_wait: Duration,
     _phantom: PhantomData<Claim>,
 }
 
@@ -201,11 +218,21 @@ where
                 verifier_future, ..
             } => match verifier_future.poll(cx) {
                 Poll::Pending => Poll::Pending,
-                Poll::Ready(Err(_e)) => {
-                    let response = Response::builder()
-                        .status(http::StatusCode::UNAUTHORIZED)
-                        .body(Default::default())
-                        .unwrap();
+                Poll::Ready(Err(e)) => {
+                    // Keys that are still missing are not the caller's fault: say so,
+                    // and let it retry. Anything else is a rejected token.
+                    let response = if matches!(e, AuthError::WouldBlockOn) {
+                        Response::builder()
+                            .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                            .header(http::header::RETRY_AFTER, "1")
+                            .body(Default::default())
+                            .unwrap()
+                    } else {
+                        Response::builder()
+                            .status(http::StatusCode::UNAUTHORIZED)
+                            .body(Default::default())
+                            .unwrap()
+                    };
 
                     Poll::Ready(Ok(response))
                 }
@@ -228,6 +255,28 @@ where
                     }
                 }
             },
+        }
+    }
+}
+
+/// The claims of `token`. While the signing keys are not cached yet (`WouldBlockOn`),
+/// retry for up to `wait`: they are being fetched in the background.
+async fn claims_when_ready<V, Claim>(
+    verifier: &V,
+    token: &str,
+    wait: Duration,
+) -> Result<Claim, AuthError>
+where
+    V: Verifier + Sync,
+    Claim: for<'de> Deserialize<'de> + Send,
+{
+    let deadline = Instant::now() + wait;
+    loop {
+        match verifier.get_extended_claims::<Claim>(token).await {
+            Err(AuthError::WouldBlockOn) if Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            result => return result,
         }
     }
 }
@@ -259,44 +308,43 @@ where
             Ok(Some(bearer)) => {
                 let bearer_token = bearer.token().to_string();
 
-                // Let's first try to perform the verification without cloning the verifier
-                match self.verifier.try_get_claims::<Claim>(&bearer_token) {
-                    Ok(claims) => {
-                        // Store claims in request extensions
-                        req.extensions_mut().insert(claims);
-
-                        // Call the inner service directly
-                        Self::Future::WaitForFuture {
-                            future: self.inner.call(req),
+                // Without extended claims, verification only reads cached keys: do it
+                // inline. It waits only when the keys are not cached yet.
+                if !self.verifier.has_extended_claims() {
+                    match self.verifier.get_claims::<Claim>(&bearer_token) {
+                        Ok(claims) => {
+                            req.extensions_mut().insert(claims);
+                            return Self::Future::WaitForFuture {
+                                future: self.inner.call(req),
+                            };
+                        }
+                        Err(AuthError::WouldBlockOn) => {}
+                        Err(e) => {
+                            tracing::warn!(error = %e.chain(), "ValidateJwt: token verification failed");
+                            return Self::Future::Error;
                         }
                     }
-                    Err(e) => {
-                        // WouldBlockOn is the expected cold-cache path; anything else is surprising
-                        if matches!(e, AuthError::WouldBlockOn) {
-                            tracing::debug!(
-                                "ValidateJwt: JWKS cache cold, using async verification"
-                            );
-                        } else {
-                            tracing::warn!(error = %e.chain(), "ValidateJwt: sync try_get_claims failed, trying async");
-                        }
-                        let verifier = self.verifier.clone();
-                        let clone = self.inner.clone();
-                        let inner = std::mem::replace(&mut self.inner, clone);
+                }
 
-                        Self::Future::WaitForKey {
-                            request: req,
-                            verifier_future: Box::pin(async move {
-                                // Perform the verification asynchronously
-                                let result = verifier.get_claims::<Claim>(&bearer_token).await;
-                                if let Err(ref e) = result {
-                                    tracing::warn!(error = %e.chain(), "ValidateJwt: async get_claims also failed");
-                                }
-                                result
-                            }),
-                            service: inner,
-                            _phantom: self._phantom,
+                // Otherwise the claims are completed over the network, or the keys are
+                // not cached yet: run it as a future.
+                let verifier = self.verifier.clone();
+                let key_wait = self.key_wait;
+                let clone = self.inner.clone();
+                let inner = std::mem::replace(&mut self.inner, clone);
+
+                Self::Future::WaitForKey {
+                    request: req,
+                    verifier_future: Box::pin(async move {
+                        let result =
+                            claims_when_ready::<V, Claim>(&verifier, &bearer_token, key_wait).await;
+                        if let Err(ref e) = result {
+                            tracing::warn!(error = %e.chain(), "ValidateJwt: token verification failed");
                         }
-                    }
+                        result
+                    }),
+                    service: inner,
+                    _phantom: self._phantom,
                 }
             }
             _ => {
@@ -628,6 +676,48 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
+    /// Signing keys that are not cached yet are not the caller's fault: after the wait,
+    /// the answer is 503 with a `Retry-After`, not 401.
+    #[tokio::test]
+    async fn test_a_cold_key_cache_is_unavailable_not_unauthorized() {
+        let issuer = "http://127.0.0.1:1";
+        let signer = JwtBuilder::new()
+            .issuer(issuer)
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::HS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data("shared-secret".to_string()),
+            })
+            .build()
+            .unwrap();
+        let verifier = JwtBuilder::new()
+            .issuer(issuer)
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        let token = signer.sign(&signer.create_claims()).unwrap();
+
+        let mut service = ServiceBuilder::new()
+            .layer(
+                ValidateJwtLayer::new(verifier, MetadataMap::default())
+                    .with_key_wait(Duration::from_millis(100)),
+            )
+            .service(TestService);
+        let req = Request::builder()
+            .uri("https://example.com")
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::new())
+            .unwrap();
+
+        let response = service.call(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()[http::header::RETRY_AFTER], "1");
+    }
+
     #[tokio::test]
     async fn test_token_caching() {
         // Set up a JWT verifier
@@ -785,7 +875,7 @@ mod tests {
         );
 
         let ret_claims = verifier
-            .try_get_claims::<StandardClaims>(&token)
+            .get_claims::<StandardClaims>(&token)
             .expect("Failed to verify token");
 
         // Check the claims are as expected

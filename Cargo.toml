@@ -42,7 +42,7 @@ resolver = "2"
 [workspace.dependencies]
 # Local dependencies
 agntcy-slim = { path = "crates/slim", version = "3.5.1" }
-agntcy-slim-auth = { path = "crates/auth", version = "0.18.1" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.19.0" }
 agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.5.1" }
 agntcy-slim-channel-manager = { path = "crates/channel-manager", version = "3.5.1" }
 agntcy-slim-config = { path = "crates/config", version = "0.18.0" }

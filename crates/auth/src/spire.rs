@@ -15,7 +15,7 @@
 //! - Automatic rotation of X.509 SVIDs and JWT SVIDs via background sources
 //! - Access to private key & certificate PEM for mTLS
 //! - Access to JWT tokens (optionally with custom claims encoded in audiences)
-//! - Synchronous and asynchronous JWT verification (`try_verify` / `verify`)
+//! - JWT verification against the trust bundle (`verify`, synchronous)
 //! - Claims extraction with transparent custom claim decoding
 //! - Trust domain bundle retrieval (`get_x509_bundle`)
 //!
@@ -39,12 +39,11 @@
 //! // Obtain JWT token
 //! let token = mgr.get_token()?;
 //!
-//! // Verify the token (async or sync)
-//! mgr.verify(&token).await?;
-//! mgr.try_verify(&token)?;
+//! // Verify the token
+//! mgr.verify(&token)?;
 //!
 //! // Extract claims
-//! let claims: serde_json::Value = mgr.get_claims(&token).await?;
+//! let claims: serde_json::Value = mgr.get_claims(&token)?;
 //!
 //! // Access X.509 materials for TLS
 //! let cert_pem = mgr.get_x509_cert_pem()?;
@@ -818,33 +817,22 @@ impl Verifier for SpireIdentityManager {
         self.initialize().await
     }
 
-    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
-        self.try_verify(token)
-    }
-
-    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
+    fn verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         let bundles = self.get_jwt_bundles()?;
         JwtSvid::parse_and_validate(token.as_ref(), &*bundles, &self.inner.jwt_audiences)?;
         debug!("Successfully verified JWT token (sync)");
         Ok(())
     }
 
-    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
-    where
-        Claims: DeserializeOwned + Send,
-    {
-        self.try_get_claims(token)
-    }
-
     async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
         crate::traits::public_key_from_claims(self, token).await
     }
 
-    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+    fn get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         crate::traits::subject_from_claims(self, token)
     }
 
-    fn try_verify_key_binding(
+    fn verify_key_binding(
         &self,
         token: impl AsRef<str>,
         public_key: &[u8],
@@ -852,7 +840,7 @@ impl Verifier for SpireIdentityManager {
         crate::traits::verify_pubkey_claim_binding(self, token, public_key)
     }
 
-    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
+    fn get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send,
     {

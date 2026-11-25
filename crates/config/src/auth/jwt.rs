@@ -278,7 +278,16 @@ where
     type ServerLayer = Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
-        let verifier = self.get_verifier()?;
+        self.server_layer(self.get_verifier()?)
+    }
+}
+
+impl Config {
+    fn server_layer(
+        &self,
+        verifier: VerifierJwt,
+    ) -> Result<Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>, ConfigAuthError>
+    {
         let jwt_layer = ValidateJwtLayer::new(verifier, self.custom_claims());
         let policy_layer = match &self.policy {
             None => PolicyCheckLayer::none(),
@@ -287,6 +296,19 @@ where
             Some(PolicyConfig::Cel(expr)) => PolicyCheckLayer::cel(expr)?,
         };
         Ok(Stack::new(policy_layer, jwt_layer))
+    }
+
+    /// Like [`ServerAuthenticator::get_server_layer`], but initializes the verifier
+    /// first, which fetches the configured issuer's signing keys. Verification only
+    /// reads cached keys, so a server that skips this rejects requests until a background
+    /// fetch has filled the cache.
+    pub async fn get_initialized_server_layer(
+        &self,
+    ) -> Result<Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>, ConfigAuthError>
+    {
+        let mut verifier = self.get_verifier()?;
+        slim_auth::traits::Verifier::initialize(&mut verifier).await?;
+        self.server_layer(verifier)
     }
 }
 
