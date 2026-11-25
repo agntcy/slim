@@ -381,7 +381,7 @@ mod tests {
         verifier.initialize().await.unwrap();
 
         let token = provider.get_token().unwrap();
-        let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
+        let claims: serde_json::Value = verifier.get_claims(token).unwrap();
         assert_eq!(claims["sub"], expected_did_key());
         assert_eq!(claims["iss"], expected_did_key());
     }

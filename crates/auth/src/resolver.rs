@@ -1,7 +1,8 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -153,6 +154,20 @@ pub struct KeyResolver {
     client: ReqwestClient,
     jwks_cache: RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
+    /// Issuers whose JWKS is being fetched in the background right now.
+    refreshing: RwLock<HashSet<String>>,
+}
+
+/// Marks `issuer` as no longer being fetched when dropped.
+struct InFlight<'a> {
+    resolver: &'a KeyResolver,
+    issuer: &'a str,
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.resolver.refreshing.write().remove(self.issuer);
+    }
 }
 
 impl Default for KeyResolver {
@@ -164,11 +179,16 @@ impl Default for KeyResolver {
 impl KeyResolver {
     const STATIC_JWKS_ENTRY: &'static str = "static_jwks";
 
+    /// Bound on each request to an issuer, so a hung one cannot keep its background
+    /// fetch (and the next attempt) waiting forever.
+    const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+
     /// Create a new KeyResolver with default settings
     pub fn new() -> Self {
         // Create a reqwest client with default TLS configuration
         let client = ReqwestClient::builder()
             .user_agent("AGNTCY Slim Auth")
+            .timeout(Self::FETCH_TIMEOUT)
             .build()
             .expect("Failed to create reqwest client");
 
@@ -176,6 +196,7 @@ impl KeyResolver {
             client,
             jwks_cache: RwLock::new(HashMap::new()),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
+            refreshing: RwLock::new(HashSet::new()),
         }
     }
 
@@ -193,6 +214,7 @@ impl KeyResolver {
 
         let client = ReqwestClient::builder()
             .user_agent("AGNTCY Slim Auth")
+            .timeout(Self::FETCH_TIMEOUT)
             .build()
             .expect("Failed to create reqwest client");
 
@@ -200,6 +222,7 @@ impl KeyResolver {
             client,
             jwks_cache: RwLock::new(cache),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
+            refreshing: RwLock::new(HashSet::new()),
         }
     }
 
@@ -412,6 +435,55 @@ impl KeyResolver {
         self.candidates_from_cache(cache_entry, token_header, false)
     }
 
+    /// Whether the cached JWKS of `issuer` is missing or past 80% of its TTL, so a
+    /// refresh should start before keys run out. A static JWKS never needs one.
+    pub(crate) fn needs_refresh(&self, issuer: &str) -> bool {
+        let cache = self.jwks_cache.read();
+        if cache.contains_key(Self::STATIC_JWKS_ENTRY) {
+            return false;
+        }
+        match cache.get(issuer) {
+            None => true,
+            Some(entry) => entry.fetched_at.elapsed() > entry.ttl.mul_f32(0.8),
+        }
+    }
+
+    /// Fetch the JWKS of `issuer` in the background, without waiting for it.
+    ///
+    /// Verification is synchronous and reads the cache only, so this is how a cold or
+    /// aging cache gets filled. At most one fetch per issuer runs at a time, and nothing
+    /// happens outside a Tokio runtime. A failed fetch is logged; the next miss tries again.
+    pub(crate) fn refresh_in_background(self: &Arc<Self>, issuer: &str) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        if !self.refreshing.write().insert(issuer.to_string()) {
+            return;
+        }
+        let resolver = self.clone();
+        let issuer = issuer.to_string();
+        runtime.spawn(async move {
+            // Dropped on every exit, even if the task is cancelled or panics, so the
+            // issuer is never left marked as being fetched.
+            let _in_flight = InFlight {
+                resolver: &resolver,
+                issuer: &issuer,
+            };
+            if let Err(e) = resolver.fetch_jwks(&issuer).await {
+                tracing::warn!(%issuer, error = %e, "background JWKS fetch failed");
+            }
+        });
+    }
+
+    /// Fetch and cache the JWKS of `issuer` now, so the first token from it is verified
+    /// from the cache. Does nothing for a static JWKS, which needs no fetch.
+    pub(crate) async fn prefetch(&self, issuer: &str) -> Result<(), AuthError> {
+        if self.needs_refresh(issuer) {
+            self.fetch_jwks(issuer).await?;
+        }
+        Ok(())
+    }
+
     /// Fetch JWKS from the issuer's endpoint
     ///
     /// This function will discover the JWKS URI (either via OpenID Connect Discovery
@@ -588,5 +660,58 @@ mod tests {
             fetched_jwks.keys[0].common.key_id.as_deref(),
             Some("test-key")
         );
+    }
+
+    /// A miss is filled by a background fetch, and `needs_refresh` reports it until then.
+    #[tokio::test]
+    async fn test_background_refresh_fills_the_cache() {
+        let (resolver, mock_server) = create_test_resolver().await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/jwks.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "keys": [{ "kty": "RSA", "kid": "test-key", "n": "some-modulus", "e": "AQAB" }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let resolver = Arc::new(resolver);
+        let issuer = mock_server.uri();
+        assert!(resolver.needs_refresh(&issuer));
+
+        resolver.refresh_in_background(&issuer);
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while resolver.needs_refresh(&issuer) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the background fetch should fill the cache");
+    }
+
+    /// Refresh starts ahead of expiry, once an entry is past 80% of its TTL.
+    #[tokio::test]
+    async fn test_needs_refresh_before_the_ttl_runs_out() {
+        let (resolver, _mock_server) = create_test_resolver().await;
+        let ttl = Duration::from_secs(100);
+        let fresh = JwksCache::new(JwkSet { keys: vec![] }, Instant::now(), ttl);
+        let aging = JwksCache::new(
+            JwkSet { keys: vec![] },
+            Instant::now() - Duration::from_secs(90),
+            ttl,
+        );
+        resolver.jwks_cache.write().insert("fresh".into(), fresh);
+        resolver.jwks_cache.write().insert("aging".into(), aging);
+
+        assert!(!resolver.needs_refresh("fresh"));
+        assert!(resolver.needs_refresh("aging"));
+        assert!(resolver.needs_refresh("missing"));
+    }
+
+    /// A static key set is complete: it never needs a refresh.
+    #[tokio::test]
+    async fn test_a_static_jwks_never_needs_a_refresh() {
+        let resolver = KeyResolver::with_jwks(JwkSet { keys: vec![] });
+        assert!(!resolver.needs_refresh("any-issuer"));
     }
 }
