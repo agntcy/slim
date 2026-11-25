@@ -10,7 +10,7 @@ pub mod dataplane {
     pub mod proto {
         #[allow(clippy::large_enum_variant)]
         pub mod v1 {
-            include!("gen/dataplane.proto.v1.rs");
+            include!(concat!(env!("OUT_DIR"), "/dataplane.proto.v1.rs"));
         }
     }
 }
@@ -18,7 +18,7 @@ pub mod dataplane {
 pub mod controller {
     pub mod proto {
         pub mod v1 {
-            include!("gen/controller.proto.v1.rs");
+            include!(concat!(env!("OUT_DIR"), "/controller.proto.v1.rs"));
         }
     }
 }
@@ -26,7 +26,7 @@ pub mod controller {
 pub mod controlplane {
     pub mod proto {
         pub mod v1 {
-            include!("gen/controlplane.proto.v1.rs");
+            include!(concat!(env!("OUT_DIR"), "/controlplane.proto.v1.rs"));
         }
     }
 }
@@ -34,7 +34,7 @@ pub mod controlplane {
 pub mod channel_manager {
     pub mod proto {
         pub mod v1 {
-            include!("gen/channel_manager.proto.v1.rs");
+            include!(concat!(env!("OUT_DIR"), "/channel_manager.proto.v1.rs"));
         }
     }
 }

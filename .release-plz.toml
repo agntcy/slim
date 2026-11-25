@@ -60,9 +60,6 @@ name = "agntcy-slim-config"
 publish = true
 release = true
 changelog_update = true
-# The build script writes generated code into src/, which cargo's publish verification
-# rejects ("Source directory was modified by build.rs"). Generate into OUT_DIR, then drop this.
-publish_no_verify = true
 
 [[package]]
 name = "agntcy-slim-datapath"
@@ -131,9 +128,6 @@ name = "agntcy-slim-proto"
 publish = true
 release = true
 changelog_update = true
-# The build script writes generated code into src/, which cargo's publish verification
-# rejects ("Source directory was modified by build.rs"). Generate into OUT_DIR, then drop this.
-publish_no_verify = true
 
 [[package]]
 name = "agntcy-slim-control-plane"

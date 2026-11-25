@@ -10,8 +10,9 @@ fn main() {
         std::env::set_var("PROTOC", protoc_path);
     }
 
+    // Generate into OUT_DIR: a build script must not write anywhere else, and `cargo
+    // publish` rejects one that does.
     tonic_prost_build::configure()
-        .out_dir("src/testutils")
         .compile_protos(&["proto/hello.proto"], &["proto"])
         .unwrap();
 }
