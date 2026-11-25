@@ -502,8 +502,16 @@ impl Service {
     }
 
     // APP APIs
+
+    /// Create an app that sends and receives.
+    ///
+    /// Initializes `identity_provider` and `identity_verifier` first (awaiting their
+    /// `initialize`), and fails if either cannot be initialized: the app id is derived
+    /// from the provider's token, and a verifier that fetches signing keys (JWT with an
+    /// issuer, OIDC, SPIRE) has none until then. Callers must not initialize them
+    /// themselves; initializing twice is wasteful for some providers (SPIRE reconnects).
     #[cfg(feature = "session")]
-    pub fn create_app<P, V>(
+    pub async fn create_app<P, V>(
         &self,
         app_name: &ProtoName,
         identity_provider: P,
@@ -525,11 +533,13 @@ impl Service {
             identity_verifier,
             Direction::Bidirectional,
         )
+        .await
     }
 
+    /// Like [`Self::create_app`], with the given traffic direction.
     #[cfg(feature = "session")]
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
-    pub fn create_app_with_direction<P, V>(
+    pub async fn create_app_with_direction<P, V>(
         &self,
         app_name: &ProtoName,
         identity_provider: P,
@@ -555,6 +565,7 @@ impl Service {
             direction,
             None,
         )
+        .await
     }
 
     /// Create an app with an explicit persistence configuration.
@@ -562,13 +573,15 @@ impl Service {
     /// `persistence` enables restorable MLS/session state (encrypted at rest);
     /// `None` disables it. Persistence must be enabled explicitly here — there
     /// is no implicit/environment activation.
+    ///
+    /// Initializes the provider and the verifier, as [`Self::create_app`] does.
     #[cfg(feature = "session")]
     #[tracing::instrument(skip_all, fields(service_id = %self.id))]
-    pub fn create_app_with_direction_and_persistence<P, V>(
+    pub async fn create_app_with_direction_and_persistence<P, V>(
         &self,
         app_name: &ProtoName,
-        identity_provider: P,
-        identity_verifier: V,
+        mut identity_provider: P,
+        mut identity_verifier: V,
         direction: Direction,
         persistence: Option<slim_persistence::PersistenceConfig>,
     ) -> Result<
@@ -583,6 +596,11 @@ impl Service {
         V: Verifier + Send + Sync + Clone + 'static,
     {
         debug!(%app_name, persistence = persistence.is_some(), "creating app");
+
+        // Before anything derives from them: the app id comes from the provider's token,
+        // and verification reads the keys the verifier fetches here.
+        identity_provider.initialize().await?;
+        identity_verifier.initialize().await?;
 
         bootstrap_app_with_direction(
             &self.message_processor,
@@ -952,6 +970,76 @@ mod tests {
     use tokio::time;
     use tracing_test::traced_test;
 
+    fn jwt_verifier_for(issuer: &str) -> slim_auth::jwt::VerifierJwt {
+        slim_auth::builder::JwtBuilder::new()
+            .issuer(issuer)
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap()
+    }
+
+    /// `create_app` initializes the verifier: the signing keys of its issuer are fetched
+    /// by the time it returns, so the first token verifies without waiting.
+    #[tokio::test]
+    async fn test_create_app_initializes_the_verifier() {
+        use slim_auth::jwt::{Algorithm, Key, KeyData, KeyFormat};
+        use slim_auth::traits::{Signer, StandardClaims, Verifier};
+
+        slim_config::tls::provider::initialize_crypto_provider();
+        let (signing_key, issuer, _) =
+            slim_testing::utils::setup_test_jwt_resolver(Algorithm::RS256).await;
+        let signer = slim_auth::builder::JwtBuilder::new()
+            .issuer(issuer.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(signing_key),
+            })
+            .build()
+            .unwrap();
+        let token = signer.sign(&signer.create_claims()).unwrap();
+
+        let verifier = jwt_verifier_for(&issuer.uri());
+        // Not initialized yet: it has no keys, and the issuer was not asked.
+        assert!(
+            Verifier::get_claims::<StandardClaims>(&verifier, &token)
+                .is_err_and(|e| matches!(e, slim_auth::errors::AuthError::WouldBlockOn))
+        );
+
+        let service = Service::builder().build("svc-init".to_string()).unwrap();
+        let name = ProtoName::from_strings(["org", "ns", "app"]);
+        let provider = SharedSecret::new("app", TEST_VALID_SECRET).unwrap();
+        let _app = service
+            .create_app(&name, provider, verifier.clone())
+            .await
+            .unwrap();
+
+        // The clone the app got shares the keys that initialization fetched.
+        let claims: StandardClaims = Verifier::get_claims(&verifier, &token).unwrap();
+        assert_eq!(claims.sub.unwrap(), "test-subject");
+    }
+
+    /// An identity that cannot be initialized fails `create_app`, instead of an app that
+    /// cannot verify anyone.
+    #[tokio::test]
+    async fn test_create_app_fails_when_the_verifier_cannot_initialize() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let service = Service::builder()
+            .build("svc-init-fail".to_string())
+            .unwrap();
+        let name = ProtoName::from_strings(["org", "ns", "app"]);
+        let provider = SharedSecret::new("app", TEST_VALID_SECRET).unwrap();
+
+        let result = service
+            .create_app(&name, provider, jwt_verifier_for("http://127.0.0.1:1"))
+            .await;
+        assert!(matches!(result, Err(ServiceError::ProviderAuthError(_))));
+    }
+
     #[tokio::test]
     async fn test_service_configuration() {
         let config = ServiceConfiguration::new();
@@ -1166,6 +1254,7 @@ mod tests {
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
+            .await
             .expect("failed to create app");
 
         // create a publisher
@@ -1176,6 +1265,7 @@ mod tests {
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
+            .await
             .expect("failed to create app");
 
         // sleep to allow the subscription to be processed
@@ -1281,6 +1371,7 @@ mod tests {
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
+            .await
             .expect("failed to create app");
 
         //////////////////////////// p2p session ////////////////////////////////////////////////////////////////////////
@@ -1351,6 +1442,7 @@ mod tests {
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new("a", TEST_VALID_SECRET).unwrap(),
             )
+            .await
             .expect("failed to create app");
 
         // Create a point to point session to a non-existent destination

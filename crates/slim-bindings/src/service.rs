@@ -19,7 +19,7 @@ use {
     crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig},
     crate::server_config::ServerConfig,
     slim_auth::auth_provider::{AuthProvider, AuthVerifier},
-    slim_auth::traits::{TokenProvider, Verifier},
+    slim_auth::traits::TokenProvider,
     slim_config::component::Component,
     slim_config::grpc::client::ClientConfig as CoreClientConfig,
     slim_config::grpc::server::ServerConfig as CoreServerConfig,
@@ -527,34 +527,34 @@ pub(crate) async fn create_app_async_internal(
     .await
 }
 
-/// Create an app from already-built identity objects: initialize them, check the
-/// provider yields a token, and register the app on `service`.
+/// Create an app from identity objects that are built but not initialized: register the
+/// app on `service`, which initializes them, and check that the provider yields a token.
 #[cfg(not(feature = "web"))]
 pub(crate) async fn create_app_from_identity(
     base_name: SlimName,
-    mut identity_provider: AuthProvider,
-    mut identity_verifier: AuthVerifier,
+    identity_provider: AuthProvider,
+    identity_verifier: AuthVerifier,
     service: Arc<SlimService>,
     direction: crate::app::Direction,
     persistence: Option<slim_persistence::PersistenceConfig>,
 ) -> Result<crate::app::App, SlimError> {
-    // Initialize the identity provider
-    identity_provider.initialize().await?;
+    // A clone shares the state that initialization fills, so it can check the token
+    // once the service has initialized the provider.
+    let token_check = identity_provider.clone();
 
-    // Initialize the identity verifier
-    identity_verifier.initialize().await?;
+    // The service initializes the provider and the verifier, then creates the app
+    let (app, rx) = service
+        .create_app_with_direction_and_persistence(
+            &base_name,
+            identity_provider,
+            identity_verifier,
+            direction.into(),
+            persistence,
+        )
+        .await?;
 
     // Validate token
-    let _identity_token = identity_provider.get_token()?;
-
-    // Create the app using the provided service
-    let (app, rx) = service.create_app_with_direction_and_persistence(
-        &base_name,
-        identity_provider,
-        identity_verifier,
-        direction.into(),
-        persistence,
-    )?;
+    let _identity_token = token_check.get_token()?;
 
     Ok(crate::app::App::from_parts(
         Arc::new(app),

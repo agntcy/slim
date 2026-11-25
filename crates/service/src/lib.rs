@@ -29,7 +29,7 @@
 //!
 //! // Create an app for messaging
 //! let app_name = ProtoName::from_strings(["org", "ns", "app"]);
-//! let (app, rx) = service.create_app(&app_name, provider, verifier).expect("Failed to create app");
+//! let (app, rx) = service.create_app(&app_name, provider, verifier).await.expect("Failed to create app");
 //! # })
 //! ```
 

@@ -20,7 +20,6 @@ use agntcy_slim_channel_manager::store::StateStore;
 use anyhow::Context;
 use clap::Parser;
 use slim_auth::auth_provider::{AuthProvider, AuthVerifier};
-use slim_auth::traits::{TokenProvider, Verifier};
 use slim_config::auth::AuthConfig;
 use slim_config::component::ComponentBuilder;
 use slim_datapath::api::{ProtoName, ProtoSessionType};
@@ -269,29 +268,19 @@ impl ExtraConfig {
     }
 }
 
-/// Builds and initializes the identity provider and verifier `auth`
-/// describes, for a SLIM app named `name`.
-async fn identity(auth: &AuthConfig, name: &str) -> anyhow::Result<(AuthProvider, AuthVerifier)> {
+/// Builds the identity provider and verifier `auth` describes, for a SLIM app named
+/// `name`. `create_app*` initializes them.
+fn identity(auth: &AuthConfig, name: &str) -> anyhow::Result<(AuthProvider, AuthVerifier)> {
     let (core_provider, core_verifier) = auth
         .to_identity_configs(name)
         .context("invalid auth configuration")?;
 
-    let mut provider = core_provider
+    let provider = core_provider
         .build_auth_provider()
         .context("failed to build auth provider")?;
-    let mut verifier = core_verifier
+    let verifier = core_verifier
         .build_auth_verifier()
         .context("failed to build auth verifier")?;
-
-    // Initialize auth (required before use)
-    provider
-        .initialize()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to initialize identity provider: {e}"))?;
-    verifier
-        .initialize()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to initialize identity verifier: {e}"))?;
     Ok((provider, verifier))
 }
 
@@ -358,7 +347,7 @@ async fn main() -> anyhow::Result<()> {
     // Create the SLIM app with configured authentication
     let app_name = ProtoName::parse_name(&config.manager.local_name)
         .map_err(|e| anyhow::anyhow!("invalid local-name: {e}"))?;
-    let (provider, verifier) = identity(&config.manager.auth, &config.manager.local_name).await?;
+    let (provider, verifier) = identity(&config.manager.auth, &config.manager.local_name)?;
 
     let persistence = config
         .manager
@@ -372,13 +361,15 @@ async fn main() -> anyhow::Result<()> {
             None => PersistenceConfig::new(&p.path),
         });
 
-    let (app, _rx) = service.create_app_with_direction_and_persistence(
-        &app_name,
-        provider,
-        verifier,
-        Direction::None,
-        persistence,
-    )?;
+    let (app, _rx) = service
+        .create_app_with_direction_and_persistence(
+            &app_name,
+            provider,
+            verifier,
+            Direction::None,
+            persistence,
+        )
+        .await?;
 
     // Subscribe to the local name
     app.subscribe(app.app_name(), Some(conn_id))
@@ -444,14 +435,16 @@ async fn main() -> anyhow::Result<()> {
     // sends nor receives data. Give it an app of its own, with the
     // approval-auth identity when one is configured.
     let approval_name = format!("{}-approval", config.manager.local_name);
-    let (provider, verifier) = identity(approval_auth, &approval_name).await?;
-    let (approval_app, _approval_notifications) = service.create_app_with_direction(
-        &ProtoName::parse_name(&approval_name)
-            .map_err(|e| anyhow::anyhow!("invalid approval app name: {e}"))?,
-        provider,
-        verifier,
-        Direction::Bidirectional,
-    )?;
+    let (provider, verifier) = identity(approval_auth, &approval_name)?;
+    let (approval_app, _approval_notifications) = service
+        .create_app_with_direction(
+            &ProtoName::parse_name(&approval_name)
+                .map_err(|e| anyhow::anyhow!("invalid approval app name: {e}"))?,
+            provider,
+            verifier,
+            Direction::Bidirectional,
+        )
+        .await?;
     approval_app
         .subscribe(approval_app.app_name(), Some(conn_id))
         .await

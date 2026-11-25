@@ -47,6 +47,7 @@ async fn create_app(
     let svc = build_client_service(port, name);
     let (app, rx) = svc
         .create_app(name, secret.clone(), secret)
+        .await
         .expect("failed to create app");
     svc.run().await.expect("failed to run service");
     let conn_id = svc
@@ -86,6 +87,7 @@ async fn create_persistent_app(
             Direction::Bidirectional,
             Some(PersistenceConfig::new(dir)),
         )
+        .await
         .expect("failed to create persistent app");
 
     svc.run().await.expect("failed to run service");
