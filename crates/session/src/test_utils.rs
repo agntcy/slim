@@ -50,33 +50,26 @@ impl Verifier for MockVerifier {
         Ok(())
     }
 
-    async fn verify(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+    fn verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
         Ok(())
     }
 
-    fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
-        Ok(())
-    }
-
-    async fn get_claims<Claims>(&self, _token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
+    fn get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned,
     {
         Err(AuthError::TokenInvalid)
     }
 
-    fn try_get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
-    where
-        Claims: serde::de::DeserializeOwned,
-    {
+    async fn get_public_key(&self, _token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
         Err(AuthError::TokenInvalid)
     }
 
-    fn try_get_subject(&self, _token: impl AsRef<str>) -> Result<String, AuthError> {
+    fn get_subject(&self, _token: impl AsRef<str>) -> Result<String, AuthError> {
         Err(AuthError::TokenInvalid)
     }
 
-    fn try_verify_key_binding(
+    fn verify_key_binding(
         &self,
         _token: impl AsRef<str>,
         _public_key: &[u8],

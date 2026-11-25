@@ -31,6 +31,7 @@ tasks:
     desc: "Run SLIM gateway with secure WebSocket transport (wss://)"
     dir: ".."
     cmds:
+      - test -f config/crypto/server-cert.pem || bash config/crypto/gen-keys.sh
       - cargo run --bin slim -- --config ./config/websocket/server-config-wss.yaml
 
   run:slim:unix:

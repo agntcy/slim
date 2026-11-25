@@ -110,7 +110,7 @@ jobs:
       # Keep in step with the version the release-plz/action pinned in
       # release-rust.yaml installs.
       - name: Install release-plz
-        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: release-plz@0.3.170
 

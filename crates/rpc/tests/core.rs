@@ -133,6 +133,7 @@ impl TestEnv {
                 AuthProvider::shared_secret(secret.clone()),
                 AuthVerifier::shared_secret(secret.clone()),
             )
+            .await
             .unwrap();
         let server_app = Arc::new(server_app);
         let server_name = server_app.app_name().clone();
@@ -152,6 +153,7 @@ impl TestEnv {
                 AuthProvider::shared_secret(secret.clone()),
                 AuthVerifier::shared_secret(secret),
             )
+            .await
             .unwrap();
         let client_app = Arc::new(client_app);
 
@@ -2970,6 +2972,7 @@ async fn test_slimrpc_and_plain_sessions_share_a_name() {
             AuthProvider::shared_secret(secret.clone()),
             AuthVerifier::shared_secret(secret),
         )
+        .await
         .unwrap();
     let server_app = Arc::new(server_app);
     let server_name = server_app.app_name().clone();
@@ -3016,6 +3019,7 @@ async fn test_slimrpc_and_plain_sessions_share_a_name() {
             AuthProvider::shared_secret(secret.clone()),
             AuthVerifier::shared_secret(secret),
         )
+        .await
         .unwrap();
     let client_app = Arc::new(client_app);
 

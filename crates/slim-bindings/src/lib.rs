@@ -59,6 +59,8 @@ mod common_config;
 mod completion_handle;
 #[cfg(not(feature = "web"))]
 mod config;
+#[cfg(not(feature = "web"))]
+mod custom_identity;
 mod errors;
 #[cfg(not(feature = "web"))]
 mod identity_config;
@@ -97,12 +99,16 @@ pub use config::{
     initialize_from_config, initialize_with_configs, initialize_with_defaults, is_initialized,
     shutdown, shutdown_blocking,
 };
+#[cfg(not(feature = "web"))]
+pub use custom_identity::{
+    IdentityCallbackError, IdentityExport, IdentityProvider, IdentityVerifier, SignatureKeys,
+    generate_signature_keys,
+};
 pub use errors::SlimError;
 #[cfg(not(feature = "web"))]
 pub use identity_config::{
     ClientJwtAuth, IdentityProviderConfig, IdentityVerifierConfig, JwtAlgorithm, JwtAuth,
-    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, SelfCertifiedDidVerifierAuth,
-    StaticJwtAuth,
+    JwtKeyConfig, JwtKeyData, JwtKeyFormat, JwtKeyType, StaticJwtAuth, did_key_of_private_key,
 };
 #[cfg(not(feature = "web"))]
 pub use init_config::{

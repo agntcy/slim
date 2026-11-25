@@ -81,7 +81,7 @@
 //!     &base_name,
 //!     AuthProvider::shared_secret(secret.clone()),
 //!     AuthVerifier::shared_secret(secret),
-//! )?;
+//! ).await?;
 //!
 //! // Register a handler and run the server
 //! let server = Server::new(Arc::new(app), base_name, notification_rx);

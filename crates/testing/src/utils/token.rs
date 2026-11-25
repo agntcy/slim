@@ -240,7 +240,7 @@ impl TestClaims {
 
 /// Generate a syntactically valid unsigned JWT for tests where signature verification is not needed.
 /// The token will have HS256 header and include standard fields (iss,aud,sub,exp,iat,nbf).
-/// This is useful for tests that exercise synchronous paths like `try_verify` where
+/// This is useful for tests that exercise synchronous paths like `verify` where
 /// we only need to parse claims and detect missing cached keys.
 pub fn generate_test_token(issuer: &str, audience: &str, subject: &str) -> String {
     let header_json = r#"{"alg":"HS256","typ":"JWT"}"#;

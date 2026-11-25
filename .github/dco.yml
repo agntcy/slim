@@ -1,4 +1,4 @@
-# DCO app config: org members (incl. the release-plz automation bot) are exempt
+# DCO app config: org members (incl. the agntcy-automation app) are exempt
 # from the Signed-off-by requirement; external contributions still require it.
 require:
   members: false

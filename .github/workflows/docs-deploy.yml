@@ -2,9 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Docs deploys via the reusable docs pipeline:
-#   - push to main         -> mode deploy-dev      (`dev` version; never `latest`)
-#   - release tag vX.Y.Z    -> mode deploy-release  (`X.Y.Z` + `latest`, default)
-#   - workflow_dispatch     -> mode deploy-release, version from input
+#   - push to main                -> mode deploy-dev      (`dev` version; never `latest`)
+#   - release slim-vX.Y.Z         -> mode deploy-release  (`slim-vX.Y.Z` + `latest`, default)
+#   - any other release           -> skipped
+#   - workflow_dispatch           -> mode deploy-release, version from input
+#
+# This monorepo publishes a GitHub release for every component (slimctl,
+# slim-config, helm-slim, ...). Only final releases of the SLIM node (tags
+# slim-vX.Y.Z, not slim-version-* and not pre-releases) are docs versions;
+# deploying the others would add them to the version picker and move `latest`.
 #
 # gh-pages is the version ledger (mike --push). Event parsing lives here (needs
 # the GitHub event context); the mike/task mechanics live in docs/Taskfile.yml.
@@ -16,8 +22,6 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-    tags:
-      - 'v*.*.*'
   release:
     types: [published]
   workflow_dispatch:
@@ -49,9 +53,8 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
@@ -62,12 +65,14 @@ jobs:
           elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
             MODE="deploy-release"
             VERSION="${INPUT_VERSION}"
-          elif [ "${EVENT_NAME}" = "release" ] && [ -n "${RELEASE_TAG:-}" ]; then
-            MODE="deploy-release"
-            VERSION="${RELEASE_TAG}"
-          elif [ "${REF_TYPE}" = "tag" ]; then
-            MODE="deploy-release"
-            VERSION="${REF_NAME}"
+          elif [ "${EVENT_NAME}" = "release" ]; then
+            if [[ "${RELEASE_TAG:-}" =~ ^slim-v[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ "${RELEASE_PRERELEASE}" != "true" ]; then
+              MODE="deploy-release"
+              VERSION="${RELEASE_TAG}"
+            else
+              MODE="skip"
+              echo "Release ${RELEASE_TAG:-<none>} is not a final SLIM node release (slim-vX.Y.Z); not deploying docs."
+            fi
           else
             echo "::error::Could not resolve deploy mode from event ${EVENT_NAME} (${REF})"
             exit 1
@@ -78,9 +83,13 @@ jobs:
 
   deploy:
     needs: resolve
+    if: needs.resolve.outputs.mode != 'skip'
     permissions:
       contents: write
     uses: ./.github/workflows/reusable-docs.yml
+    secrets:
+      PROJECT_APP_ID: ${{ secrets.PROJECT_APP_ID }}
+      PROJECT_APP_KEY: ${{ secrets.PROJECT_APP_KEY }}
     with:
       mode: ${{ needs.resolve.outputs.mode }}
       version: ${{ needs.resolve.outputs.version }}

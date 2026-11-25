@@ -163,6 +163,7 @@ async fn create_app_with_shared_secret_and_direction(
 
     service
         .create_app_with_direction(&app_name, provider, verifier, direction)
+        .await
         .expect("failed to create app")
 }
 
@@ -1288,6 +1289,7 @@ async fn start_owner_endpoint_as(
                 verifier,
                 Direction::Bidirectional,
             )
+            .await
             .unwrap(),
     };
     let app = Arc::new(app);
@@ -1808,6 +1810,7 @@ async fn start_jwt_receiver(
     let name = ProtoName::parse_name(local_name).unwrap();
     let (app, _rx) = service
         .create_app_with_direction(&name, provider, verifier, Direction::None)
+        .await
         .unwrap();
     app.subscribe(&name, Some(conn_id)).await.unwrap();
     app

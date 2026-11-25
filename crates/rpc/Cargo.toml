@@ -5,7 +5,7 @@
 name = "agntcy-slim-rpc"
 edition = { workspace = true }
 license = { workspace = true }
-version.workspace = true
+version = "3.5.1"
 description = "SlimRPC: a gRPC-like RPC framework over SLIM (native Rust)."
 
 [lib]

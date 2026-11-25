@@ -3,6 +3,7 @@
 
 // Core modules available on every target
 pub mod auth_provider;
+mod erased;
 pub mod errors;
 pub mod identity_binding;
 pub mod identity_claims;
@@ -20,6 +21,7 @@ pub mod did_key;
 pub mod file_watcher;
 pub mod jwt;
 pub mod jwt_middleware;
+pub(crate) mod key_refresh;
 pub mod oidc;
 pub mod refresh_token;
 pub mod resolver;

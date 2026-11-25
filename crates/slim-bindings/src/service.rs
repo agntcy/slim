@@ -19,7 +19,7 @@ use {
     crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig},
     crate::server_config::ServerConfig,
     slim_auth::auth_provider::{AuthProvider, AuthVerifier},
-    slim_auth::traits::{TokenProvider, Verifier},
+    slim_auth::traits::TokenProvider,
     slim_config::component::Component,
     slim_config::grpc::client::ClientConfig as CoreClientConfig,
     slim_config::grpc::server::ServerConfig as CoreServerConfig,
@@ -284,6 +284,51 @@ impl Service {
         self.inner.get_connection_id(&endpoint)
     }
 
+    /// Create a new App whose identity is provided by foreign-language objects (async version)
+    ///
+    /// `identity_provider` proves this app's identity; `identity_verifier` verifies peers.
+    pub async fn create_app_with_custom_identity_async(
+        &self,
+        name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let base_name: SlimName = name.as_ref().into();
+        let (provider, verifier) =
+            crate::custom_identity::into_core(identity_provider, identity_verifier);
+        let service = self.inner.clone();
+        // Spawn on the runtime so a tokio context exists when called from a UniFFI async context.
+        let handle = get_runtime().spawn(async move {
+            create_app_from_identity(base_name, provider, verifier, service, direction, None).await
+        });
+        handle
+            .await
+            .map_err(|e| SlimError::InternalError {
+                message: format!("create_app_with_custom_identity task failed: {e}"),
+            })?
+            .map(Arc::new)
+    }
+
+    /// Create a new App whose identity is provided by foreign-language objects - blocking version
+    ///
+    /// Blocks while the objects' async `initialize` run; see
+    /// [`crate::App::new_with_custom_identity`] for when not to use it.
+    pub fn create_app_with_custom_identity(
+        &self,
+        name: Arc<Name>,
+        identity_provider: Arc<dyn crate::custom_identity::IdentityProvider>,
+        identity_verifier: Arc<dyn crate::custom_identity::IdentityVerifier>,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        get_runtime().block_on(self.create_app_with_custom_identity_async(
+            name,
+            identity_provider,
+            identity_verifier,
+            direction,
+        ))
+    }
+
     /// Create a new App with authentication configuration (async version)
     ///
     /// This method initializes authentication providers/verifiers and creates a App
@@ -456,6 +501,71 @@ impl Service {
     ) -> Result<Arc<crate::app::App>, SlimError> {
         get_runtime().block_on(self.create_app_with_secret_async(name, secret))
     }
+
+    /// Create a new App whose identity is a `did:key` (async version)
+    ///
+    /// The app signs with an Ed25519 key and accepts the peers whose public keys it
+    /// trusts. The provider and the verifier are built from the two arguments and
+    /// initialized before the app is created.
+    ///
+    /// # Arguments
+    /// * `name` - The base name for the app (without ID)
+    /// * `private_key_pem` - The app's Ed25519 private key, a PKCS#8 PEM document
+    ///   (`-----BEGIN PRIVATE KEY-----`, as `openssl genpkey -algorithm ed25519` writes).
+    ///   The app's identity is the `did:key` of that key (see
+    ///   [`crate::did_key_of_private_key`]).
+    /// * `trusted_keys` - The JWKS (JSON) of the trust anchor: the public keys of the peers
+    ///   the app accepts, as `OKP` `Ed25519` JWKs. A token's subject must be the `did:key`
+    ///   of the key that signed it. It has to list the app's own key too, since MLS
+    ///   verifies the app's own token against it.
+    /// * `direction` - Traffic direction: Send, Recv, Bidirectional, or None
+    ///
+    /// # Returns
+    /// * `Ok(Arc<App>)` - Successfully created app
+    /// * `Err(SlimError)` - If a key is invalid, or the app cannot be created
+    pub async fn create_app_with_did_key_async(
+        &self,
+        name: Arc<Name>,
+        private_key_pem: String,
+        trusted_keys: String,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        let slim_name: SlimName = name.as_ref().into();
+        let (app, rx) = self
+            .inner
+            .create_app_with_did_key_and_direction(
+                &slim_name,
+                &private_key_pem,
+                &trusted_keys,
+                direction.into(),
+            )
+            .await?;
+
+        Ok(Arc::new(crate::app::App::from_parts(
+            Arc::new(app),
+            Arc::new(tokio::sync::RwLock::new(rx)),
+            self.inner.clone(),
+        )))
+    }
+
+    /// Create a new App whose identity is a `did:key` (blocking version)
+    ///
+    /// See [`Service::create_app_with_did_key_async`] for the arguments.
+    #[uniffi::method]
+    pub fn create_app_with_did_key(
+        &self,
+        name: Arc<Name>,
+        private_key_pem: String,
+        trusted_keys: String,
+        direction: crate::app::Direction,
+    ) -> Result<Arc<crate::app::App>, SlimError> {
+        get_runtime().block_on(self.create_app_with_did_key_async(
+            name,
+            private_key_pem,
+            trusted_keys,
+            direction,
+        ))
+    }
 }
 
 /// Internal async app creation logic — native only (uses IdentityProviderConfig/IdentityVerifierConfig)
@@ -468,25 +578,48 @@ pub(crate) async fn create_app_async_internal(
     direction: crate::app::Direction,
 ) -> Result<crate::app::App, SlimError> {
     // Convert configurations to actual providers/verifiers
-    let mut identity_provider: AuthProvider = identity_provider_config.try_into()?;
-    let mut identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
+    let identity_provider: AuthProvider = identity_provider_config.try_into()?;
+    let identity_verifier: AuthVerifier = identity_verifier_config.try_into()?;
 
-    // Initialize the identity provider
-    identity_provider.initialize().await?;
-
-    // Initialize the identity verifier
-    identity_verifier.initialize().await?;
-
-    // Validate token
-    let _identity_token = identity_provider.get_token()?;
-
-    // Create the app using the provided service
-    let (app, rx) = service.create_app_with_direction(
-        &base_name,
+    create_app_from_identity(
+        base_name,
         identity_provider,
         identity_verifier,
-        direction.into(),
-    )?;
+        service,
+        direction,
+        None,
+    )
+    .await
+}
+
+/// Create an app from identity objects that are built but not initialized: register the
+/// app on `service`, which initializes them, and check that the provider yields a token.
+#[cfg(not(feature = "web"))]
+pub(crate) async fn create_app_from_identity(
+    base_name: SlimName,
+    identity_provider: AuthProvider,
+    identity_verifier: AuthVerifier,
+    service: Arc<SlimService>,
+    direction: crate::app::Direction,
+    persistence: Option<slim_persistence::PersistenceConfig>,
+) -> Result<crate::app::App, SlimError> {
+    // A clone shares the state that initialization fills, so it can check the token
+    // once the service has initialized the provider.
+    let token_check = identity_provider.clone();
+
+    // The service initializes the provider and the verifier, then creates the app
+    let (app, rx) = service
+        .create_app_with_direction_and_persistence(
+            &base_name,
+            identity_provider,
+            identity_verifier,
+            direction.into(),
+            persistence,
+        )
+        .await?;
+
+    // Validate token
+    let _identity_token = token_check.get_token()?;
 
     Ok(crate::app::App::from_parts(
         Arc::new(app),
@@ -554,12 +687,15 @@ impl Service {
     ) -> Result<Arc<crate::app::App>, SlimError> {
         let base_name: SlimName = name.as_ref().into();
         let identity = SharedSecret::new(&name.to_string(), &secret)?;
-        let (app, rx) = self.inner.create_app_with_direction(
-            &base_name,
-            AuthProvider::SharedSecret(identity.clone()),
-            AuthVerifier::SharedSecret(identity),
-            direction.into(),
-        )?;
+        let (app, rx) = self
+            .inner
+            .create_app_with_direction(
+                &base_name,
+                AuthProvider::SharedSecret(identity.clone()),
+                AuthVerifier::SharedSecret(identity),
+                direction.into(),
+            )
+            .await?;
         Ok(Arc::new(crate::app::App::from_parts(
             Arc::new(app),
             Arc::new(tokio::sync::RwLock::new(rx)),
@@ -1368,5 +1504,94 @@ mod tests {
         let result = service.run_async().await;
         // May fail if nothing configured, but shouldn't panic
         let _ = result;
+    }
+
+    // ========================================================================
+    // did:key identity
+    // ========================================================================
+
+    // RFC 8032 section 7.1, test 1, and the public key of test 2 (RFC 8037 appendix A).
+    const SEED_1: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+    const PUBLIC_1: &str = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo";
+    const PUBLIC_2: &str = "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw";
+
+    use slim_testing::keys::{ed25519_jwks_of as jwks_of, ed25519_pem_of_seed as pem_of};
+
+    fn did_app_name() -> Arc<Name> {
+        Arc::new(Name::new(
+            "org".to_string(),
+            "ns".to_string(),
+            "did-app".to_string(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn test_create_app_with_did_key_async() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let service = Service::new("did-key-async".to_string());
+
+        let app = service
+            .create_app_with_did_key_async(
+                did_app_name(),
+                pem_of(SEED_1),
+                jwks_of(&[PUBLIC_1, PUBLIC_2]),
+                crate::app::Direction::Bidirectional,
+            )
+            .await
+            .expect("an app with a did:key identity");
+        assert!(!app.id().is_empty());
+    }
+
+    #[test]
+    fn test_create_app_with_did_key_blocking() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let service = Service::new("did-key-blocking".to_string());
+
+        let app = service
+            .create_app_with_did_key(
+                did_app_name(),
+                pem_of(SEED_1),
+                jwks_of(&[PUBLIC_1]),
+                crate::app::Direction::Bidirectional,
+            )
+            .expect("an app with a did:key identity");
+        assert!(!app.id().is_empty());
+    }
+
+    #[test]
+    fn test_did_key_of_private_key() {
+        // RFC 8032 section 7.1, test 1: its public key is d75a98...
+        let did = crate::identity_config::did_key_of_private_key(&pem_of(SEED_1)).unwrap();
+        assert_eq!(
+            did,
+            "did:key:z6MktwupdmLXVVqTzCw4i46r4uGyosGXRnR3XjN4Zq7oMMsw"
+        );
+        assert!(crate::identity_config::did_key_of_private_key("not a pem").is_err());
+    }
+
+    /// Keys that are not what the helper takes are an error, not a panic.
+    #[tokio::test]
+    async fn test_create_app_with_did_key_rejects_invalid_keys() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let service = Service::new("did-key-invalid".to_string());
+
+        for (private_key, trusted_keys) in [
+            // Not a PEM.
+            ("not a pem".to_string(), jwks_of(&[PUBLIC_1])),
+            // A trust anchor that is not a JWKS.
+            (pem_of(SEED_1), "not a jwks".to_string()),
+            // A trust anchor without the app's own key.
+            (pem_of(SEED_1), jwks_of(&[PUBLIC_2])),
+        ] {
+            let result = service
+                .create_app_with_did_key_async(
+                    did_app_name(),
+                    private_key,
+                    trusted_keys,
+                    crate::app::Direction::Bidirectional,
+                )
+                .await;
+            assert!(result.is_err());
+        }
     }
 }

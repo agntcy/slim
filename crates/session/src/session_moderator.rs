@@ -153,9 +153,7 @@ where
                 )
                 .with_enforce_pqc(self.common.settings.enforce_pqc);
                 let mut mls_state =
-                    MlsState::new(mls, mls_settings.header_integrity_validation_percent)
-                        .await
-                        .expect("failed to create MLS state");
+                    MlsState::new(mls, mls_settings.header_integrity_validation_percent).await?;
                 mls_state.identity_binding = self.common.settings.identity_binding;
                 Some(MlsModeratorState::new(mls_state))
             } else {
@@ -2197,6 +2195,7 @@ mod tests {
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: participant.clone(),
             control: participant.clone(),
@@ -2298,6 +2297,7 @@ mod tests {
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: first.clone(),
             control: first.clone(),
@@ -2472,6 +2472,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source,
             destination,
             control,
@@ -2799,6 +2800,7 @@ mod tests {
         let (tx_session_layer, _rx_session_layer) = mpsc::channel(16);
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: readable.clone(),
             control: readable.clone(),
@@ -3059,6 +3061,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: destination.clone(),
             control: destination.clone(),
@@ -3144,6 +3147,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: destination.clone(),
             control,
@@ -3297,6 +3301,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source: source.clone(),
             destination: destination.clone(),
             control: control.clone(),
@@ -4105,6 +4110,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source,
             destination: destination.clone(),
             control,
@@ -4346,6 +4352,7 @@ mod tests {
 
         let settings = SessionSettings {
             id: 1,
+            generation: 0,
             source,
             destination: destination.clone(),
             control,

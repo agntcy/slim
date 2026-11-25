@@ -56,14 +56,19 @@ pub(crate) enum AppIdentity {
 /// Called alongside session persistence, by which point the MLS layer has
 /// installed its ciphersuite-correct keypair — persisting here (rather than at
 /// startup) ensures the saved identity matches the group's leaf. No-op for
-/// providers without a persistable identity (`export_identity` -> `None`),
+/// providers without a persistable identity (`export_identity` -> `Ok(None)`),
 /// reported as [`AppIdentity::NotExportable`].
 pub(crate) fn persist_app_identity<P: slim_auth::traits::TokenProvider>(
     kv: &slim_persistence::SlimKvStore,
     provider: &P,
 ) -> AppIdentity {
-    let Some(identity) = provider.export_identity() else {
-        return AppIdentity::NotExportable;
+    let identity = match provider.export_identity() {
+        Ok(Some(identity)) => identity,
+        Ok(None) => return AppIdentity::NotExportable,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to export app identity");
+            return AppIdentity::Failed;
+        }
     };
     match serde_json::to_vec(&identity) {
         Ok(bytes) => match kv.put(APP_IDENTITY_KEY, &bytes) {
@@ -293,6 +298,52 @@ pub(crate) fn new_record(
 mod tests {
     use super::*;
     use slim_datapath::api::ParticipantSettings;
+
+    /// A provider whose export fails: the session record must not be saved next to a
+    /// stale identity, so this is `Failed`, not `NotExportable`.
+    #[derive(Clone)]
+    struct FailingExport;
+
+    impl slim_auth::traits::TokenProvider for FailingExport {
+        async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
+            Ok("tok".into())
+        }
+        fn get_id(&self) -> Result<String, slim_auth::errors::AuthError> {
+            Ok("id".into())
+        }
+        async fn set_signature_keys(
+            &mut self,
+            _: Vec<u8>,
+            _: Vec<u8>,
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn export_identity(
+            &self,
+        ) -> Result<Option<slim_auth::traits::ExportedIdentity>, slim_auth::errors::AuthError>
+        {
+            Err(slim_auth::errors::AuthError::TokenInvalid)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_failed_export_is_not_reported_as_nothing_to_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, kv) = slim_persistence::PersistentStore::open(
+            dir.path(),
+            "app",
+            Some(slim_persistence::MlsEncryptionKey::RawKey([7; 32])),
+        )
+        .unwrap();
+        assert_eq!(
+            persist_app_identity(&kv, &FailingExport),
+            AppIdentity::Failed
+        );
+    }
 
     fn name(leaf: &str) -> ProtoName {
         ProtoName::from_strings(["org", "ns", leaf])

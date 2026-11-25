@@ -45,7 +45,8 @@ type RpcBytesJoinHandle = tokio::task::JoinHandle<RpcBytesResult>;
 /// cancelled.
 #[cfg(feature = "uniffi")]
 pub(crate) struct CallCanceller {
-    task: tokio::task::AbortHandle,
+    /// `None` for a reader built without a task: it cannot be cancelled.
+    task: Option<tokio::task::AbortHandle>,
     cancelled: std::sync::atomic::AtomicBool,
 }
 
@@ -53,16 +54,26 @@ pub(crate) struct CallCanceller {
 impl CallCanceller {
     pub(crate) fn new(task: tokio::task::AbortHandle) -> Self {
         Self {
-            task,
+            task: Some(task),
+            cancelled: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// A canceller with no task behind it; `cancel` does nothing.
+    pub(crate) fn detached() -> Self {
+        Self {
+            task: None,
             cancelled: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
     pub(crate) fn cancel(&self) {
-        if !self.task.is_finished() {
+        if let Some(task) = &self.task
+            && !task.is_finished()
+        {
             self.cancelled
                 .store(true, std::sync::atomic::Ordering::SeqCst);
-            self.task.abort();
+            task.abort();
         }
     }
 
@@ -393,8 +404,19 @@ pub struct ResponseStreamReader {
 
 #[cfg(feature = "uniffi")]
 impl ResponseStreamReader {
-    /// Create a new response stream reader for the call run by `task`.
-    pub(crate) fn new(
+    /// Create a new response stream reader.
+    ///
+    /// The reader cannot cancel the call behind `rx`; [`cancel`](Self::cancel) does
+    /// nothing. Use [`with_task`](Self::with_task) for a cancellable call.
+    pub fn new(rx: UnboundedReceiver<Result<Vec<u8>, RpcError>>) -> Self {
+        Self {
+            inner: TokioMutex::new(rx),
+            canceller: CallCanceller::detached(),
+        }
+    }
+
+    /// Create a response stream reader for the call run by `task`.
+    pub(crate) fn with_task(
         rx: UnboundedReceiver<Result<Vec<u8>, RpcError>>,
         task: tokio::task::AbortHandle,
     ) -> Self {
@@ -744,7 +766,18 @@ pub struct MulticastResponseReader {
 #[cfg(feature = "uniffi")]
 impl MulticastResponseReader {
     /// Create a new reader backed by the given mpsc receiver.
-    pub(crate) fn new(
+    ///
+    /// The reader cannot cancel the call behind `rx`; [`cancel`](Self::cancel) does
+    /// nothing. Use [`with_task`](Self::with_task) for a cancellable call.
+    pub fn new(rx: UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>) -> Self {
+        Self {
+            inner: TokioMutex::new(rx),
+            canceller: CallCanceller::detached(),
+        }
+    }
+
+    /// Create a reader backed by the given mpsc receiver for the call run by `task`.
+    pub(crate) fn with_task(
         rx: UnboundedReceiver<Result<MulticastItem<Vec<u8>>, RpcError>>,
         task: tokio::task::AbortHandle,
     ) -> Self {
@@ -1075,5 +1108,24 @@ mod tests {
         assert!(msg2.is_err());
 
         assert!(sink.is_closed_async().await);
+    }
+
+    /// `ResponseStreamReader::new(rx)` stays a public constructor: it reads the
+    /// channel, and `cancel` on it does nothing.
+    #[cfg(feature = "uniffi")]
+    #[tokio::test]
+    async fn reader_built_from_a_receiver_alone_cannot_be_cancelled() {
+        let (tx, rx) = unbounded_channel();
+        let reader = ResponseStreamReader::new(rx);
+        tx.send(Ok(b"one".to_vec())).unwrap();
+
+        reader.cancel();
+        assert!(matches!(
+            reader.next_async().await,
+            StreamMessage::Data(d) if d == b"one"
+        ));
+
+        drop(tx);
+        assert!(matches!(reader.next_async().await, StreamMessage::End));
     }
 }

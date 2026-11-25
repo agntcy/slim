@@ -33,7 +33,7 @@ SPDX-License-Identifier: Apache-2.0
 //! ```ignore
 //! let auth = SharedSecret::new("service", secret_string)?;
 //! let token = auth.get_token()?;
-//! auth.try_verify(&token)?;
+//! auth.verify(&token)?;
 //! ```
 //!
 //! Enabling replay protection:
@@ -42,7 +42,7 @@ SPDX-License-Identifier: Apache-2.0
 //!     .replay_cache(4096)
 //!     .build()?;
 //! let token = auth.get_token()?;
-//! auth.try_verify(&token)?; // second verify of same token will fail
+//! auth.verify(&token)?; // second verify of same token will fail
 //! ```
 //!
 //! Thread safety:
@@ -525,8 +525,8 @@ impl TokenProvider for SharedSecret {
         Ok((signing.keys.0.clone(), signing.keys.1.clone()))
     }
 
-    fn mls_signature_keys_installed(&self) -> bool {
-        self.inner.signing.read().mls_installed
+    fn mls_signature_keys_installed(&self) -> Result<bool, AuthError> {
+        Ok(self.inner.signing.read().mls_installed)
     }
 
     async fn set_signature_keys(
@@ -543,14 +543,14 @@ impl TokenProvider for SharedSecret {
         Ok(())
     }
 
-    fn export_identity(&self) -> Option<ExportedIdentity> {
+    fn export_identity(&self) -> Result<Option<ExportedIdentity>, AuthError> {
         let signing = self.inner.signing.read();
-        Some(ExportedIdentity {
+        Ok(Some(ExportedIdentity {
             id: self.inner.id.clone(),
             credential: self.inner.shared_secret.clone().into_bytes(),
             signature_secret_key: signing.keys.0.clone(),
             signature_public_key: signing.keys.1.clone(),
-        })
+        }))
     }
 
     fn with_restored_identity(self, identity: ExportedIdentity) -> Result<Self, AuthError> {
@@ -594,11 +594,7 @@ impl Verifier for SharedSecret {
         Ok(())
     }
 
-    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
-        self.try_verify(token)
-    }
-
-    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
+    fn verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         let token_str = token.as_ref();
         let now = self.get_current_timestamp();
 
@@ -642,18 +638,15 @@ impl Verifier for SharedSecret {
         self.record_replay(nonce, ts, now)
     }
 
-    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
-    where
-        Claims: serde::de::DeserializeOwned + Send,
-    {
-        self.try_get_claims(token)
+    async fn get_public_key(&self, token: impl AsRef<str> + Send) -> Result<Vec<u8>, AuthError> {
+        crate::traits::public_key_from_claims(self, token).await
     }
 
-    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+    fn get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         crate::traits::subject_from_claims(self, token)
     }
 
-    fn try_verify_key_binding(
+    fn verify_key_binding(
         &self,
         token: impl AsRef<str>,
         public_key: &[u8],
@@ -661,12 +654,12 @@ impl Verifier for SharedSecret {
         crate::traits::verify_pubkey_claim_binding(self, token, public_key)
     }
 
-    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
+    fn get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
         let token_str = token.as_ref();
-        self.try_verify(token_str)?;
+        self.verify(token_str)?;
         let (token_id, ts, _, claims_b64, _) = self.parse_token(token_str)?;
         let exp = ts + self.inner.validity_window.as_secs();
 
@@ -761,7 +754,7 @@ mod tests {
         assert_ne!(claims_before, claims_after);
 
         // The token must still self-verify after the key swap.
-        assert!(s.try_verify(new_token).is_ok());
+        assert!(s.verify(new_token).is_ok());
     }
 
     #[tokio::test]
@@ -783,7 +776,7 @@ mod tests {
 
         // The updated identity still produces a verifiable token.
         let token = s.get_token().unwrap();
-        assert!(s.try_verify(token).is_ok());
+        assert!(s.verify(token).is_ok());
     }
 
     #[test]
@@ -811,7 +804,7 @@ mod tests {
     fn test_verify_valid_token() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let token = s.get_token().unwrap();
-        assert!(s.try_verify(token).is_ok());
+        assert!(s.verify(token).is_ok());
     }
 
     #[test]
@@ -819,7 +812,7 @@ mod tests {
         let a = SharedSecret::new("svc", &valid_secret()).unwrap();
         let b = SharedSecret::new("svc", &valid_secret()).unwrap();
         let token = a.get_token().unwrap();
-        assert!(b.try_verify(token).is_ok());
+        assert!(b.verify(token).is_ok());
     }
 
     #[test]
@@ -833,7 +826,7 @@ mod tests {
         let message = build_message(s.id(), future_ts, &nonce, "");
         let mac = forge_mac(&s, &message);
         let token = format!("{}:{}:{}::{}", s.id(), future_ts, nonce, mac);
-        assert!(s.try_verify(token).is_err());
+        assert!(s.verify(token).is_err());
     }
 
     #[test]
@@ -847,7 +840,7 @@ mod tests {
         let message = build_message(s.id(), future_ts, &nonce, "");
         let mac = forge_mac(&s, &message);
         let token = format!("{}:{}:{}::{}", s.id(), future_ts, nonce, mac);
-        assert!(s.try_verify(token).is_ok());
+        assert!(s.verify(token).is_ok());
     }
 
     #[test]
@@ -861,7 +854,7 @@ mod tests {
         let message = build_message(s.id(), past_ts, &nonce, "");
         let mac = forge_mac(&s, &message);
         let token = format!("{}:{}:{}::{}", s.id(), past_ts, nonce, mac);
-        let res = s.try_verify(token);
+        let res = s.verify(token);
         assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid)));
     }
 
@@ -872,8 +865,8 @@ mod tests {
             .build()
             .unwrap();
         let token = s.get_token().unwrap();
-        assert!(s.try_verify(token.clone()).is_ok());
-        let replay = s.try_verify(token);
+        assert!(s.verify(token.clone()).is_ok());
+        let replay = s.verify(token);
         assert!(replay.is_err_and(|e| matches!(e, AuthError::TokenInvalidReplay)));
     }
 
@@ -881,9 +874,9 @@ mod tests {
     fn test_replay_allowed_when_disabled() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap(); // default disabled
         let token = s.get_token().unwrap();
-        assert!(s.try_verify(token.clone()).is_ok());
+        assert!(s.verify(token.clone()).is_ok());
         // Second verify should also succeed because replay protection off.
-        assert!(s.try_verify(token).is_ok());
+        assert!(s.verify(token).is_ok());
     }
 
     #[test]
@@ -893,14 +886,14 @@ mod tests {
         let nonce = gen_nonce();
         let bad_mac = "!!notbase64";
         let token = format!("{}:{}:{}:{}", s.id(), ts, nonce, bad_mac);
-        assert!(s.try_verify(token).is_err());
+        assert!(s.verify(token).is_err());
     }
 
     #[test]
     fn test_invalid_token_format_parts() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
-        assert!(s.try_verify("only:two:parts").is_err());
-        assert!(s.try_verify("a:b:c:d:e").is_err());
+        assert!(s.verify("only:two:parts").is_err());
+        assert!(s.verify("a:b:c:d:e").is_err());
     }
 
     #[test]
@@ -912,7 +905,7 @@ mod tests {
             &build_message(s.id(), s.get_current_timestamp(), &nonce, ""),
         );
         let token = format!("{}:{}:{}::{}", s.id(), "notanumber", nonce, mac);
-        assert!(s.try_verify(token).is_err());
+        assert!(s.verify(token).is_err());
     }
 
     #[test]
@@ -925,7 +918,7 @@ mod tests {
         // Truncated MAC has wrong length → rejected as malformed before decoding.
         let truncated = &mac[..mac.len() / 2];
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, truncated);
-        let res = s.try_verify(token);
+        let res = s.verify(token);
         assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
@@ -937,9 +930,9 @@ mod tests {
             .build()
             .unwrap();
         let token = s.get_token().unwrap();
-        assert!(s.try_verify(token.clone()).is_ok());
+        assert!(s.verify(token.clone()).is_ok());
         thread::sleep(Duration::from_secs(2));
-        let res = s.try_verify(token);
+        let res = s.verify(token);
         // Expiration still trumps; token expired.
         assert!(res.is_err_and(|e| matches!(e, AuthError::TokenInvalid)));
     }
@@ -969,7 +962,7 @@ mod tests {
         // Wrong-length MAC is rejected as malformed before base64 decoding.
         let bad_mac = "*invalid*mac*";
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, bad_mac);
-        let res = s.try_verify(token);
+        let res = s.verify(token);
         assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
@@ -981,17 +974,17 @@ mod tests {
             .unwrap();
         let t1 = s.get_token().unwrap();
         let t2 = s.get_token().unwrap();
-        assert!(s.try_verify(t1.clone()).is_ok());
-        assert!(s.try_verify(t2.clone()).is_ok());
-        assert!(s.try_verify(t1).is_err());
-        assert!(s.try_verify(t2).is_err());
+        assert!(s.verify(t1.clone()).is_ok());
+        assert!(s.verify(t2.clone()).is_ok());
+        assert!(s.verify(t1).is_err());
+        assert!(s.verify(t2).is_err());
     }
 
     #[test]
     fn test_claims_disabled() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap(); // replay disabled
         let token = s.get_token().unwrap();
-        let claims: BasicClaims = s.try_get_claims(token).unwrap();
+        let claims: BasicClaims = s.get_claims(token).unwrap();
         assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
     }
@@ -1003,7 +996,7 @@ mod tests {
             .build()
             .unwrap();
         let token = s.get_token().unwrap();
-        let claims: BasicClaims = s.try_get_claims(token).unwrap();
+        let claims: BasicClaims = s.get_claims(token).unwrap();
         assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
     }
@@ -1017,13 +1010,13 @@ mod tests {
         let t1 = s.get_token().unwrap();
         thread::sleep(Duration::from_millis(10));
         let t2 = s.get_token().unwrap();
-        assert!(s.try_verify(t1.clone()).is_ok());
-        assert!(s.try_verify(t2.clone()).is_ok());
+        assert!(s.verify(t1.clone()).is_ok());
+        assert!(s.verify(t2.clone()).is_ok());
         thread::sleep(Duration::from_millis(10));
         let t3 = s.get_token().unwrap();
-        assert!(s.try_verify(t3.clone()).is_ok());
+        assert!(s.verify(t3.clone()).is_ok());
         // t1 may have been evicted, so verifying again could succeed or fail based on eviction timing.
-        let _ = s.try_verify(t1);
+        let _ = s.verify(t1);
     }
 
     #[test]
@@ -1033,9 +1026,9 @@ mod tests {
             .build()
             .unwrap();
         let token = s.get_token().unwrap();
-        assert!(s.try_verify(token.clone()).is_ok());
+        assert!(s.verify(token.clone()).is_ok());
         let cloned = s.clone();
-        let res = cloned.try_verify(token);
+        let res = cloned.verify(token);
         assert!(res.is_err());
         assert!(res.unwrap_err().to_string().contains("replay"));
     }
@@ -1058,12 +1051,12 @@ mod tests {
             .build()
             .unwrap();
         let t1 = s.get_token().unwrap();
-        assert!(s.try_verify(t1).is_ok());
+        assert!(s.verify(t1).is_ok());
         // Sleep until t1's timestamp is older than the validity window.
         thread::sleep(Duration::from_secs(2));
         // A fresh token triggers the expiry-cleanup loop inside ReplayCache::insert.
         let t2 = s.get_token().unwrap();
-        assert!(s.try_verify(t2).is_ok());
+        assert!(s.verify(t2).is_ok());
     }
 
     #[test]
@@ -1094,6 +1087,7 @@ mod tests {
 
         let exported = original
             .export_identity()
+            .unwrap()
             .expect("SharedSecret exports its identity");
         assert_eq!(exported.id, original.get_id().unwrap());
 
@@ -1107,12 +1101,12 @@ mod tests {
         let (rsk, rpk) = restored.get_signature_keys().unwrap();
         assert_eq!(rsk, sk);
         assert_eq!(rpk, pk);
-        assert!(restored.mls_signature_keys_installed());
+        assert!(restored.mls_signature_keys_installed().unwrap());
 
         // A token from the restored provider verifies against the original
         // (same shared secret + id).
         let token = restored.get_token().unwrap();
-        assert!(original.try_verify(token).is_ok());
+        assert!(original.verify(token).is_ok());
     }
 
     #[tokio::test]
@@ -1138,7 +1132,7 @@ mod tests {
         assert_ne!(sk, sk_after);
         // Token issued after key update must still verify with the same shared secret.
         let token = s.get_token().unwrap();
-        assert!(s.try_verify(token).is_ok());
+        assert!(s.verify(token).is_ok());
     }
 
     #[tokio::test]
@@ -1148,16 +1142,16 @@ mod tests {
         <SharedSecret as Verifier>::initialize(&mut s)
             .await
             .unwrap();
-        // Verifier::verify (async wrapper around try_verify).
+        // Verifier::verify (async wrapper around verify).
         let token = s.get_token().unwrap();
-        s.verify(&token).await.unwrap();
+        s.verify(&token).unwrap();
     }
 
     #[tokio::test]
-    async fn test_get_claims_async() {
+    async fn test_get_claims() {
         let s = SharedSecret::new("svc", &valid_secret()).unwrap();
         let token = s.get_token().unwrap();
-        let claims: BasicClaims = s.get_claims(&token).await.unwrap();
+        let claims: BasicClaims = s.get_claims(&token).unwrap();
         assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, claims.iat + s.validity_window_secs());
     }
@@ -1169,7 +1163,7 @@ mod tests {
         let nonce = gen_nonce();
         // claims_b64 field containing ':' must be rejected before HMAC verification.
         let token = format!("{}:{}:{}:claims:with:colon:bad_mac", s.id(), ts, nonce);
-        let res = s.try_verify(&token);
+        let res = s.verify(&token);
         assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
@@ -1182,7 +1176,7 @@ mod tests {
         let invalid_43_mac = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!";
         assert_eq!(invalid_43_mac.len(), 43);
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, invalid_43_mac);
-        let res = s.try_verify(&token);
+        let res = s.verify(&token);
         assert!(res.is_err_and(|e| matches!(e, AuthError::Base64DecodeError(_))));
     }
 
@@ -1195,7 +1189,7 @@ mod tests {
         let wrong_len_mac = URL_SAFE_NO_PAD.encode([0u8; 33]);
         assert_eq!(wrong_len_mac.len(), 44);
         let token = format!("{}:{}:{}::{}", s.id(), ts, nonce, wrong_len_mac);
-        let res = s.try_verify(&token);
+        let res = s.verify(&token);
         assert!(res.is_err_and(|e| matches!(e, AuthError::TokenMalformed)));
     }
 
@@ -1208,8 +1202,8 @@ mod tests {
         let message = build_message(s.id(), ts, &nonce, "");
         let mac = forge_mac(&s, &message);
         let token = format!("{}:{}", message, mac);
-        // try_get_claims must fall through to the empty-claims branch (json!({})).
-        let claims: BasicClaims = s.try_get_claims(&token).unwrap();
+        // get_claims must fall through to the empty-claims branch (json!({})).
+        let claims: BasicClaims = s.get_claims(&token).unwrap();
         assert!(claims.sub.starts_with("svc_"));
         assert_eq!(claims.exp, ts + s.validity_window_secs());
     }
@@ -1225,7 +1219,7 @@ mod tests {
         s.get_token_into(&mut buf).unwrap();
         assert!(!buf.is_empty());
         assert_ne!(first_token, buf); // different nonces
-        assert!(s.try_verify(&first_token).is_ok());
-        assert!(s.try_verify(&buf).is_ok());
+        assert!(s.verify(&first_token).is_ok());
+        assert!(s.verify(&buf).is_ok());
     }
 }

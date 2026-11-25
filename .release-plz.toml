@@ -45,7 +45,7 @@ pr_body = '''
 ---
 This PR was generated with [release-plz](https://github.com/release-plz/release-plz/).
 
-Signed-off-by: Agntcy Build Bot <build@agntcy.io>
+Signed-off-by: agntcy-automation[bot] <269490587+agntcy-automation[bot]@users.noreply.github.com>
 '''
 
 [[package]]
@@ -53,6 +53,7 @@ name = "agntcy-slim-version"
 publish = true
 release = true
 changelog_update = true
+version_group = "node"
 
 [[package]]
 name = "agntcy-slim-config"
@@ -71,6 +72,7 @@ name = "agntcy-slim"
 publish = true
 release = true
 changelog_update = true
+version_group = "node"
 
 [[package]]
 name = "agntcy-slim-service"
@@ -119,6 +121,7 @@ name = "agntcy-slimctl"
 publish = true
 release = true
 changelog_update = true
+version_group = "node"
 
 [[package]]
 name = "agntcy-slim-proto"
@@ -131,24 +134,28 @@ name = "agntcy-slim-control-plane"
 publish = true
 release = true
 changelog_update = true
+version_group = "node"
 
 [[package]]
 name = "agntcy-slim-channel-manager"
 publish = true
 release = true
 changelog_update = true
+version_group = "app"
 
 [[package]]
 name = "agntcy-slim-rpc"
 publish = true
 release = true
 changelog_update = true
+version_group = "app"
 
 [[package]]
 name = "agntcy-slim-bindings"
 publish = true
 release = true
 changelog_update = true
+version_group = "app"
 
 [[package]]
 name = "agntcy-slim-persistence"

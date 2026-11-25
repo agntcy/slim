@@ -23,8 +23,6 @@ use tracing::debug;
 use {std::path::PathBuf, tokio::net::UnixListener, tokio_stream::wrappers::UnixListenerStream};
 
 use crate::auth::ServerAuthenticator;
-use crate::auth::jwt::Config as JwtAuthenticationConfig;
-use crate::auth::oidc::Config as OidcConfig;
 #[cfg(not(target_family = "windows"))]
 use crate::auth::spire::SpireConfig as SpireAuthConfig;
 use crate::errors::ConfigError;
@@ -253,9 +251,7 @@ impl ServerConfig {
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::Jwt(jwt) => {
-                let auth_layer = <JwtAuthenticationConfig as ServerAuthenticator<
-                    http::Response<tonic::body::Body>,
-                >>::get_server_layer(jwt)?;
+                let auth_layer = jwt.get_initialized_server_layer().await?;
 
                 let router = builder.layer(auth_layer).add_routes(routes);
                 Ok(router.serve_with_incoming(incoming).boxed())
@@ -272,10 +268,7 @@ impl ServerConfig {
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
             AuthenticationConfig::Oidc(oidc) => {
-                // OidcVerifier::initialize is a no-op; JWKS warms on first verify.
-                let auth_layer = <OidcConfig as ServerAuthenticator<
-                    http::Response<tonic::body::Body>,
-                >>::get_server_layer(oidc)?;
+                let auth_layer = oidc.get_initialized_server_layer().await?;
                 let router = builder.layer(auth_layer).add_routes(routes);
                 Ok(router.serve_with_incoming(incoming).boxed())
             }
@@ -310,7 +303,11 @@ mod tests {
     use crate::testutils::{Empty, helloworld::greeter_server::GreeterServer};
     use crate::tls::common::TlsSource;
 
-    static TEST_DATA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/grpc");
+    static TEST_DATA_PATH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        slim_testing::keys::grpc_dir()
+            .to_string_lossy()
+            .into_owned()
+    });
 
     #[tokio::test]
     async fn test_to_incoming_server_config() {
@@ -351,8 +348,8 @@ mod tests {
         // Set insecure to false and configure certificate/key via TlsSource::File
         server_config.tls_setting.insecure = false;
         server_config.tls_setting.config.source = TlsSource::File {
-            cert: format!("{}/server.crt", TEST_DATA_PATH),
-            key: format!("{}/server.key", TEST_DATA_PATH),
+            cert: format!("{}/server.crt", TEST_DATA_PATH.as_str()),
+            key: format!("{}/server.key", TEST_DATA_PATH.as_str()),
         };
         let ret = server_config
             .to_server_future(&[GreeterServer::from_arc(empty_service.clone())])

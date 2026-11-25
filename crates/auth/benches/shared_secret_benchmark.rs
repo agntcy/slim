@@ -52,15 +52,15 @@ fn bench_get_token(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_try_verify(c: &mut Criterion) {
+fn bench_verify(c: &mut Criterion) {
     let auth = make_auth(); // replay disabled => same token can be verified repeatedly
     let token = auth.get_token().expect("token");
-    let mut group = c.benchmark_group("shared_secret/try_verify");
+    let mut group = c.benchmark_group("shared_secret/verify");
     group.throughput(Throughput::Elements(1));
     group.bench_function("default", |b| {
         // Passes &str directly — no per-iteration String allocation.
         b.iter(|| {
-            auth.try_verify(black_box(token.as_str())).expect("verify");
+            auth.verify(black_box(token.as_str())).expect("verify");
         });
     });
     group.finish();
@@ -75,11 +75,11 @@ fn bench_round_trip(c: &mut Criterion) {
     group.bench_function("replay_enabled", |b| {
         b.iter(|| {
             let token = auth.get_token().expect("token");
-            auth.try_verify(black_box(token)).expect("verify");
+            auth.verify(black_box(token)).expect("verify");
         });
     });
     group.finish();
 }
 
-criterion_group!(benches, bench_get_token, bench_try_verify, bench_round_trip);
+criterion_group!(benches, bench_get_token, bench_verify, bench_round_trip);
 criterion_main!(benches);

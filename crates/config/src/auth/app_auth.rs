@@ -137,22 +137,87 @@ impl AuthConfig {
             }
             AuthConfig::Jwt { trusted_keys, .. } => {
                 let public_key = self.jwt_public_key()?.unwrap_or_default();
-                // MLS checks the app's own credential -- its own token -- with
-                // this verifier, so the app must trust its own key. A JWKS that
-                // can't be read or parsed is left for the verifier to report.
-                if let Some(jwks) = read_key_data(trusted_keys)
-                    && !jwks_has_key(&jwks, &public_key)
-                {
-                    let did_key = ed25519_did_key(&public_key);
-                    return Err(SlimAuthError::InvalidEd25519Key(format!(
-                        "auth.trusted_keys has no entry for this app's own key ({did_key}): \
-                         MLS verifies the app's own token against it, so add it"
-                    ))
-                    .into());
-                }
+                Self::check_trusts_own_key(trusted_keys, &public_key)?;
             }
         }
         Ok(())
+    }
+
+    /// MLS checks the app's own credential -- its own token -- with the verifier,
+    /// so the app must trust its own key. A JWKS that can't be read or parsed is
+    /// left for the verifier to report.
+    fn check_trusts_own_key(
+        trusted_keys: &KeyData,
+        public_key: &[u8],
+    ) -> Result<(), ConfigAuthError> {
+        if let Some(jwks) = read_key_data(trusted_keys)
+            && !jwks_has_key(&jwks, public_key)
+        {
+            let did_key = ed25519_did_key(public_key);
+            return Err(SlimAuthError::InvalidEd25519Key(format!(
+                "auth.trusted_keys has no entry for this app's own key ({did_key}): \
+                 MLS verifies the app's own token against it, so add it"
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
+    /// The identity configs of a `jwt` identity whose own `did_key` is known.
+    fn jwt_identity_configs(
+        private_key: &KeyData,
+        trusted_keys: &KeyData,
+        did_key: String,
+    ) -> (IdentityProviderConfig, IdentityVerifierConfig) {
+        let signing_key = JwtKey::Encoding(Key {
+            algorithm: Algorithm::EdDSA,
+            format: KeyFormat::Pem,
+            key: private_key.clone(),
+        });
+        let verifying_keys = JwtKey::Decoding(Key {
+            algorithm: Algorithm::EdDSA,
+            format: KeyFormat::Jwks,
+            key: trusted_keys.clone(),
+        });
+        (
+            IdentityProviderConfig::Jwt(JwtConfig::new(
+                Claims::new(None, Some(did_key.clone()), Some(did_key), None),
+                JWT_TOKEN_LIFETIME,
+                signing_key,
+            )),
+            // A trust list: each key is one peer's, so a token's `sub`
+            // must be its signer's own `did:key`.
+            IdentityVerifierConfig::Jwt(
+                JwtConfig::new(Claims::default(), JWT_TOKEN_LIFETIME, verifying_keys)
+                    .with_subject_binding(IdentityBinding::from_env()),
+            ),
+        )
+    }
+
+    /// [`Self::validate`] followed by [`Self::to_identity_configs`], reading the
+    /// private key of a `jwt` identity once.
+    pub fn to_validated_identity_configs(
+        &self,
+        local_name: &str,
+    ) -> Result<(IdentityProviderConfig, IdentityVerifierConfig), ConfigAuthError> {
+        match self {
+            AuthConfig::Jwt {
+                private_key,
+                trusted_keys,
+            } => {
+                let public_key = self.jwt_public_key()?.unwrap_or_default();
+                Self::check_trusts_own_key(trusted_keys, &public_key)?;
+                Ok(Self::jwt_identity_configs(
+                    private_key,
+                    trusted_keys,
+                    ed25519_did_key(&public_key),
+                ))
+            }
+            _ => {
+                self.validate()?;
+                self.to_identity_configs(local_name)
+            }
+        }
     }
 
     /// Convert to IdentityProviderConfig + IdentityVerifierConfig pair.
@@ -186,30 +251,8 @@ impl AuthConfig {
                 private_key,
                 trusted_keys,
             } => {
-                let did_key = self.did_key()?;
-                let signing_key = JwtKey::Encoding(Key {
-                    algorithm: Algorithm::EdDSA,
-                    format: KeyFormat::Pem,
-                    key: private_key.clone(),
-                });
-                let verifying_keys = JwtKey::Decoding(Key {
-                    algorithm: Algorithm::EdDSA,
-                    format: KeyFormat::Jwks,
-                    key: trusted_keys.clone(),
-                });
-                (
-                    IdentityProviderConfig::Jwt(JwtConfig::new(
-                        Claims::new(None, did_key.clone(), did_key, None),
-                        JWT_TOKEN_LIFETIME,
-                        signing_key,
-                    )),
-                    // A trust list: each key is one peer's, so a token's `sub`
-                    // must be its signer's own `did:key`.
-                    IdentityVerifierConfig::Jwt(
-                        JwtConfig::new(Claims::default(), JWT_TOKEN_LIFETIME, verifying_keys)
-                            .with_subject_binding(IdentityBinding::from_env()),
-                    ),
-                )
+                let did_key = self.did_key()?.unwrap_or_default();
+                Self::jwt_identity_configs(private_key, trusted_keys, did_key)
             }
         })
     }
@@ -298,13 +341,28 @@ mod tests {
         }
     }
 
-    use crate::auth::jwt::test_key::{self, hex};
+    // RFC 8032 section 7.1, test 1.
+    const ED25519_SEED: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+    const ED25519_PUBLIC: &str = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
+
+    fn hex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
 
     /// A `jwt` identity for the RFC 8032 key, trusting that same key.
     fn jwt_config() -> AuthConfig {
         use base64::Engine;
-        let pem = test_key::pem();
-        let x = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hex(test_key::PUBLIC));
+        let mut der = hex("302e020100300506032b657004220420");
+        der.extend_from_slice(&hex(ED25519_SEED));
+        let pem = slim_auth::utils::bytes_to_pem(
+            &der,
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----\n",
+        );
+        let x = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hex(ED25519_PUBLIC));
         let jwks = serde_json::json!({"keys": [{
             "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "use": "sig", "x": x,
         }]});
@@ -315,7 +373,7 @@ mod tests {
     }
 
     fn expected_did_key() -> String {
-        slim_auth::did_key::ed25519_did_key(&hex(test_key::PUBLIC))
+        slim_auth::did_key::ed25519_did_key(&hex(ED25519_PUBLIC))
     }
 
     #[test]
@@ -366,7 +424,7 @@ mod tests {
         verifier.initialize().await.unwrap();
 
         let token = provider.get_token().unwrap();
-        let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
+        let claims: serde_json::Value = verifier.get_claims(token).unwrap();
         assert_eq!(claims["sub"], expected_did_key());
         assert_eq!(claims["iss"], expected_did_key());
     }

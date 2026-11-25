@@ -69,6 +69,44 @@ With a trust list of peer keys, such as a JWKS of `did:key` identities, every li
 
 **Use when:** Service-to-service authentication with an existing identity provider, or when per-application credential differentiation is needed without a full PKI.
 
+### did:key
+
+The application's identity is the [`did:key`](https://w3c-ccg.github.io/did-key-spec/) of an Ed25519 key that it holds. When the application sends a message, SLIM signs a short-lived JWT with that key (`EdDSA`) whose issuer and subject are the `did:key`. A receiver verifies it against a **trust anchor**, the JWKS of the public keys of the applications it accepts, and checks that the token's subject is the `did:key` of the key that signed it. No identity provider, certificate authority or shared secret is involved: an application is identified by its key, and the receiver decides whose keys it trusts.
+
+An application is created from two inputs:
+
+- **The private key**: an Ed25519 key as a PKCS#8 PEM document (`-----BEGIN PRIVATE KEY-----`), such as `openssl genpkey -algorithm ed25519` writes. The application's identity is its `did:key`.
+- **The trust anchor**: a JWKS (JSON) with one `OKP` `Ed25519` JWK (`{"kty":"OKP","crv":"Ed25519","x":"…"}`) per application that it accepts. It has to list the application's own key too, because MLS verifies the application's own token against it. SLIM rejects a JWKS that doesn't, and the error names the `did:key` to add.
+
+In Rust, with `slim-service`:
+
+```rust
+let (app, notifications) = service
+    .create_app_with_did_key(&app_name, &private_key_pem, &trusted_keys_jwks)
+    .await?;
+```
+
+`create_app_with_did_key_and_direction` also takes the traffic direction. The `slim-bindings` crate exposes the same helper as `Service.create_app_with_did_key` and `create_app_with_did_key_async`, and as the `App` constructors `new_with_did_key` and `new_with_did_key_async`, with the two keys as strings. `did_key_of_private_key` returns the `did:key` of a private key, which is the identity that peers list in their trust anchor. In every case the identity is initialized when the application is created.
+
+To try it, the Rust `sender` and `receiver` examples of `slim-bindings` take `--private-key` (a PEM file) and `--trusted-keys` (a JWKS file) instead of a shared secret, and `examples/did_key/generate-keys.sh` writes one key per application and a JWKS that lists them all:
+
+```bash
+crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
+cargo run --example receiver -- --local agntcy/ns/alice \
+  --private-key /tmp/keys/alice.pem --trusted-keys /tmp/keys/trusted-keys.jwks
+cargo run --example sender -- --local agntcy/ns/bob \
+  --private-key /tmp/keys/bob.pem --trusted-keys /tmp/keys/trusted-keys.jwks \
+  --session-type p2p --participants agntcy/ns/alice
+```
+
+**Properties:**
+- Each application has its own credential, so with MLS and identity binding set to `enforce`, one compromised application can't impersonate the others
+- The identity is the key itself: there is nothing to issue, renew or revoke centrally. Removing a key from a trust anchor stops that application from being accepted by those that use it
+- Only Ed25519 keys are supported
+- The members of a group session verify each other, so every member's trust anchor must list every other member. A peer that is not in an application's trust anchor can't start a session with it
+
+**Use when:** You want per-application credentials without running an identity provider or a SPIRE deployment, and the set of applications that trust each other can be distributed as a list of public keys.
+
 ### SPIRE / SPIFFE
 
 [SPIFFE](https://spiffe.io/) (Secure Production Identity Framework For Everyone) is a standard for workload identity. [SPIRE](https://spiffe.io/docs/latest/spire-about/) is its reference implementation, issuing JWT-SVIDs to workloads via a local agent socket.
@@ -82,58 +120,6 @@ SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. T
 
 **Use when:** Production deployments, especially Kubernetes, where strong workload identity and automatic rotation are required.
 
-### Self-certified did:key (insecure, opt-in)
-
-The application signs its identity token with an Ed25519 key, and the token's `iss` and `sub` are that key's `did:key`. A verifier needs no JWKS, allow-list, or network call: it takes the verification key from the token's own `iss`. It checks that the signature verifies under that key, that `sub` equals `iss`, and that the `pubkey` claim equals the key encoded in the DID.
-
-This mode makes no admission decision. A valid token shows that the holder controls the key behind the identity it asserts, not that the peer should be admitted. Admission is the application's job, and the application must:
-
-- Require the holder DID in its credential presentation (for example, OID4VP) to equal the peer's verified subject, the `slim-peer-subject` message metadata key (`PEER_SUBJECT_KEY`), so a presentation can't be replayed over another caller's session.
-- Bind each presentation to a nonce supplied by the callee and to an `aud` that names the callee.
-- Run no RPC or message handler before admission succeeds.
-- Apply rate and resource limits to callers it has not admitted, since any key holder can open a session.
-
-**Properties:**
-
-- No infrastructure to run: no identity provider, JWKS, or allow-list
-- Each identity is a key pair, so applications don't share a secret
-- No admission control built in: any holder of a key can open a session
-- The identity is the key. A new key is a new identity, and the provider reads its key once at startup, so rotating it requires a restart
-- The provider uses the same Ed25519 key as its MLS signing key, so the `did:key` also binds the MLS identity. That key can't be replaced, and restoring a saved identity keeps it
-
-**Off by default.** Enable the `insecure-self-certified-did` Cargo feature on `agntcy-slim-config`, or on `agntcy-slim-bindings`, which forwards it. The feature implies `curve25519`, so MLS uses the Ed25519 ciphersuite. Without the feature, the `insecure_self_certified_did` identity types don't exist.
-
-!!! warning
-    The feature applies to the whole build, not just this identity type. Every MLS group the application joins uses Curve25519, including sessions with other identity types, so it cannot share groups with default-built (P-256) or browser peers. With Cargo feature unification, one crate enabling it switches the whole build.
-
-Provider and verifier configuration (both use `type: insecure_self_certified_did`):
-
-```yaml
-# Provider: signs tokens
-type: insecure_self_certified_did
-# claims.issuer / claims.subject are optional: both default to the key's did:key
-claims:
-  audience: [my-callee]   # the callee's verifier requires it
-key:
-  type: encoding
-  algorithm: EdDSA
-  format: pem
-  key:
-    file: /etc/slim/identity/ed25519.pem   # PKCS#8 PEM; or `data: <PEM text>`
----
-# Verifier: checks tokens
-type: insecure_self_certified_did
-claims:
-  audience: [my-callee]   # tokens must carry aud: my-callee
-```
-
-- **Provider:** the key must be EdDSA. `claims.issuer` and `claims.subject` default to the key's `did:key`. If you set either, it must equal that `did:key`, or the provider fails to build.
-- **Verifier:** only `claims.audience` is accepted. When it is set, a token without a matching `aud` is rejected, including one with no `aud` at all. Set it to name this deployment: with no issuer check and no allow-list, it is the only claim that scopes a token to it, and if it is unset, a token without `aud` minted for any deployment using this mode is accepted, while any token that carries an `aud` is rejected. Within MLS sessions a replayed token is not enough, because the token's `pubkey` must be the sender's MLS signing key. Any other field, including `key`, `claims.issuer`, `claims.subject`, `duration` and `subject_binding`, is a configuration error. Verified tokens are not cached, since anyone can mint them.
-- **Persistence:** the persistence store holds the did:key private key (inside MLS group state), so persistence requires an `encryption_key`. Without one, persistence is disabled.
-- Pair this with mTLS on the transport (see Transport Security (TLS / mTLS) above) to limit which nodes can connect. The `did:key` check does not limit who connects.
-
-**Use when:** Open admission, where the application runs its own admission check and rate-limits callers it has not admitted. Not for closed networks: prefer JWT or SPIRE there, where each application's credential is issued by an operator-controlled authority.
-
 ## Choosing a Credential Method
 
 | Method | Application identity | Rotation | Workload attestation | Recommended for |
@@ -141,8 +127,8 @@ claims:
 | Shared secret | Base name + random suffix | Manual | No | Development, trusted LANs |
 | JWT (external IdP) | `sub` claim from token | Token expiry | IdP-dependent | Existing IdP integration |
 | JWT (SLIM-issued) | `sub` claim from token | Token expiry | No | Simple production, no IdP |
+| did:key | `did:key` of the application's Ed25519 key | Replace the key and the trust anchors | No | Per-application keys without an IdP |
 | SPIRE | SPIFFE ID | Automatic | Yes | Production, Kubernetes |
-| Self-certified did:key (insecure, opt-in) | `sub` = the token's `did:key` | Restart to rotate (new key, new identity) | No | Open admission, with an application-level admission check |
 
 ## Related
 

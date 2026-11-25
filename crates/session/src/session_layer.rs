@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Standard library imports
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use display_error_chain::ErrorChainExt;
 // Third-party crates
-use parking_lot::RwLock as SyncRwLock;
+use parking_lot::{Mutex as SyncMutex, RwLock as SyncRwLock};
 use rand::RngExt;
 
 use tokio::sync::Semaphore;
@@ -94,6 +94,12 @@ where
     /// Session pool
     pool: Arc<SyncRwLock<HashMap<u32, Arc<SessionController>>>>,
 
+    /// Session ids being built. A session is built (and initialized) before it is
+    /// inserted into the pool; the id is held here meanwhile, so that two builds
+    /// for the same id cannot both run, and the one that loses never touches the
+    /// persisted state or the pool entry of the one that wins.
+    reserved_ids: Arc<SyncMutex<HashSet<u32>>>,
+
     /// Default name of the local app
     app_id: u128,
 
@@ -144,6 +150,35 @@ where
     /// Shared MLS group-state store over the same encrypted DB file as
     /// `kv_store`, cloned into every persistent session.
     group_storage: Option<SlimGroupStateStorage>,
+}
+
+/// Reserve `id`, or `None` if a session with that id is in `pool` or being built.
+fn reserve(
+    pool: &SyncRwLock<HashMap<u32, Arc<SessionController>>>,
+    reserved_ids: &Arc<SyncMutex<HashSet<u32>>>,
+    id: u32,
+) -> Option<IdReservation> {
+    let pool = pool.read();
+    let mut reserved = reserved_ids.lock();
+    if pool.contains_key(&id) || !reserved.insert(id) {
+        return None;
+    }
+    Some(IdReservation {
+        reserved: reserved_ids.clone(),
+        id,
+    })
+}
+
+/// Holds a session id in [`SessionLayer::reserved_ids`] until dropped.
+struct IdReservation {
+    reserved: Arc<SyncMutex<HashSet<u32>>>,
+    id: u32,
+}
+
+impl Drop for IdReservation {
+    fn drop(&mut self) {
+        self.reserved.lock().remove(&self.id);
+    }
 }
 
 impl<P, V> SessionLayer<P, V>
@@ -246,6 +281,7 @@ where
         let initial_key = Self::name_to_key(&app_name);
         let sl = SessionLayer {
             pool: Arc::new(SyncRwLock::new(HashMap::new())),
+            reserved_ids: Arc::new(SyncMutex::new(HashSet::new())),
             app_id: app_name.id(),
             app_names: SyncRwLock::new(HashMap::from([(initial_key, 0)])),
             identity_provider,
@@ -310,11 +346,25 @@ where
         let Some(p) = persistence else {
             return (identity_provider, None, None);
         };
-        if p.encryption_key.is_none() && identity_provider.holds_long_term_signing_key() {
-            error!(
-                "did:key identity requires an encryption_key for persistence; persistence disabled"
-            );
-            return (identity_provider, None, None);
+        // Only matters without an encryption key. If the provider cannot say, assume
+        // the key is long-term: the safe answer.
+        if p.encryption_key.is_none() {
+            match identity_provider.holds_long_term_signing_key() {
+                Ok(false) => {}
+                Ok(true) => {
+                    error!(
+                        "a long-term signing key requires an encryption_key for persistence; persistence disabled"
+                    );
+                    return (identity_provider, None, None);
+                }
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        "cannot tell whether the signing key is long-term, so an encryption_key is required for persistence; persistence disabled"
+                    );
+                    return (identity_provider, None, None);
+                }
+            }
         }
         let store_key = Self::app_store_key(app_name);
         match PersistentStore::open(&p.path, &store_key, p.encryption_key.clone()) {
@@ -377,7 +427,13 @@ where
                             debug!("restored persisted app identity");
                             Ok(restored)
                         }
-                        Err(e @ slim_auth::errors::AuthError::SelfCertifiedDid(_)) => {
+                        // A custom provider that cannot restore keeps its fresh identity, and
+                        // MLS would install a new key pair over the one the persisted groups
+                        // were created with. Same outcome as a rejected identity.
+                        Err(
+                            e @ (slim_auth::errors::AuthError::IdentityMismatch(_)
+                            | slim_auth::errors::AuthError::Custom(_)),
+                        ) => {
                             error!(error = %e, "persisted app identity rejected; persistence disabled");
                             Err(fallback)
                         }
@@ -508,13 +564,15 @@ where
                 (destination.clone(), destination.clone())
             };
 
-        let session = self.create_session_internal(
-            session_config,
-            local_name,
-            dest_with_id,
-            control_with_id,
-            id,
-        )?;
+        let session = self
+            .create_session_internal(
+                session_config,
+                local_name,
+                dest_with_id,
+                control_with_id,
+                id,
+            )
+            .await?;
 
         // If session is p2p, initiate the discovery request now and return the ack
         // Otherwise, return an immediately resolved future
@@ -544,8 +602,14 @@ where
         Ok((session, init_ack))
     }
 
+    /// Reserve `id` for a session that is about to be built, or `None` if a session
+    /// with that id is in the pool or being built. The reservation is released on drop.
+    fn reserve_id(&self, id: u32) -> Option<IdReservation> {
+        reserve(&self.pool, &self.reserved_ids, id)
+    }
+
     /// Create a new session and add it to the pool
-    fn create_session_internal(
+    async fn create_session_internal(
         &self,
         session_config: SessionConfig,
         local_name: ProtoName,
@@ -553,102 +617,85 @@ where
         control: ProtoName,
         id: Option<u32>,
     ) -> Result<SessionContext, SessionError> {
-        // Retry loop to handle race conditions when generating random IDs
-        loop {
-            // get a lock on the session pool
-            let session_id = {
-                let pool = self.pool.read();
-
-                // generate a new session ID in the SESSION_RANGE if not provided
-                match id {
-                    Some(id) => {
-                        // make sure provided id is in range
-                        if !SESSION_RANGE.contains(&id) {
-                            return Err(SessionError::InvalidSessionId(id));
-                        }
-
-                        // check if the session ID is already used
-                        if pool.contains_key(&id) {
-                            return Err(SessionError::SessionIdAlreadyUsed(id));
-                        }
-
-                        id
-                    }
-                    None => {
-                        // generate a new session ID
-                        loop {
-                            let session_id = rand::rng().random_range(SESSION_RANGE);
-                            if !pool.contains_key(&session_id) {
-                                break session_id;
-                            }
-                        }
-                    }
+        // Pick the id and reserve it, so that nothing else builds a session with it
+        // until this one is in the pool (or has failed).
+        let (session_id, _reservation) = match id {
+            Some(id) => {
+                // make sure provided id is in range
+                if !SESSION_RANGE.contains(&id) {
+                    return Err(SessionError::InvalidSessionId(id));
                 }
-            }; // lock is dropped here
-
-            // Create app channel for this session
-            let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
-
-            // Build the session controller with pre-computed destination and control names.
-            // The builder forces DATA_CHANNEL_ID for multicast destinations. Async build,
-            // so no locks are held.
-            let mut builder = SessionController::builder()
-                .with_id(session_id)
-                .with_source(local_name.clone())
-                .with_destination(destination.clone())
-                .with_control(control.clone())
-                .with_config(session_config.clone())
-                .with_identity_provider(self.identity_provider.clone())
-                .with_identity_verifier(self.identity_verifier.clone())
-                .with_slim_tx(self.tx_slim.clone())
-                .with_app_tx(app_tx)
-                .with_tx_to_session_layer(self.tx_session.clone())
-                .with_direction(self.direction)
-                .with_subscription_manager(self.subscription_manager.clone())
-                .with_service_id(self.service_id.clone())
-                .with_enforce_pqc(self.enforce_pqc);
-
-            // Share the persistence handles so the session can save its state.
-            // Persistence is native-only; SlimKvStore is uninhabited on wasm32.
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Some(store) = &self.kv_store {
-                builder = builder.with_kv_store(store.clone());
+                let reservation = self
+                    .reserve_id(id)
+                    .ok_or(SessionError::SessionIdAlreadyUsed(id))?;
+                (id, reservation)
             }
-            if let Some(group) = &self.group_storage {
-                builder = builder.with_group_storage(group.clone());
-            }
-
-            let builder = builder.ready()?;
-
-            // Perform the async build operation without holding any lock
-            let session_controller = Arc::new(builder.build()?);
-
-            // Reacquire lock to insert the session
-            let mut pool = self.pool.write();
-
-            // Double-check that the ID wasn't taken while we didn't hold the lock
-            if pool.contains_key(&session_id) {
-                // If a specific ID was provided, return an error
-                if id.is_some() {
-                    return Err(SessionError::SessionIdAlreadyUsed(session_id));
+            None => loop {
+                // generate a new session ID in the SESSION_RANGE
+                let candidate = rand::rng().random_range(SESSION_RANGE);
+                if let Some(reservation) = self.reserve_id(candidate) {
+                    break (candidate, reservation);
                 }
-                // If ID was randomly generated, retry with a new ID
-                continue;
-            }
+            },
+        };
 
-            let ret = pool.insert(session_id, session_controller.clone());
+        // Create app channel for this session
+        let (app_tx, app_rx) = tokio::sync::mpsc::unbounded_channel();
 
-            // This should never happen, but just in case
-            if ret.is_some() {
-                error!(
-                    %session_id,
-                    "session ID was taken during insertion: this should not happen",
-                );
-                return Err(SessionError::SessionIdAlreadyUsed(session_id));
-            }
+        // Build the session controller with pre-computed destination and control names.
+        // The builder forces DATA_CHANNEL_ID for multicast destinations. Async build,
+        // so no locks are held.
+        let mut builder = SessionController::builder()
+            .with_id(session_id)
+            .with_source(local_name.clone())
+            .with_destination(destination.clone())
+            .with_control(control.clone())
+            .with_config(session_config.clone())
+            .with_identity_provider(self.identity_provider.clone())
+            .with_identity_verifier(self.identity_verifier.clone())
+            .with_slim_tx(self.tx_slim.clone())
+            .with_app_tx(app_tx)
+            .with_tx_to_session_layer(self.tx_session.clone())
+            .with_direction(self.direction)
+            .with_subscription_manager(self.subscription_manager.clone())
+            .with_service_id(self.service_id.clone())
+            .with_enforce_pqc(self.enforce_pqc);
 
-            return Ok(SessionContext::new(session_controller, app_rx));
+        // Share the persistence handles so the session can save its state.
+        // Persistence is native-only; SlimKvStore is uninhabited on wasm32.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(store) = &self.kv_store {
+            builder = builder.with_kv_store(store.clone());
         }
+        if let Some(group) = &self.group_storage {
+            builder = builder.with_group_storage(group.clone());
+        }
+
+        let builder = builder.ready()?;
+
+        // Perform the async build operation without holding any lock
+        let session_controller = Arc::new(builder.build().await?);
+
+        // Reacquire lock to insert the session
+        let mut pool = self.pool.write();
+
+        // The reservation makes this impossible: every insert into the pool holds one.
+        // Do not retry with another id. The controller built above would be dropped and
+        // its loop would delete the session that owns this id.
+        debug_assert!(
+            !pool.contains_key(&session_id),
+            "session id {session_id} was in the pool"
+        );
+        if pool.contains_key(&session_id) {
+            error!(
+                %session_id,
+                "session ID was taken during insertion: this should not happen",
+            );
+            return Err(SessionError::SessionIdAlreadyUsed(session_id));
+        }
+        pool.insert(session_id, session_controller.clone());
+
+        Ok(SessionContext::new(session_controller, app_rx))
     }
 
     /// Restore all persisted sessions from the encrypted store.
@@ -699,6 +746,9 @@ where
         use crate::persistence::{decode_direction, decode_name};
 
         let session_id = record.session_id;
+        let _reservation = self
+            .reserve_id(session_id)
+            .ok_or(SessionError::SessionIdAlreadyUsed(session_id))?;
         let source = decode_name(&record.source)?;
         let destination = decode_name(&record.destination)?;
         let control = decode_name(&record.control)?;
@@ -781,6 +831,7 @@ where
         mut rx_session: tokio::sync::mpsc::Receiver<Result<SessionMessage, SessionError>>,
     ) {
         let pool_clone = self.pool.clone();
+        let reserved_ids = self.reserved_ids.clone();
         // Cloned so a session teardown can also drop its persisted footprint.
         let kv_store = self.kv_store.clone();
         let group_storage = self.group_storage.clone();
@@ -791,10 +842,34 @@ where
                 tokio::select! {
                     next = rx_session.recv() => {
                         match next {
-                            Some(Ok(SessionMessage::DeleteSession { session_id })) => {
-                                debug!(%session_id, "received closing signal, cancel session from the pool");
-                                if pool_clone.write().remove(&session_id).is_none() {
-                                    warn!(%session_id, "requested to delete unknown session");
+                            Some(Ok(SessionMessage::DeleteSession { session_id, generation })) => {
+                                debug!(%session_id, generation, "received closing signal, cancel session from the pool");
+                                // Whoever owns the id now is the only one that may delete
+                                // its footprint. A controller sends this twice on a
+                                // participant leave (as soon as the leave is accepted, and
+                                // when its loop ends), so the second can arrive after the
+                                // id was reused.
+                                let owner = pool_clone
+                                    .read()
+                                    .get(&session_id)
+                                    .map(|controller| controller.generation());
+                                // Held while the footprint of an id that is not in the pool
+                                // is deleted, so that no session can be built on the id
+                                // meanwhile.
+                                let _reservation;
+                                match owner {
+                                    Some(owner) if owner != generation => {
+                                        debug!(%session_id, "id belongs to a newer session, ignoring");
+                                        continue;
+                                    }
+                                    Some(_) => {}
+                                    None => match reserve(&pool_clone, &reserved_ids, session_id) {
+                                        Some(reservation) => _reservation = reservation,
+                                        None => {
+                                            debug!(%session_id, "id is being reused, ignoring");
+                                            continue;
+                                        }
+                                    },
                                 }
                                 // A DeleteSession is only sent on a permanent
                                 // teardown (hard close or group leave), never on
@@ -819,6 +894,11 @@ where
                                     if let Err(e) = kv.delete(&key) {
                                         warn!(%session_id, error = %e.chain(), "failed to delete persisted session record");
                                     }
+                                }
+                                // Only now free the id (if it is in the pool): until then no
+                                // session can reserve it.
+                                if owner.is_some() {
+                                    pool_clone.write().remove(&session_id);
                                 }
                             }
                             Some(Ok(m)) => {
@@ -943,15 +1023,14 @@ where
             return Ok(());
         }
 
-        // Slow path: no session yet. JoinRequest is processed inline so that
-        // the session is registered before the next message (e.g. GroupWelcome)
-        // arrives on this same receive loop. Its identity will be verified by
-        // the new controller's processing loop (single verify, no replay
-        // collision). Stateless DiscoveryRequest is verified off-task before
-        // replying. Everything else is dropped.
+        // Slow path: no session yet. JoinRequest builds the session off-task (its
+        // MLS setup must not stall this loop); the identity is verified by the new
+        // controller's processing loop (single verify, no replay collision).
+        // Stateless DiscoveryRequest is verified off-task before replying.
+        // Everything else is dropped.
         match session_message_type {
             ProtoSessionMessageType::JoinRequest => {
-                self.handle_join_request(message, id, session_type).await
+                self.handle_join_request(message, id, session_type)
             }
             ProtoSessionMessageType::DiscoveryRequest => {
                 self.handle_discovery_request(message, id, session_type)
@@ -1058,14 +1137,53 @@ where
         Ok(())
     }
 
-    async fn handle_join_request(
-        &self,
+    /// Builds the session on its own task, so the receive loop is not held while its
+    /// MLS state is created (key generation and a foreign provider's callbacks, on
+    /// first use). The id is reserved for the duration, so a repeated JoinRequest
+    /// meanwhile is dropped, and the number of concurrent builds is bounded by the
+    /// same slots as pre-session verification, since the sender is not yet verified.
+    fn handle_join_request(
+        self: &Arc<Self>,
         message: Message,
         id: u32,
         session_type: ProtoSessionType,
     ) -> Result<(), SessionError> {
+        // Cheap, and an error here (a name this app does not serve) is filtered by the
+        // receive loop, so it is checked before a slot is taken.
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
+        let layer = self.clone();
+        tokio::spawn(
+            async move {
+                let _permit = match layer.pre_session_verify_slots.clone().acquire_owned().await {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                match layer
+                    .process_join_request(message, id, session_type, local_name)
+                    .await
+                {
+                    // A JoinRequest repeated while its session is being built.
+                    Err(SessionError::SessionIdAlreadyUsed(_)) => {
+                        debug!(%id, "join request for a session that already exists")
+                    }
+                    Err(e) => error!(%id, error = %e.chain(), "error handling join request"),
+                    Ok(()) => {}
+                }
+            }
+            .instrument(tracing::Span::current()),
+        );
+
+        Ok(())
+    }
+
+    async fn process_join_request(
+        &self,
+        message: Message,
+        id: u32,
+        session_type: ProtoSessionType,
+        local_name: ProtoName,
+    ) -> Result<(), SessionError> {
         let new_session = match session_type {
             ProtoSessionType::PointToPoint => {
                 let conf = crate::SessionConfig::from_join_request(
@@ -1075,7 +1193,8 @@ where
                     false,
                 )?;
                 let dest = message.get_source();
-                self.create_session_internal(conf, local_name, dest.clone(), dest, Some(id))?
+                self.create_session_internal(conf, local_name, dest.clone(), dest, Some(id))
+                    .await?
             }
             ProtoSessionType::Multicast => {
                 let payload = message.extract_join_request()?;
@@ -1093,7 +1212,8 @@ where
                     message.get_metadata_map(),
                     false,
                 )?;
-                self.create_session_internal(conf, local_name, channel, control, Some(id))?
+                self.create_session_internal(conf, local_name, channel, control, Some(id))
+                    .await?
             }
             _ => {
                 warn!(
@@ -1109,11 +1229,16 @@ where
             .upgrade()
             .ok_or(SessionError::SessionClosed)?;
 
-        session_controller.on_message_from_slim(message).await?;
+        // Register for the notification before the controller sees the request: the
+        // GroupWelcome that follows its reply is routed on the receive loop meanwhile.
+        let session_id = new_session.session_id();
+        self.to_notify.write().insert(session_id, new_session);
 
-        self.to_notify
-            .write()
-            .insert(new_session.session_id(), new_session);
+        if let Err(e) = session_controller.on_message_from_slim(message).await {
+            self.to_notify.write().remove(&session_id);
+            let _ = session_controller.terminate();
+            return Err(e);
+        }
 
         Ok(())
     }
@@ -1220,8 +1345,8 @@ mod tests {
         ) -> Result<(), slim_auth::errors::AuthError> {
             Ok(())
         }
-        fn holds_long_term_signing_key(&self) -> bool {
-            true
+        fn holds_long_term_signing_key(&self) -> Result<bool, slim_auth::errors::AuthError> {
+            Ok(true)
         }
     }
 
@@ -1248,55 +1373,91 @@ mod tests {
         assert!(group.is_some() && kv.is_some());
     }
 
-    #[cfg(all(not(target_arch = "wasm32"), feature = "insecure-self-certified-did"))]
-    #[test]
-    fn test_restore_with_a_different_did_disables_persistence() {
-        use slim_auth::auth_provider::AuthProvider;
-        use slim_persistence::MlsEncryptionKey;
+    /// A provider that rejects any stored identity: as belonging to another one, or, when
+    /// the flag is set, with the error of a foreign implementation that failed.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[derive(Clone, Default)]
+    struct MismatchingProvider(MockTokenProvider, bool);
 
-        fn did_bound_provider() -> AuthProvider {
-            AuthProvider::jwt_signer(slim_auth::did_key::did_bound_signer().0)
+    #[cfg(not(target_arch = "wasm32"))]
+    impl TokenProvider for MismatchingProvider {
+        async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
         }
+        fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
+            self.0.get_token()
+        }
+        fn get_id(&self) -> Result<String, slim_auth::errors::AuthError> {
+            self.0.get_id()
+        }
+        async fn set_signature_keys(
+            &mut self,
+            _private_key: Vec<u8>,
+            _public_key: Vec<u8>,
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn with_restored_identity(
+            self,
+            _identity: ExportedIdentity,
+        ) -> Result<Self, slim_auth::errors::AuthError> {
+            Err(if self.1 {
+                slim_auth::errors::AuthError::Custom("restore failed".into())
+            } else {
+                slim_auth::errors::AuthError::IdentityMismatch(
+                    "stored identity belongs to another provider".into(),
+                )
+            })
+        }
+    }
 
-        let name = make_name(&["test", "app", "v1"]);
-        let dir = tempfile::tempdir().unwrap();
-        let cfg = PersistenceConfig::with_key(dir.path(), MlsEncryptionKey::RawKey([7; 32]));
-        let open = |provider: AuthProvider| {
-            SessionLayer::<AuthProvider, MockVerifier>::open_persistent_store(
-                &name,
-                provider,
-                Some(&cfg),
+    /// An identity the provider rejects, as a mismatch or by failing to restore it, turns
+    /// persistence off, as a did:key of another key does, and leaves what is stored alone.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_restore_with_an_identity_mismatch_disables_persistence() {
+        for custom in [false, true] {
+            use slim_persistence::MlsEncryptionKey;
+
+            let name = make_name(&["test", "app", "v1"]);
+            let dir = tempfile::tempdir().unwrap();
+            let cfg = PersistenceConfig::with_key(dir.path(), MlsEncryptionKey::RawKey([7; 32]));
+            let open = |provider: MismatchingProvider| {
+                SessionLayer::<MismatchingProvider, MockVerifier>::open_persistent_store(
+                    &name,
+                    provider,
+                    Some(&cfg),
+                )
+            };
+
+            // Nothing stored yet, so there is nothing to mismatch: persistence is on.
+            let stored =
+            br#"{"id":"a","credential":[],"signature_secret_key":[],"signature_public_key":[]}"#;
+            let (_, group, kv) = open(MismatchingProvider(MockTokenProvider, custom));
+            {
+                let kv = kv.expect("persistence is enabled while no identity is stored");
+                assert!(group.is_some());
+                drop(group);
+                kv.put(crate::persistence::APP_IDENTITY_KEY, stored)
+                    .unwrap();
+            }
+
+            let (_, group, kv) = open(MismatchingProvider(MockTokenProvider, custom));
+            assert!(group.is_none() && kv.is_none());
+
+            let (_, kv) = PersistentStore::open(
+                dir.path(),
+                &SessionLayer::<MismatchingProvider, MockVerifier>::app_store_key(&name),
+                cfg.encryption_key.clone(),
             )
-        };
-
-        let key_a = did_bound_provider();
-        let (_, group, kv) = open(key_a.clone());
-        let stored = {
-            let kv = kv.expect("persistence is enabled for the first key");
-            assert!(group.is_some());
-            drop(group);
+            .unwrap();
             assert_eq!(
-                crate::persistence::persist_app_identity(&kv, &key_a),
-                crate::persistence::AppIdentity::Persisted
+                kv.get(crate::persistence::APP_IDENTITY_KEY)
+                    .unwrap()
+                    .as_deref(),
+                Some(&stored[..])
             );
-            kv.get(crate::persistence::APP_IDENTITY_KEY)
-                .unwrap()
-                .expect("identity was written")
-        };
-
-        let (_, group, kv) = open(did_bound_provider());
-        assert!(group.is_none() && kv.is_none());
-
-        let (_, kv) = PersistentStore::open(
-            dir.path(),
-            &SessionLayer::<AuthProvider, MockVerifier>::app_store_key(&name),
-            cfg.encryption_key.clone(),
-        )
-        .unwrap();
-        assert_eq!(
-            kv.get(crate::persistence::APP_IDENTITY_KEY).unwrap(),
-            Some(stored)
-        );
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1413,13 +1574,9 @@ mod tests {
             metadata: Default::default(),
         };
 
-        let result = session_layer.create_session_internal(
-            config,
-            local_name,
-            destination.clone(),
-            destination,
-            None,
-        );
+        let result = session_layer
+            .create_session_internal(config, local_name, destination.clone(), destination, None)
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -1441,13 +1598,15 @@ mod tests {
         };
 
         let session_id = 100u32;
-        let result = session_layer.create_session_internal(
-            config,
-            local_name,
-            destination.clone(),
-            destination.clone(),
-            Some(session_id),
-        );
+        let result = session_layer
+            .create_session_internal(
+                config,
+                local_name,
+                destination.clone(),
+                destination.clone(),
+                Some(session_id),
+            )
+            .await;
 
         assert!(result.is_ok());
         assert_eq!(session_layer.pool_size(), 1);
@@ -1473,13 +1632,15 @@ mod tests {
 
         // Use an ID outside the SESSION_RANGE (SESSION_RANGE is 0..u32::MAX-1000)
         let invalid_id = u32::MAX - 500; // This is outside SESSION_RANGE
-        let result = session_layer.create_session_internal(
-            config,
-            local_name,
-            destination.clone(),
-            destination.clone(),
-            Some(invalid_id),
-        );
+        let result = session_layer
+            .create_session_internal(
+                config,
+                local_name,
+                destination.clone(),
+                destination.clone(),
+                Some(invalid_id),
+            )
+            .await;
 
         assert!(result.is_err());
         match result {
@@ -1506,29 +1667,289 @@ mod tests {
         let session_id = 100u32;
 
         // Create first session
-        let result1 = session_layer.create_session_internal(
-            config.clone(),
-            local_name.clone(),
-            destination.clone(),
-            destination.clone(),
-            Some(session_id),
-        );
+        let result1 = session_layer
+            .create_session_internal(
+                config.clone(),
+                local_name.clone(),
+                destination.clone(),
+                destination.clone(),
+                Some(session_id),
+            )
+            .await;
         assert!(result1.is_ok());
 
         // Try to create second session with same ID
-        let result2 = session_layer.create_session_internal(
-            config,
-            local_name,
-            destination.clone(),
-            destination,
-            Some(session_id),
-        );
+        let result2 = session_layer
+            .create_session_internal(
+                config,
+                local_name,
+                destination.clone(),
+                destination,
+                Some(session_id),
+            )
+            .await;
 
         assert!(result2.is_err());
         match result2 {
             Err(SessionError::SessionIdAlreadyUsed(_)) => {}
             _ => panic!("Expected SessionIdAlreadyUsed error"),
         }
+    }
+
+    /// The `DeleteSession` of a controller that no longer owns the id is ignored, and so is
+    /// one for an id being built: a leaving participant sends it twice, and the second can
+    /// arrive after the id was reused. The persisted record of the session that owns the id
+    /// stays; the owner's own `DeleteSession` removes it.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_stale_delete_session_is_ignored() {
+        use crate::persistence::session_key;
+        use slim_persistence::PersistenceConfig;
+
+        let dir = tempfile::tempdir().unwrap();
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::channel(16);
+        let layer = Arc::new(SessionLayer::new_with_persistence(
+            make_name(&["test", "app", "v1"]),
+            MockTokenProvider,
+            MockVerifier,
+            999,
+            tx_slim,
+            tx_app,
+            Direction::Bidirectional,
+            "test".to_string(),
+            Some(PersistenceConfig::new(dir.path())),
+            false,
+        ));
+        let kv = layer.kv_store.clone().expect("persistence is enabled");
+
+        // Send a `DeleteSession`, then one for an id nobody owns, whose record the layer
+        // deletes: the layer handles them in order, so once that record is gone, the first
+        // message has been handled.
+        let delete = |session_id: u32, generation: u64| {
+            let tx = layer.tx_session.clone();
+            let kv = kv.clone();
+            async move {
+                tx.send(Ok(SessionMessage::DeleteSession {
+                    session_id,
+                    generation,
+                }))
+                .await
+                .unwrap();
+                kv.put(&session_key(9999), b"marker").unwrap();
+                tx.send(Ok(SessionMessage::DeleteSession {
+                    session_id: 9999,
+                    generation: 0,
+                }))
+                .await
+                .unwrap();
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    while kv.get(&session_key(9999)).unwrap().is_some() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("the layer must handle the message");
+            }
+        };
+        let create = || {
+            let name = make_name(&["local", "app", "v1"]);
+            layer.create_session_internal(
+                SessionConfig {
+                    session_type: ProtoSessionType::PointToPoint,
+                    max_retries: Some(3),
+                    interval: Some(std::time::Duration::from_secs(1)),
+                    mls_settings: None,
+                    initiator: true,
+                    metadata: Default::default(),
+                },
+                name.clone(),
+                name.clone(),
+                name,
+                Some(100),
+            )
+        };
+
+        // An id being built: no controller yet, and the id is held by the build.
+        kv.put(&session_key(300), b"record").unwrap();
+        let building = layer.reserve_id(300).unwrap();
+        delete(300, 1).await;
+        assert!(kv.get(&session_key(300)).unwrap().is_some());
+        drop(building);
+
+        let first = create().await.unwrap();
+        let first_generation = first.session_arc().unwrap().generation();
+        delete(100, first_generation).await;
+        assert!(layer.is_pool_empty());
+
+        // The id is reused. A late `DeleteSession` of the first controller must not touch it.
+        let second = create().await.unwrap();
+        let second_generation = second.session_arc().unwrap().generation();
+        assert_ne!(first_generation, second_generation);
+        kv.put(&session_key(100), b"record").unwrap();
+
+        delete(100, first_generation).await;
+        assert_eq!(layer.pool_size(), 1);
+        assert!(kv.get(&session_key(100)).unwrap().is_some());
+
+        delete(100, second_generation).await;
+        assert!(layer.is_pool_empty());
+        assert!(kv.get(&session_key(100)).unwrap().is_none());
+    }
+
+    /// An id being built is refused to every other build, so the loser of a race never
+    /// initializes (and persists) a session the winner owns, nor drops a controller whose
+    /// loop would delete the winner's session. The reservation is released on drop.
+    #[tokio::test]
+    async fn test_an_id_being_built_is_reserved() {
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
+
+        let first = session_layer.reserve_id(100).expect("id is free");
+        assert!(session_layer.reserve_id(100).is_none());
+        assert!(session_layer.reserve_id(101).is_some());
+
+        drop(first);
+        assert!(session_layer.reserve_id(100).is_some());
+
+        // While one build holds the id, a second create with it is refused up front.
+        let _held = session_layer.reserve_id(200).unwrap();
+        let name = make_name(&["local", "app", "v1"]);
+        let result = session_layer
+            .create_session_internal(
+                SessionConfig {
+                    session_type: ProtoSessionType::PointToPoint,
+                    max_retries: Some(3),
+                    interval: Some(std::time::Duration::from_secs(1)),
+                    mls_settings: None,
+                    initiator: true,
+                    metadata: Default::default(),
+                },
+                name.clone(),
+                name.clone(),
+                name,
+                Some(200),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(SessionError::SessionIdAlreadyUsed(200))
+        ));
+        assert_eq!(session_layer.pool_size(), 0);
+    }
+
+    /// Installing the MLS signature keys waits until it is released, which keeps a session
+    /// build in progress.
+    #[derive(Clone, Default)]
+    struct GatedProvider {
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+        keys: Arc<SyncMutex<Option<(Vec<u8>, Vec<u8>)>>>,
+    }
+
+    impl TokenProvider for GatedProvider {
+        async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
+            Ok(())
+        }
+        fn get_token(&self) -> Result<String, slim_auth::errors::AuthError> {
+            Ok(String::new())
+        }
+        fn get_id(&self) -> Result<String, slim_auth::errors::AuthError> {
+            Ok("gated".into())
+        }
+        fn get_signature_keys(&self) -> Result<(Vec<u8>, Vec<u8>), slim_auth::errors::AuthError> {
+            self.keys
+                .lock()
+                .clone()
+                .ok_or(slim_auth::errors::AuthError::TokenInvalid)
+        }
+        fn mls_signature_keys_installed(&self) -> Result<bool, slim_auth::errors::AuthError> {
+            Ok(self.keys.lock().is_some())
+        }
+        async fn set_signature_keys(
+            &mut self,
+            private_key: Vec<u8>,
+            public_key: Vec<u8>,
+        ) -> Result<(), slim_auth::errors::AuthError> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            *self.keys.lock() = Some((private_key, public_key));
+            Ok(())
+        }
+    }
+
+    /// The reservation of an id spans the whole build, not only the check at the start:
+    /// while a build is stuck in `init`, another create with the id is refused and a
+    /// `DeleteSession` for it is ignored. The id is in the pool once the build ends.
+    #[tokio::test]
+    async fn test_an_id_is_reserved_until_its_build_ends() {
+        let provider = GatedProvider::default();
+        let (entered, release) = (provider.entered.clone(), provider.release.clone());
+        let (tx_slim, _rx_slim) = mpsc::channel(16);
+        let (tx_app, _rx_app) = mpsc::channel(16);
+        let layer = Arc::new(SessionLayer::new(
+            make_name(&["test", "app", "v1"]),
+            provider,
+            MockVerifier,
+            999,
+            tx_slim,
+            tx_app,
+            Direction::Bidirectional,
+            "test".to_string(),
+            false,
+        ));
+        let name = make_name(&["local", "app", "v1"]);
+        let config = SessionConfig {
+            session_type: ProtoSessionType::PointToPoint,
+            max_retries: Some(3),
+            interval: Some(std::time::Duration::from_secs(1)),
+            mls_settings: Some(crate::session_config::MlsSettings {
+                header_integrity_validation_percent: 100,
+                max_seen_control_message_ids_size: None,
+            }),
+            initiator: true,
+            metadata: Default::default(),
+        };
+        let create = |layer: Arc<SessionLayer<GatedProvider, MockVerifier>>| {
+            let (name, config) = (name.clone(), config.clone());
+            async move {
+                layer
+                    .create_session_internal(config, name.clone(), name.clone(), name, Some(100))
+                    .await
+            }
+        };
+
+        let building = tokio::spawn(create(layer.clone()));
+        // The build is now inside `init`.
+        entered.notified().await;
+        assert_eq!(layer.pool_size(), 0);
+
+        // Refused up front: were the id free, this build would wait on the gate too.
+        let refused =
+            tokio::time::timeout(std::time::Duration::from_secs(5), create(layer.clone()))
+                .await
+                .expect("a second build of the id must be refused, not started");
+        assert!(matches!(
+            refused,
+            Err(SessionError::SessionIdAlreadyUsed(100))
+        ));
+
+        // A stale `DeleteSession` for the id is ignored: it is being built.
+        layer
+            .tx_session
+            .send(Ok(SessionMessage::DeleteSession {
+                session_id: 100,
+                generation: 0,
+            }))
+            .await
+            .unwrap();
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(layer.reserve_id(100).is_none());
+
+        release.notify_one();
+        building.await.unwrap().expect("the build must succeed");
+        assert_eq!(layer.pool_size(), 1);
     }
 
     #[tokio::test]
@@ -1555,6 +1976,7 @@ mod tests {
                 destination,
                 Some(session_id),
             )
+            .await
             .unwrap();
 
         assert_eq!(session_layer.pool_size(), 1);
@@ -1749,13 +2171,15 @@ mod tests {
         // Create multiple sessions
         for i in 0..5 {
             let destination = make_name(&["remote", &format!("app{}", i), "v1"]);
-            let result = session_layer.create_session_internal(
-                config.clone(),
-                local_name.clone(),
-                destination.clone(),
-                destination,
-                None,
-            );
+            let result = session_layer
+                .create_session_internal(
+                    config.clone(),
+                    local_name.clone(),
+                    destination.clone(),
+                    destination,
+                    None,
+                )
+                .await;
             assert!(result.is_ok());
         }
 
@@ -1847,6 +2271,15 @@ mod tests {
             result.is_ok(),
             "unreliable multicast join must be accepted: {result:?}"
         );
+
+        // The session is built off the receive loop.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while session_layer.pool_size() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the session must be built");
         assert_eq!(session_layer.pool_size(), 1);
     }
 }

@@ -24,14 +24,19 @@ pub enum AuthError {
     JwtMissingPrivateKey,
     #[error("invalid Ed25519 key: {0}")]
     InvalidEd25519Key(String),
-    #[error("invalid did:key: {0}")]
-    InvalidDidKey(String),
-    #[error("self-certified did: {0}")]
-    SelfCertifiedDid(String),
+    /// A persisted identity was rejected because it does not belong to this provider.
+    /// The session layer turns persistence off when it sees this on restore.
+    #[error("persisted identity does not match: {0}")]
+    IdentityMismatch(String),
     #[error("missing decoding key or autoresolve is disabled")]
     JwtMissingDecodingKeyOrKeyResolver,
     #[error("missing 'iss' in JWT claims")]
     JwtMissingIssuer,
+    #[error(
+        "automatic key resolution needs a configured issuer (`claims.issuer`), \
+         or `allow_any_issuer` to fetch keys from whichever issuer a token names"
+    )]
+    JwtAutoResolveNeedsIssuer,
     #[error("no key resolver available")]
     JwtNoKeyResolver,
     #[error("no static JWT token configured")]
@@ -54,6 +59,8 @@ pub enum AuthError {
     OidcDiscoveryUrlOriginMismatch { field: &'static str, url: String },
     #[error("OIDC issuer URL must use https (got: {0})")]
     OidcInsecureIssuerUrl(String),
+    #[error("OIDC verifier used before `initialize`: it has no signing keys")]
+    OidcNotInitialized,
     #[error("key not found: {0}")]
     OidcKeyNotFound(String),
     #[error("kid is missing and multiple keys are available")]
@@ -185,6 +192,10 @@ pub enum AuthError {
     // Operational
     #[error("operation would block on async I/O; call async variant")]
     WouldBlockOn,
+
+    // Custom (application-supplied) providers and verifiers
+    #[error("custom auth error: {0}")]
+    Custom(String),
 
     // MLS
     #[error("MLS is not supported by this provider")]

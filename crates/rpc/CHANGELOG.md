@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1](https://github.com/agntcy/slim/compare/slim-rpc-v3.5.0...slim-rpc-v3.5.1) - 2026-11-25
+
+### Fixed
+
+- *(rpc)* keep the public constructors of the response readers ([#2435](https://github.com/agntcy/slim/pull/2435))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(service)* initialize the identity in create_app ([#2450](https://github.com/agntcy/slim/pull/2450))
+- *(release)* split workspace version into node and app version groups ([#2433](https://github.com/agntcy/slim/pull/2433))
+
 ## [3.4.5](https://github.com/agntcy/slim/compare/slim-rpc-v3.4.4...slim-rpc-v3.4.5) - 2026-10-18
 
 ### Fixed
