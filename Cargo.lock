@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agntcy-slim"
-version = "4.0.0"
+version = "3.5.1"
 dependencies = [
  "agntcy-slim-config",
  "agntcy-slim-service",
@@ -85,7 +85,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-bindings"
-version = "4.0.0"
+version = "3.5.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-channel-manager"
-version = "4.0.0"
+version = "3.5.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",
@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-control-plane"
-version = "4.0.0"
+version = "3.5.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-config",
@@ -415,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-rpc"
-version = "4.0.0"
+version = "3.5.1"
 dependencies = [
  "agntcy-slim-auth",
  "agntcy-slim-bindings",
@@ -578,11 +578,11 @@ dependencies = [
 
 [[package]]
 name = "agntcy-slim-version"
-version = "4.0.0"
+version = "3.5.1"
 
 [[package]]
 name = "agntcy-slimctl"
-version = "4.0.0"
+version = "3.5.1"
 dependencies = [
  "agntcy-slim",
  "agntcy-slim-auth",

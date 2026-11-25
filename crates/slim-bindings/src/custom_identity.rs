@@ -269,13 +269,13 @@ impl From<IdentityCallbackError> for AuthError {
 ///
 /// The keys are opaque bytes in the encoding of the MLS crypto provider (AWS-LC),
 /// which depends on the ciphersuite the library was built with. The default is P-256;
-/// building with `insecure-self-certified-did` switches the whole build to Ed25519, so do not assume one format without knowing how your
+/// building with the `curve25519` feature switches the whole build to Ed25519, so do not assume one format without knowing how your
 /// SLIM library was built:
 ///
 /// | Build | `secret_key` | `public_key` |
 /// |-------|--------------|--------------|
 /// | default (P-256, ECDSA) | at most 32 bytes: the raw big-endian private scalar, see below | 65 bytes: uncompressed SEC1 point: the byte `0x04`, then X, then Y |
-/// | `insecure-self-certified-did` (Ed25519) | 64 bytes: the 32-byte seed followed by the 32-byte public key | 32 bytes: the raw Ed25519 public key |
+/// | `curve25519` (Ed25519) | 64 bytes: the 32-byte seed followed by the 32-byte public key | 32 bytes: the raw Ed25519 public key |
 ///
 /// A P-256 secret key is the 32-byte scalar with leading zero bytes removed, so about one
 /// key in 256 is shorter than 32 bytes. Do not check for an exact length or store it in a

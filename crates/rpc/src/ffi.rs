@@ -177,7 +177,10 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(ResponseStreamReader::new(rx, task.abort_handle())))
+        Ok(Arc::new(ResponseStreamReader::with_task(
+            rx,
+            task.abort_handle(),
+        )))
     }
 
     pub fn call_stream_unary(
@@ -262,7 +265,7 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(MulticastResponseReader::new(
+        Ok(Arc::new(MulticastResponseReader::with_task(
             rx,
             task.abort_handle(),
         )))
@@ -319,7 +322,7 @@ impl Channel {
                 }
             }
         });
-        Ok(Arc::new(MulticastResponseReader::new(
+        Ok(Arc::new(MulticastResponseReader::with_task(
             rx,
             task.abort_handle(),
         )))
