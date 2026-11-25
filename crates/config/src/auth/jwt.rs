@@ -121,8 +121,16 @@ pub struct Config {
     /// One of: `encoding`, `decoding`, or `autoresolve`
     /// Encoding key is used for signing JWTs (client-side).
     /// Decoding key is used for verifying JWTs (server-side).
-    /// Autoresolve is used to automatically resolve the key based on the claims.
+    /// Autoresolve fetches the keys of the issuer (`claims.issuer`) from its JWKS
+    /// endpoint, and needs that issuer to be set unless `allow_any_issuer` is.
     key: JwtKey,
+
+    /// For `autoresolve` without `claims.issuer`: fetch keys from whichever issuer a
+    /// token names, before the token is verified. Any sender can then make the node
+    /// send a request to a URL of its choosing. Defaults to `false`, in which case a
+    /// verifier with `autoresolve` and no issuer is an error.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    allow_any_issuer: bool,
 
     /// Optional policy evaluated against JWT claims on every authenticated request.
     /// Absent means all authenticated requests are allowed.
@@ -150,7 +158,14 @@ impl Config {
             key,
             policy: None,
             subject_binding: None,
+            allow_any_issuer: false,
         }
+    }
+
+    /// Let `autoresolve` work without `claims.issuer`; see the field.
+    pub fn with_allow_any_issuer(mut self, allow: bool) -> Self {
+        self.allow_any_issuer = allow;
+        self
     }
 
     /// Set an inline Rego policy evaluated against JWT claims on every request
@@ -213,7 +228,7 @@ impl Config {
 
     /// Internal helper to build a base JwtBuilder with configured standard claims.
     fn jwt_builder(&self) -> JwtBuilder {
-        let mut builder = JwtBuilder::new();
+        let mut builder = JwtBuilder::new().allow_any_issuer(self.allow_any_issuer);
         if let Some(issuer) = &self.claims().issuer {
             builder = builder.issuer(issuer);
         }
@@ -278,7 +293,16 @@ where
     type ServerLayer = Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>;
 
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError> {
-        let verifier = self.get_verifier()?;
+        self.server_layer(self.get_verifier()?)
+    }
+}
+
+impl Config {
+    fn server_layer(
+        &self,
+        verifier: VerifierJwt,
+    ) -> Result<Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>, ConfigAuthError>
+    {
         let jwt_layer = ValidateJwtLayer::new(verifier, self.custom_claims());
         let policy_layer = match &self.policy {
             None => PolicyCheckLayer::none(),
@@ -287,6 +311,19 @@ where
             Some(PolicyConfig::Cel(expr)) => PolicyCheckLayer::cel(expr)?,
         };
         Ok(Stack::new(policy_layer, jwt_layer))
+    }
+
+    /// Like [`ServerAuthenticator::get_server_layer`], but initializes the verifier
+    /// first, which fetches the configured issuer's signing keys. Verification only
+    /// reads cached keys, so a server that skips this rejects requests until a background
+    /// fetch has filled the cache.
+    pub async fn get_initialized_server_layer(
+        &self,
+    ) -> Result<Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, VerifierJwt>>, ConfigAuthError>
+    {
+        let mut verifier = self.get_verifier()?;
+        slim_auth::traits::Verifier::initialize(&mut verifier).await?;
+        self.server_layer(verifier)
     }
 }
 
@@ -507,7 +544,7 @@ mod tests {
         // init crypto provider first
         initialize_crypto_provider();
         let cfg = Config::new(
-            Claims::default(),
+            Claims::default().with_issuer("https://issuer.example.com"),
             Duration::from_secs(60),
             JwtKey::Autoresolve,
         );
@@ -517,6 +554,35 @@ mod tests {
             "expected verifier with autoresolve: {:?}",
             verifier.err()
         );
+    }
+
+    /// Automatic key resolution without an issuer would fetch from whichever issuer a
+    /// token names, so it is an error unless `allow_any_issuer` asks for it.
+    #[test]
+    fn test_autoresolve_needs_an_issuer_or_allow_any_issuer() {
+        initialize_crypto_provider();
+        let cfg = Config::new(
+            Claims::default(),
+            Duration::from_secs(60),
+            JwtKey::Autoresolve,
+        );
+        assert!(matches!(
+            cfg.get_verifier(),
+            Err(AuthError::JwtAutoResolveNeedsIssuer)
+        ));
+        assert!(cfg.with_allow_any_issuer(true).get_verifier().is_ok());
+    }
+
+    #[test]
+    fn test_allow_any_issuer_is_read_from_the_config() {
+        initialize_crypto_provider();
+        let cfg: Config = serde_json::from_str(
+            r#"{ "key": { "type": "autoresolve" }, "allow_any_issuer": true }"#,
+        )
+        .unwrap();
+        assert!(cfg.get_verifier().is_ok());
+        let cfg: Config = serde_json::from_str(r#"{ "key": { "type": "autoresolve" } }"#).unwrap();
+        assert!(cfg.get_verifier().is_err());
     }
 
     #[test]

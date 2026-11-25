@@ -107,11 +107,13 @@ pub async fn create_and_subscribe_app(
     ),
     ServiceError,
 > {
-    let (app, rx) = svc.create_app(
-        name,
-        SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)?,
-        SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)?,
-    )?;
+    let (app, rx) = svc
+        .create_app(
+            name,
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)?,
+            SharedSecret::new(&name.to_string(), TEST_VALID_SECRET)?,
+        )
+        .await?;
 
     svc.run().await?;
 

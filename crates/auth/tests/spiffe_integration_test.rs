@@ -96,9 +96,9 @@ fn assert_manager_uninitialized(manager: &SpireIdentityManager) {
 }
 
 /// Asserts that a verifier is in uninitialized state
-async fn assert_verifier_uninitialized(verifier: &SpireIdentityManager) {
+fn assert_verifier_uninitialized(verifier: &SpireIdentityManager) {
     let token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature";
-    let verify_result = verifier.verify(token).await;
+    let verify_result = verifier.verify(token);
     assert!(verify_result.is_err(), "Should fail without initialization");
 }
 
@@ -211,14 +211,15 @@ async fn test_spiffe_provider_initialization() {
         };
 
         // Verify that the token contains the MLS public key in custom_claims
-        match verifier.get_claims::<serde_json::Value>(token).await {
+        match verifier.get_claims::<serde_json::Value>(token) {
             Ok(claims) => {
                 tracing::info!(%claims, "Successfully verified JWT token");
                 match IdentityClaims::from_json(&claims) {
                     Ok(identity) => {
-                        assert!(
-                            !identity.public_key.is_empty(),
-                            "pubkey should not be empty"
+                        assert_eq!(
+                            identity.public_key,
+                            IdentityClaims::encode_public_key(&[2u8; 32]),
+                            "the token carries the public key that took effect"
                         );
                         assert!(!identity.subject.is_empty(), "subject should not be empty");
                         tracing::info!(
@@ -271,7 +272,7 @@ async fn test_spiffe_jwt_verifier_creation() {
     tracing::info!("Correctly fails to initialize with non-existent socket");
 
     // Test verification without initialization
-    assert_verifier_uninitialized(&verifier).await;
+    assert_verifier_uninitialized(&verifier);
     tracing::info!("Correctly fails to verify without initialization");
 }
 
@@ -643,19 +644,19 @@ async fn test_spiffe_grpc_jwt_auth() {
 
 #[tokio::test]
 #[tracing_test::traced_test]
-async fn test_spiffe_try_methods() {
-    tracing::info!("Testing SPIFFE try_* methods for non-async contexts");
+async fn test_spiffe_sync_methods() {
+    tracing::info!("Testing the synchronous SPIFFE verifier methods");
 
     let cfg_try = test_config();
     let verifier = build_manager_from(&cfg_try);
 
     // Try to verify without initialization
-    let result = verifier.try_verify("fake.token");
+    let result = verifier.verify("fake.token");
     assert!(result.is_err());
 
     // Try to get claims without initialization
-    let claims_result: Result<serde_json::Value, _> = verifier.try_get_claims("fake.token");
+    let claims_result: Result<serde_json::Value, _> = verifier.get_claims("fake.token");
     assert!(claims_result.is_err());
 
-    tracing::info!("try_* methods correctly handle uninitialized state");
+    tracing::info!("verify and get_claims correctly handle uninitialized state");
 }

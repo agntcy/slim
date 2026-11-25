@@ -91,6 +91,7 @@ pub async fn run_session_benchmark(
                 SharedSecret::new(&format!("receiver-{i}"), TEST_VALID_SECRET)?,
                 SharedSecret::new(&format!("receiver-{i}"), TEST_VALID_SECRET)?,
             )
+            .await
             .map_err(|e| format!("failed to create receiver app {i}: {e}"))?;
 
         let (sender_app, _sender_rx) = service
@@ -99,6 +100,7 @@ pub async fn run_session_benchmark(
                 SharedSecret::new(&format!("sender-{i}"), TEST_VALID_SECRET)?,
                 SharedSecret::new(&format!("sender-{i}"), TEST_VALID_SECRET)?,
             )
+            .await
             .map_err(|e| format!("failed to create sender app {i}: {e}"))?;
 
         // The session destination is the 3-component receiver name (no ID).

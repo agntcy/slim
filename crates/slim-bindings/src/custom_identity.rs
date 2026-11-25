@@ -483,10 +483,14 @@ pub trait IdentityProvider: Send + Sync {
 
 /// Verifies the identity of peers. Implemented in the foreign language.
 ///
-/// `initialize` and `verify_async` are async, so they may do I/O. The other methods
-/// are called synchronously from SLIM worker threads (including from MLS), so they
-/// must not block for long and must be safe to call concurrently; prefetch and cache
-/// anything they need.
+/// `initialize` is async, so it may do I/O: fetch trust bundles or keys there, once.
+/// Every other method is called synchronously from SLIM worker threads (including from
+/// MLS), so it must not block for long and must be safe to call concurrently; verify
+/// against what `initialize` fetched and what you refresh in the background.
+///
+/// `verify_async` is no longer called: SLIM verifies tokens through the synchronous
+/// methods only. It stays in the interface so existing implementations keep working,
+/// and can be implemented by delegating to the synchronous `verify`.
 #[uniffi::export(with_foreign)]
 #[async_trait::async_trait]
 pub trait IdentityVerifier: Send + Sync {
@@ -494,8 +498,8 @@ pub trait IdentityVerifier: Send + Sync {
     /// once while the app is being created, before any other method.
     async fn initialize(&self) -> Result<(), IdentityCallbackError>;
 
-    /// Verify the token where an async context is available. Fail if it is invalid
-    /// or expired.
+    /// Not called any more: SLIM uses [`IdentityVerifier::verify`]. Implement it by
+    /// delegating to `verify`.
     async fn verify_async(&self, token: String) -> Result<(), IdentityCallbackError>;
 
     /// Verify the token from a synchronous context. Fail if it is invalid or expired.
@@ -612,22 +616,11 @@ impl Verifier for ForeignVerifier {
         Ok(self.inner.initialize().await?)
     }
 
-    async fn verify(&self, token: impl AsRef<str> + Send) -> Result<(), AuthError> {
-        Ok(self.inner.verify_async(token.as_ref().to_string()).await?)
-    }
-
-    fn try_verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
+    fn verify(&self, token: impl AsRef<str>) -> Result<(), AuthError> {
         Ok(self.inner.verify(token.as_ref().to_string())?)
     }
 
-    async fn get_claims<Claims>(&self, token: impl AsRef<str> + Send) -> Result<Claims, AuthError>
-    where
-        Claims: DeserializeOwned + Send,
-    {
-        self.try_get_claims(token)
-    }
-
-    fn try_get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
+    fn get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send,
     {
@@ -639,11 +632,11 @@ impl Verifier for ForeignVerifier {
         Ok(self.inner.get_public_key(token.as_ref().to_string())?)
     }
 
-    fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+    fn get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
         Ok(self.inner.get_subject(token.as_ref().to_string())?)
     }
 
-    fn try_verify_key_binding(
+    fn verify_key_binding(
         &self,
         token: impl AsRef<str>,
         public_key: &[u8],
@@ -655,7 +648,7 @@ impl Verifier for ForeignVerifier {
                 // Fill in the details the foreign side cannot know.
                 IdentityCallbackError::PublicKeyMismatch { message } => {
                     AuthError::PublicKeyMismatch {
-                        subject: self.try_get_subject(token).unwrap_or_else(|e| {
+                        subject: self.get_subject(token).unwrap_or_else(|e| {
                             tracing::warn!(error = %e, "cannot read the subject of a token whose key does not match");
                             String::new()
                         }),
@@ -875,13 +868,13 @@ mod tests {
             into_core(Arc::new(Provider::default()), Arc::new(Verif));
         provider.initialize().await.unwrap();
         verifier.initialize().await.unwrap();
-        verifier.verify("tok").await.unwrap();
-        assert!(verifier.verify("nope").await.is_err());
+        verifier.verify("tok").unwrap();
+        assert!(verifier.verify("nope").is_err());
 
         assert_eq!(provider.get_id().unwrap(), "alice");
-        verifier.try_verify(provider.get_token().unwrap()).unwrap();
-        assert!(verifier.try_verify("nope").is_err());
-        assert_eq!(verifier.try_get_subject("tok").unwrap(), "alice");
+        verifier.verify(provider.get_token().unwrap()).unwrap();
+        assert!(verifier.verify("nope").is_err());
+        assert_eq!(verifier.get_subject("tok").unwrap(), "alice");
         assert_eq!(verifier.get_public_key("tok").await.unwrap(), b"key");
 
         assert!(!provider.mls_signature_keys_installed().unwrap());
@@ -902,8 +895,8 @@ mod tests {
         let restored = provider.with_restored_identity(exported).unwrap();
         assert_eq!(restored.get_signature_keys().unwrap().1, b"key");
 
-        verifier.try_verify_key_binding("tok", b"key").unwrap();
-        match verifier.try_verify_key_binding("tok", b"x") {
+        verifier.verify_key_binding("tok", b"key").unwrap();
+        match verifier.verify_key_binding("tok", b"x") {
             Err(AuthError::PublicKeyMismatch { subject, .. }) => assert_eq!(subject, "alice"),
             other => panic!("expected PublicKeyMismatch, got {other:?}"),
         }

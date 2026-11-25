@@ -54,7 +54,7 @@ where
         let token = Self::credential_token(signing_id)?;
         let subject = self
             .identity_verifier
-            .try_get_subject(token)
+            .get_subject(token)
             .map_err(|e| Self::auth_error(e, "could not get subject from token"))?;
         debug!(sub = %subject, "Extracted subject from token");
         Ok(subject)
@@ -68,7 +68,7 @@ where
     pub fn verify_key_binding(&self, signing_id: &SigningIdentity) -> Result<(), MlsError> {
         let token = Self::credential_token(signing_id)?;
         self.identity_verifier
-            .try_verify_key_binding(token, signing_id.signature_key.as_ref())
+            .verify_key_binding(token, signing_id.signature_key.as_ref())
             .map_err(|e| match e {
                 AuthError::PublicKeyMismatch {
                     subject,
@@ -165,25 +165,11 @@ mod tests {
             Ok(())
         }
 
-        async fn verify(&self, _token: impl AsRef<str> + Send) -> Result<(), AuthError> {
+        fn verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
             Ok(())
         }
 
-        fn try_verify(&self, _token: impl AsRef<str>) -> Result<(), AuthError> {
-            Ok(())
-        }
-
-        async fn get_claims<Claims>(
-            &self,
-            token: impl AsRef<str> + Send,
-        ) -> Result<Claims, AuthError>
-        where
-            Claims: DeserializeOwned + Send,
-        {
-            self.try_get_claims(token)
-        }
-
-        fn try_get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
+        fn get_claims<Claims>(&self, _token: impl AsRef<str>) -> Result<Claims, AuthError>
         where
             Claims: DeserializeOwned + Send,
         {
@@ -199,11 +185,11 @@ mod tests {
             slim_auth::traits::public_key_from_claims(self, token).await
         }
 
-        fn try_get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
+        fn get_subject(&self, token: impl AsRef<str>) -> Result<String, AuthError> {
             slim_auth::traits::subject_from_claims(self, token)
         }
 
-        fn try_verify_key_binding(
+        fn verify_key_binding(
             &self,
             token: impl AsRef<str>,
             public_key: &[u8],

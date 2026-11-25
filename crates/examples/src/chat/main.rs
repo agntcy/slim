@@ -172,6 +172,7 @@ async fn main() -> Result<()> {
             SharedSecret::new(&args.name, slim_testing::utils::TEST_VALID_SECRET)
                 .expect("failed to create SharedSecret"),
         )
+        .await
         .context("failed to create app")?;
 
     // Run the service: opens the connections defined in the config file.

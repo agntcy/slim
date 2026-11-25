@@ -630,7 +630,16 @@ where
             return Err(ConfigAuthError::AuthJwtAudienceRequired);
         }
 
-        let verifier = self.create_verifier()?;
+        self.server_layer(self.create_verifier()?)
+    }
+}
+
+impl Config {
+    fn server_layer(
+        &self,
+        verifier: OidcVerifier,
+    ) -> Result<Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>, ConfigAuthError>
+    {
         let jwt_layer = ValidateJwtLayer::new(verifier, MetadataMap::default());
 
         let policy_layer = match &self.policy {
@@ -641,6 +650,22 @@ where
         };
 
         Ok(Stack::new(policy_layer, jwt_layer))
+    }
+
+    /// Like [`ServerAuthenticator::get_server_layer`], but initializes the verifier
+    /// first, which fetches the issuer's signing keys and starts the task that keeps them
+    /// fresh. Verification only reads cached keys, so a server built with
+    /// `get_server_layer` instead has no keys, and rejects every request.
+    pub async fn get_initialized_server_layer(
+        &self,
+    ) -> Result<Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>, ConfigAuthError>
+    {
+        if !self.can_verify() {
+            return Err(ConfigAuthError::AuthJwtAudienceRequired);
+        }
+        let mut verifier = self.create_verifier()?;
+        slim_auth::traits::Verifier::initialize(&mut verifier).await?;
+        self.server_layer(verifier)
     }
 }
 

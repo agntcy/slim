@@ -101,5 +101,11 @@ pub trait ServerAuthenticator<Response: Default> {
     // associated types
     type ServerLayer;
 
+    /// Build the layer. The verifier inside is **not** initialized: for a configuration
+    /// whose verifier needs it (JWT with an issuer, OIDC, SPIRE) the layer has no signing
+    /// keys until `initialize` runs. The servers do that: for JWT and OIDC they call
+    /// `get_initialized_server_layer`, which initializes the verifier first; for SPIRE
+    /// they initialize the layer. Anything else that serves with a layer built here must
+    /// initialize it too.
     fn get_server_layer(&self) -> Result<Self::ServerLayer, ConfigAuthError>;
 }

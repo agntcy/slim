@@ -140,6 +140,7 @@ impl MulticastTestEnv {
                     AuthProvider::shared_secret(secret.clone()),
                     AuthVerifier::shared_secret(secret),
                 )
+                .await
                 .unwrap();
             let app = Arc::new(app);
             member_full_names.push(app.app_name().clone());
@@ -164,6 +165,7 @@ impl MulticastTestEnv {
                 AuthProvider::shared_secret(secret.clone()),
                 AuthVerifier::shared_secret(secret),
             )
+            .await
             .unwrap();
         let client_app = Arc::new(client_app);
         let channel =

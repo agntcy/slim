@@ -79,9 +79,7 @@ where
     V: Verifier + Send + Sync,
 {
     let identity = msg.get_slim_header().get_identity();
-    if verifier.try_verify(&identity).is_err() {
-        verifier.verify(&identity).await?;
-    }
+    verifier.verify(&identity)?;
 
     if e2e_integrity_required && msg.get_session_message_type().is_command_message() {
         let slim_header = msg.get_slim_header();
@@ -91,7 +89,7 @@ where
             ));
         };
 
-        let claims_json: Value = verifier.get_claims(&identity).await?;
+        let claims_json: Value = verifier.get_claims(&identity)?;
         // The verifier says where the signer's key is: a claim, a DPoP confirmation, ...
         let pubkey_bytes = verifier.get_public_key(&identity).await?;
 
@@ -3378,33 +3376,14 @@ mod tests {
         async fn initialize(&mut self) -> Result<(), slim_auth::errors::AuthError> {
             Ok(())
         }
-        async fn verify(
-            &self,
-            token: impl AsRef<str> + Send,
-        ) -> Result<(), slim_auth::errors::AuthError> {
-            self.0.verify(token).await
+        fn verify(&self, token: impl AsRef<str>) -> Result<(), slim_auth::errors::AuthError> {
+            self.0.verify(token)
         }
-        fn try_verify(&self, token: impl AsRef<str>) -> Result<(), slim_auth::errors::AuthError> {
-            self.0.try_verify(token)
-        }
-        async fn get_claims<C>(
-            &self,
-            token: impl AsRef<str> + Send,
-        ) -> Result<C, slim_auth::errors::AuthError>
+        fn get_claims<C>(&self, token: impl AsRef<str>) -> Result<C, slim_auth::errors::AuthError>
         where
             C: serde::de::DeserializeOwned + Send,
         {
-            let claims: Value = self.0.get_claims(token).await?;
-            Ok(serde_json::from_value(Self::without_pubkey(claims))?)
-        }
-        fn try_get_claims<C>(
-            &self,
-            token: impl AsRef<str>,
-        ) -> Result<C, slim_auth::errors::AuthError>
-        where
-            C: serde::de::DeserializeOwned + Send,
-        {
-            let claims: Value = self.0.try_get_claims(token)?;
+            let claims: Value = self.0.get_claims(token)?;
             Ok(serde_json::from_value(Self::without_pubkey(claims))?)
         }
         async fn get_public_key(
@@ -3416,18 +3395,18 @@ mod tests {
                 None => self.0.get_public_key(token).await,
             }
         }
-        fn try_get_subject(
+        fn get_subject(
             &self,
             token: impl AsRef<str>,
         ) -> Result<String, slim_auth::errors::AuthError> {
-            self.0.try_get_subject(token)
+            self.0.get_subject(token)
         }
-        fn try_verify_key_binding(
+        fn verify_key_binding(
             &self,
             token: impl AsRef<str>,
             public_key: &[u8],
         ) -> Result<(), slim_auth::errors::AuthError> {
-            self.0.try_verify_key_binding(token, public_key)
+            self.0.verify_key_binding(token, public_key)
         }
     }
 
@@ -3444,7 +3423,6 @@ mod tests {
             &verifier,
             msg.get_slim_header().get_identity(),
         )
-        .await
         .unwrap();
         assert!(
             claims.get("pubkey").is_none(),

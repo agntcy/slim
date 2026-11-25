@@ -88,10 +88,9 @@ impl DomainAuthenticator {
                 })?;
 
                 // Verify HMAC and extract claims (includes "sub" = token id).
-                let claims: serde_json::Value =
-                    verifier.try_get_claims(credentials).map_err(|e| {
-                        Status::permission_denied(format!("token verification failed: {e}"))
-                    })?;
+                let claims: serde_json::Value = verifier.get_claims(credentials).map_err(|e| {
+                    Status::permission_denied(format!("token verification failed: {e}"))
+                })?;
 
                 // The "sub" field contains "domain/node-id" or "domain/node-id_RANDOM_SUFFIX".
                 // Use exact match or "_" separator to prevent prefix impersonation
@@ -111,10 +110,9 @@ impl DomainAuthenticator {
             #[cfg(not(target_family = "windows"))]
             DomainAuthenticator::Spire { verifier } => {
                 // Verify JWT SVID and extract claims (includes "sub" = SPIFFE ID).
-                let claims: serde_json::Value =
-                    verifier.try_get_claims(credentials).map_err(|e| {
-                        Status::permission_denied(format!("JWT SVID verification failed: {e}"))
-                    })?;
+                let claims: serde_json::Value = verifier.get_claims(credentials).map_err(|e| {
+                    Status::permission_denied(format!("JWT SVID verification failed: {e}"))
+                })?;
 
                 // Extract trust domain from the "sub" claim (SPIFFE ID).
                 // Convention: trust_domain == domain_name.

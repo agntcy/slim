@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1](https://github.com/agntcy/slim/compare/slim-mls-v0.6.0...slim-mls-v0.6.1) - 2026-11-25
+
+### Fixed
+
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(auth)* make Verifier::verify and get_claims synchronous ([#2438](https://github.com/agntcy/slim/pull/2438))
+- remove opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358)) ([#2434](https://github.com/agntcy/slim/pull/2434))
+- *(deps)* lock file maintenance ([#2242](https://github.com/agntcy/slim/pull/2242))
+
 ## [0.5.1](https://github.com/agntcy/slim/compare/slim-mls-v0.5.0...slim-mls-v0.5.1) - 2026-10-20
 
 ### Other

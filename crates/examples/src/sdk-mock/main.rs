@@ -139,6 +139,7 @@ async fn main() {
             SharedSecret::new(local_name, TEST_VALID_SECRET)
                 .expect("Failed to create SharedSecret"),
         )
+        .await
         .expect("failed to create app");
 
     // run the service - this will create all the connections provided via the config file.

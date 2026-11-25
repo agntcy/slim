@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1](https://github.com/agntcy/slim/compare/slim-control-plane-v3.5.0...slim-control-plane-v3.5.1) - 2026-11-25
+
+### Fixed
+
+- *(auth)* require an issuer for automatic key resolution ([#2444](https://github.com/agntcy/slim/pull/2444))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(service)* initialize the identity in create_app ([#2450](https://github.com/agntcy/slim/pull/2450))
+- *(auth)* make Verifier::verify and get_claims synchronous ([#2438](https://github.com/agntcy/slim/pull/2438))
+- *(release)* split workspace version into node and app version groups ([#2433](https://github.com/agntcy/slim/pull/2433))
+
 ## [3.4.6](https://github.com/agntcy/slim/compare/slim-control-plane-v3.4.5...slim-control-plane-v3.4.6) - 2026-10-20
 
 ### Other

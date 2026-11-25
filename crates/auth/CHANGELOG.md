@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0](https://github.com/agntcy/slim/compare/slim-auth-v0.18.0...slim-auth-v0.19.0) - 2026-11-25
+
+### Fixed
+
+- *(auth)* require an issuer for automatic key resolution ([#2444](https://github.com/agntcy/slim/pull/2444))
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(service)* initialize the identity in create_app ([#2450](https://github.com/agntcy/slim/pull/2450))
+- *(auth)* refresh signing keys from a task owned by each verifier ([#2449](https://github.com/agntcy/slim/pull/2449))
+- say that get_claims may return cached extended claims ([#2446](https://github.com/agntcy/slim/pull/2446))
+- *(auth)* serve OIDC claim-cache hits inline in the middleware ([#2445](https://github.com/agntcy/slim/pull/2445))
+- *(auth)* make Verifier::verify and get_claims synchronous ([#2438](https://github.com/agntcy/slim/pull/2438))
+- remove opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358)) ([#2434](https://github.com/agntcy/slim/pull/2434))
+
 ## [0.17.10](https://github.com/agntcy/slim/compare/slim-auth-v0.17.9...slim-auth-v0.17.10) - 2026-10-20
 
 ### Other

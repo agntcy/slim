@@ -137,22 +137,87 @@ impl AuthConfig {
             }
             AuthConfig::Jwt { trusted_keys, .. } => {
                 let public_key = self.jwt_public_key()?.unwrap_or_default();
-                // MLS checks the app's own credential -- its own token -- with
-                // this verifier, so the app must trust its own key. A JWKS that
-                // can't be read or parsed is left for the verifier to report.
-                if let Some(jwks) = read_key_data(trusted_keys)
-                    && !jwks_has_key(&jwks, &public_key)
-                {
-                    let did_key = ed25519_did_key(&public_key);
-                    return Err(SlimAuthError::InvalidEd25519Key(format!(
-                        "auth.trusted_keys has no entry for this app's own key ({did_key}): \
-                         MLS verifies the app's own token against it, so add it"
-                    ))
-                    .into());
-                }
+                Self::check_trusts_own_key(trusted_keys, &public_key)?;
             }
         }
         Ok(())
+    }
+
+    /// MLS checks the app's own credential -- its own token -- with the verifier,
+    /// so the app must trust its own key. A JWKS that can't be read or parsed is
+    /// left for the verifier to report.
+    fn check_trusts_own_key(
+        trusted_keys: &KeyData,
+        public_key: &[u8],
+    ) -> Result<(), ConfigAuthError> {
+        if let Some(jwks) = read_key_data(trusted_keys)
+            && !jwks_has_key(&jwks, public_key)
+        {
+            let did_key = ed25519_did_key(public_key);
+            return Err(SlimAuthError::InvalidEd25519Key(format!(
+                "auth.trusted_keys has no entry for this app's own key ({did_key}): \
+                 MLS verifies the app's own token against it, so add it"
+            ))
+            .into());
+        }
+        Ok(())
+    }
+
+    /// The identity configs of a `jwt` identity whose own `did_key` is known.
+    fn jwt_identity_configs(
+        private_key: &KeyData,
+        trusted_keys: &KeyData,
+        did_key: String,
+    ) -> (IdentityProviderConfig, IdentityVerifierConfig) {
+        let signing_key = JwtKey::Encoding(Key {
+            algorithm: Algorithm::EdDSA,
+            format: KeyFormat::Pem,
+            key: private_key.clone(),
+        });
+        let verifying_keys = JwtKey::Decoding(Key {
+            algorithm: Algorithm::EdDSA,
+            format: KeyFormat::Jwks,
+            key: trusted_keys.clone(),
+        });
+        (
+            IdentityProviderConfig::Jwt(JwtConfig::new(
+                Claims::new(None, Some(did_key.clone()), Some(did_key), None),
+                JWT_TOKEN_LIFETIME,
+                signing_key,
+            )),
+            // A trust list: each key is one peer's, so a token's `sub`
+            // must be its signer's own `did:key`.
+            IdentityVerifierConfig::Jwt(
+                JwtConfig::new(Claims::default(), JWT_TOKEN_LIFETIME, verifying_keys)
+                    .with_subject_binding(IdentityBinding::from_env()),
+            ),
+        )
+    }
+
+    /// [`Self::validate`] followed by [`Self::to_identity_configs`], reading the
+    /// private key of a `jwt` identity once.
+    pub fn to_validated_identity_configs(
+        &self,
+        local_name: &str,
+    ) -> Result<(IdentityProviderConfig, IdentityVerifierConfig), ConfigAuthError> {
+        match self {
+            AuthConfig::Jwt {
+                private_key,
+                trusted_keys,
+            } => {
+                let public_key = self.jwt_public_key()?.unwrap_or_default();
+                Self::check_trusts_own_key(trusted_keys, &public_key)?;
+                Ok(Self::jwt_identity_configs(
+                    private_key,
+                    trusted_keys,
+                    ed25519_did_key(&public_key),
+                ))
+            }
+            _ => {
+                self.validate()?;
+                self.to_identity_configs(local_name)
+            }
+        }
     }
 
     /// Convert to IdentityProviderConfig + IdentityVerifierConfig pair.
@@ -186,30 +251,8 @@ impl AuthConfig {
                 private_key,
                 trusted_keys,
             } => {
-                let did_key = self.did_key()?;
-                let signing_key = JwtKey::Encoding(Key {
-                    algorithm: Algorithm::EdDSA,
-                    format: KeyFormat::Pem,
-                    key: private_key.clone(),
-                });
-                let verifying_keys = JwtKey::Decoding(Key {
-                    algorithm: Algorithm::EdDSA,
-                    format: KeyFormat::Jwks,
-                    key: trusted_keys.clone(),
-                });
-                (
-                    IdentityProviderConfig::Jwt(JwtConfig::new(
-                        Claims::new(None, did_key.clone(), did_key, None),
-                        JWT_TOKEN_LIFETIME,
-                        signing_key,
-                    )),
-                    // A trust list: each key is one peer's, so a token's `sub`
-                    // must be its signer's own `did:key`.
-                    IdentityVerifierConfig::Jwt(
-                        JwtConfig::new(Claims::default(), JWT_TOKEN_LIFETIME, verifying_keys)
-                            .with_subject_binding(IdentityBinding::from_env()),
-                    ),
-                )
+                let did_key = self.did_key()?.unwrap_or_default();
+                Self::jwt_identity_configs(private_key, trusted_keys, did_key)
             }
         })
     }
@@ -381,7 +424,7 @@ mod tests {
         verifier.initialize().await.unwrap();
 
         let token = provider.get_token().unwrap();
-        let claims: serde_json::Value = verifier.get_claims(token).await.unwrap();
+        let claims: serde_json::Value = verifier.get_claims(token).unwrap();
         assert_eq!(claims["sub"], expected_did_key());
         assert_eq!(claims["iss"], expected_did_key());
     }

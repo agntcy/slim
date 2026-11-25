@@ -19,7 +19,7 @@
         let provider = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
         let verifier = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
 
-        let (app, _rx) = service.create_app(&name, provider, verifier)?;
+        let (app, _rx) = service.create_app(&name, provider, verifier).await?;
         app.subscribe(&name, Some(conn_id)).await?;
 
         println!("App ready: myorg/default/my-service");

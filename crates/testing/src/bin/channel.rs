@@ -257,10 +257,12 @@ async fn main() {
                 slim_session::Direction::Bidirectional,
                 Some(slim_persistence::PersistenceConfig::new(dir)),
             )
+            .await
             .expect("failed to create app")
         }
         None => svc
             .create_app(&local_name, provider, verifier)
+            .await
             .expect("failed to create app"),
     };
 

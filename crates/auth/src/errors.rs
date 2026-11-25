@@ -32,6 +32,11 @@ pub enum AuthError {
     JwtMissingDecodingKeyOrKeyResolver,
     #[error("missing 'iss' in JWT claims")]
     JwtMissingIssuer,
+    #[error(
+        "automatic key resolution needs a configured issuer (`claims.issuer`), \
+         or `allow_any_issuer` to fetch keys from whichever issuer a token names"
+    )]
+    JwtAutoResolveNeedsIssuer,
     #[error("no key resolver available")]
     JwtNoKeyResolver,
     #[error("no static JWT token configured")]
@@ -54,6 +59,8 @@ pub enum AuthError {
     OidcDiscoveryUrlOriginMismatch { field: &'static str, url: String },
     #[error("OIDC issuer URL must use https (got: {0})")]
     OidcInsecureIssuerUrl(String),
+    #[error("OIDC verifier used before `initialize`: it has no signing keys")]
+    OidcNotInitialized,
     #[error("key not found: {0}")]
     OidcKeyNotFound(String),
     #[error("kid is missing and multiple keys are available")]

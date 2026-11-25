@@ -214,6 +214,7 @@ async fn test_subscription_propagation_to_peers() {
             SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
         )
+        .await
         .expect("failed to create app on node 0");
 
     // Wait for subscription to propagate to peers
@@ -377,6 +378,7 @@ async fn test_subscription_not_propagated_to_remote() {
             SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
             SharedSecret::new("app", TEST_VALID_SECRET).unwrap(),
         )
+        .await
         .expect("failed to create app on node 0");
 
     // Wait for propagation

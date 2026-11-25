@@ -213,6 +213,7 @@ mod tests {
                     AuthProvider::shared_secret(secret.clone()),
                     AuthVerifier::shared_secret(secret),
                 )
+                .await
                 .unwrap();
             let owner_app = Arc::new(owner_app);
             let server = Arc::new(Server::new(
@@ -251,6 +252,7 @@ mod tests {
                     AuthProvider::shared_secret(secret.clone()),
                     AuthVerifier::shared_secret(secret),
                 )
+                .await
                 .unwrap();
 
             Self {
