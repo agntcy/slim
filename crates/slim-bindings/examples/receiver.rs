@@ -4,16 +4,24 @@
 //! # SLIM Receiver App
 //!
 //! This app demonstrates a passive listener that:
-//! 1. Creates a SLIM application with specified identity and shared secret
+//! 1. Creates a SLIM application with specified identity: a shared secret, or a did:key
 //! 2. Waits for an incoming session
 //! 3. Receives messages from that session
 //! 4. Replies to each message using publish_to
 //!
 //! Usage:
 //! ```bash
+//! # Shared secret
 //! cargo run --example receiver -- \
 //!   --local agntcy/ns/alice \
 //!   --shared-secret a-very-long-shared-secret-abcdef1234567890
+//!
+//! # did:key: an Ed25519 key per app, and the public keys of the apps each one accepts
+//! crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
+//! cargo run --example receiver -- \
+//!   --local agntcy/ns/alice \
+//!   --private-key "$(cat /tmp/keys/alice.private)" \
+//!   --trusted-key "$(cat /tmp/keys/bob.public)"
 //! ```
 
 #[cfg(feature = "web")]
@@ -30,6 +38,9 @@ cfg_if::cfg_if! {
         };
         use tokio::signal;
 
+        #[path = "common/identity.rs"]
+        mod identity;
+
         /// Command-line arguments for the receiver application
         #[derive(Parser, Debug)]
         struct Args {
@@ -37,9 +48,8 @@ cfg_if::cfg_if! {
             #[arg(long)]
             local: String,
 
-            /// Shared secret for authentication
-            #[arg(long)]
-            shared_secret: String,
+            #[command(flatten)]
+            identity: identity::IdentityArgs,
 
             /// SLIM control plane endpoint
             #[arg(long, default_value = "http://localhost:46357")]
@@ -79,9 +89,11 @@ cfg_if::cfg_if! {
 
             println!("Connected to control plane with connection ID: {conn_id}");
 
-            // Create the slim application using global service with shared secret
-            let app = service
-                .create_app_with_secret_async(local_name_arc.clone(), args.shared_secret)
+            // Create the slim application using global service, with the identity chosen
+            // on the command line
+            let app = args
+                .identity
+                .create_app(&service, local_name_arc.clone())
                 .await?;
 
             let full_name = app.name();
