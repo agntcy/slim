@@ -371,11 +371,11 @@ impl App {
     #[uniffi::constructor]
     pub fn new_with_did_key(
         name: Arc<Name>,
-        private_key: String,
+        private_key_pem: String,
         trusted_keys: String,
         direction: Direction,
     ) -> Result<Arc<App>, SlimError> {
-        get_global_service().create_app_with_did_key(name, private_key, trusted_keys, direction)
+        get_global_service().create_app_with_did_key(name, private_key_pem, trusted_keys, direction)
     }
 
     /// Create a new App whose identity is a `did:key` (async version)
@@ -385,12 +385,12 @@ impl App {
     #[uniffi::constructor]
     pub async fn new_with_did_key_async(
         name: Arc<Name>,
-        private_key: String,
+        private_key_pem: String,
         trusted_keys: String,
         direction: Direction,
     ) -> Result<Arc<App>, SlimError> {
         get_global_service()
-            .create_app_with_did_key_async(name, private_key, trusted_keys, direction)
+            .create_app_with_did_key_async(name, private_key_pem, trusted_keys, direction)
             .await
     }
 

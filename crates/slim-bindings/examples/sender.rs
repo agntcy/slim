@@ -25,12 +25,12 @@
 //!   --session-type group \
 //!   --participants agntcy/ns/alice agntcy/ns/charlie
 //!
-//! # With a did:key identity instead of a shared secret: an Ed25519 key per app (a JWK),
-//! # and the JWKS of the keys the apps trust (here, the one the script writes)
+//! # With a did:key identity instead of a shared secret: an Ed25519 key per app (a PEM
+//! # file), and the JWKS of the keys the apps trust (here, the one the script writes)
 //! crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
 //! cargo run --example sender -- \
 //!   --local agntcy/ns/bob \
-//!   --private-key /tmp/keys/bob.jwk \
+//!   --private-key /tmp/keys/bob.pem \
 //!   --trusted-keys /tmp/keys/trusted-keys.jwks \
 //!   --session-type p2p \
 //!   --participants agntcy/ns/alice

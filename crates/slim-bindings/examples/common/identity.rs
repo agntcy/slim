@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The identity options shared by the sender and the receiver: a shared secret, or a
-//! `did:key` (the app's private key as a JWK, and the JWKS of the keys it trusts).
+//! `did:key` (the app's private key as a PEM file, and the JWKS of the keys it trusts).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,9 +22,9 @@ pub struct IdentityArgs {
     )]
     shared_secret: Option<String>,
 
-    /// did:key identity: a file with the app's private key as a JWK (kty OKP, crv
-    /// Ed25519, d). The app's identity is the did:key of this key.
-    /// `examples/did_key/generate-keys.sh` generates keys.
+    /// did:key identity: a file with the app's Ed25519 private key, a PKCS#8 PEM document
+    /// (as `openssl genpkey -algorithm ed25519` writes). The app's identity is the
+    /// did:key of this key. `examples/did_key/generate-keys.sh` generates keys.
     #[arg(
         long,
         requires = "trusted_keys",
@@ -33,7 +33,7 @@ pub struct IdentityArgs {
     private_key: Option<PathBuf>,
 
     /// did:key identity: a file with the JWKS of the keys this app trusts, one OKP
-    /// Ed25519 JWK per app it accepts. The app's own key is trusted without being listed.
+    /// Ed25519 JWK per app it accepts. It has to list the app's own key too.
     #[arg(long, requires = "private_key")]
     trusted_keys: Option<PathBuf>,
 }

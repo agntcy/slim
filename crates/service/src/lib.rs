@@ -33,8 +33,6 @@
 //! # })
 //! ```
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod did_key;
 pub mod errors;
 pub mod service;
 
@@ -46,11 +44,12 @@ pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 pub use errors::ServiceError;
-// The JWK types of a did:key identity, which the helper of `Service` takes
-#[cfg(not(target_arch = "wasm32"))]
-pub use did_key::{Jwk, JwkSet, PrivateJwk, did_key_of_private_key};
+// The types of the trust anchor of a did:key identity, which `Service` takes, so that callers
+// need no dependency on `jsonwebtoken`
 #[cfg(feature = "session")]
 pub use errors::SubscriptionAckError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use jsonwebtoken::jwk::{Jwk, JwkSet};
 #[cfg(not(target_arch = "wasm32"))]
 pub use service::ServiceBuilder;
 pub use service::{DefaultGatewayMode, KIND, Service, ServiceConfiguration};

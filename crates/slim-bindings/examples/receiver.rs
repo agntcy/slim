@@ -16,11 +16,11 @@
 //!   --local agntcy/ns/alice \
 //!   --shared-secret a-very-long-shared-secret-abcdef1234567890
 //!
-//! # did:key: an Ed25519 key per app (a JWK), and the JWKS of the keys the apps trust
+//! # did:key: an Ed25519 key per app (a PEM file), and the JWKS of the keys the apps trust
 //! crates/slim-bindings/examples/did_key/generate-keys.sh /tmp/keys alice bob
 //! cargo run --example receiver -- \
 //!   --local agntcy/ns/alice \
-//!   --private-key /tmp/keys/alice.jwk \
+//!   --private-key /tmp/keys/alice.pem \
 //!   --trusted-keys /tmp/keys/trusted-keys.jwks
 //! ```
 

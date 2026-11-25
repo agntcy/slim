@@ -505,20 +505,19 @@ impl Service {
     /// Create a new App whose identity is a `did:key` (async version)
     ///
     /// The app signs with an Ed25519 key and accepts the peers whose public keys it
-    /// trusts. The keys are JWKs, which name their key type: only `OKP` `Ed25519` is
-    /// supported. The provider and the verifier are built from them and initialized
-    /// before the app is created.
+    /// trusts. The provider and the verifier are built from the two arguments and
+    /// initialized before the app is created.
     ///
     /// # Arguments
     /// * `name` - The base name for the app (without ID)
-    /// * `private_key` - The app's private key as a JWK (JSON): `kty` `OKP`, `crv`
-    ///   `Ed25519` and `d`, the base64url-encoded 32-byte seed (RFC 8037); `x`, the public
-    ///   key, is optional. The app's identity is the `did:key` of that key (see
+    /// * `private_key_pem` - The app's Ed25519 private key, a PKCS#8 PEM document
+    ///   (`-----BEGIN PRIVATE KEY-----`, as `openssl genpkey -algorithm ed25519` writes).
+    ///   The app's identity is the `did:key` of that key (see
     ///   [`crate::did_key_of_private_key`]).
     /// * `trusted_keys` - The JWKS (JSON) of the trust anchor: the public keys of the peers
     ///   the app accepts, as `OKP` `Ed25519` JWKs. A token's subject must be the `did:key`
-    ///   of the key that signed it. The app's own key is added if the JWKS does not list
-    ///   it, since MLS verifies the app's own token against the trust anchor.
+    ///   of the key that signed it. It has to list the app's own key too, since MLS
+    ///   verifies the app's own token against it.
     /// * `direction` - Traffic direction: Send, Recv, Bidirectional, or None
     ///
     /// # Returns
@@ -527,21 +526,20 @@ impl Service {
     pub async fn create_app_with_did_key_async(
         &self,
         name: Arc<Name>,
-        private_key: String,
+        private_key_pem: String,
         trusted_keys: String,
         direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
         let slim_name: SlimName = name.as_ref().into();
-        let private_key = slim_service::did_key::PrivateJwk::from_json(&private_key)?;
-        let trusted_keys: slim_service::did_key::JwkSet = serde_json::from_str(&trusted_keys)
-            .map_err(|e| SlimError::InvalidArgument {
+        let trusted_keys: slim_service::JwkSet =
+            serde_json::from_str(&trusted_keys).map_err(|e| SlimError::InvalidArgument {
                 message: format!("trusted_keys is not a JWKS: {e}"),
             })?;
         let (app, rx) = self
             .inner
             .create_app_with_did_key_and_direction(
                 &slim_name,
-                &private_key,
+                &private_key_pem,
                 &trusted_keys,
                 direction.into(),
             )
@@ -561,13 +559,13 @@ impl Service {
     pub fn create_app_with_did_key(
         &self,
         name: Arc<Name>,
-        private_key: String,
+        private_key_pem: String,
         trusted_keys: String,
         direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
         get_runtime().block_on(self.create_app_with_did_key_async(
             name,
-            private_key,
+            private_key_pem,
             trusted_keys,
             direction,
         ))
@@ -1516,13 +1514,23 @@ mod tests {
     // did:key identity
     // ========================================================================
 
-    // RFC 8037 appendix A: the key of RFC 8032 section 7.1, test 1, and the public key of
-    // test 2.
-    const SEED_1: &str = "nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A";
+    // RFC 8032 section 7.1, test 1, and the public key of test 2 (RFC 8037 appendix A).
+    const SEED_1: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+    const PUBLIC_1: &str = "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo";
     const PUBLIC_2: &str = "PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw";
 
-    fn private_jwk(d: &str) -> String {
-        format!(r#"{{"kty":"OKP","crv":"Ed25519","d":"{d}"}}"#)
+    /// The PKCS#8 PEM of the Ed25519 seed `seed`, as openssl writes it.
+    fn pem_of(seed: &str) -> String {
+        let hex = format!("302e020100300506032b657004220420{seed}");
+        let der: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        slim_auth::utils::bytes_to_pem(
+            &der,
+            "-----BEGIN PRIVATE KEY-----\n",
+            "\n-----END PRIVATE KEY-----\n",
+        )
     }
 
     fn jwks_of(public_keys: &[&str]) -> String {
@@ -1551,8 +1559,8 @@ mod tests {
         let app = service
             .create_app_with_did_key_async(
                 did_app_name(),
-                private_jwk(SEED_1),
-                jwks_of(&[PUBLIC_2]),
+                pem_of(SEED_1),
+                jwks_of(&[PUBLIC_1, PUBLIC_2]),
                 crate::app::Direction::Bidirectional,
             )
             .await
@@ -1568,8 +1576,8 @@ mod tests {
         let app = service
             .create_app_with_did_key(
                 did_app_name(),
-                private_jwk(SEED_1),
-                jwks_of(&[]),
+                pem_of(SEED_1),
+                jwks_of(&[PUBLIC_1]),
                 crate::app::Direction::Bidirectional,
             )
             .expect("an app with a did:key identity");
@@ -1579,29 +1587,27 @@ mod tests {
     #[test]
     fn test_did_key_of_private_key() {
         // RFC 8032 section 7.1, test 1: its public key is d75a98...
-        let did = crate::identity_config::did_key_of_private_key(private_jwk(SEED_1)).unwrap();
+        let did = crate::identity_config::did_key_of_private_key(pem_of(SEED_1)).unwrap();
         assert_eq!(
             did,
             "did:key:z6MktwupdmLXVVqTzCw4i46r4uGyosGXRnR3XjN4Zq7oMMsw"
         );
+        assert!(crate::identity_config::did_key_of_private_key("not a pem".to_string()).is_err());
     }
 
-    /// Keys that are not Ed25519 JWKs are an error, not a panic.
+    /// Keys that are not what the helper takes are an error, not a panic.
     #[tokio::test]
     async fn test_create_app_with_did_key_rejects_invalid_keys() {
         slim_config::tls::provider::initialize_crypto_provider();
         let service = Service::new("did-key-invalid".to_string());
 
         for (private_key, trusted_keys) in [
-            // Not a JWK.
-            ("not a jwk".to_string(), jwks_of(&[])),
-            // Another key type.
-            (
-                r#"{"kty":"EC","crv":"P-256","d":"AAAA"}"#.to_string(),
-                jwks_of(&[]),
-            ),
+            // Not a PEM.
+            ("not a pem".to_string(), jwks_of(&[PUBLIC_1])),
             // A trust anchor that is not a JWKS.
-            (private_jwk(SEED_1), "not a jwks".to_string()),
+            (pem_of(SEED_1), "not a jwks".to_string()),
+            // A trust anchor without the app's own key.
+            (pem_of(SEED_1), jwks_of(&[PUBLIC_2])),
         ] {
             let result = service
                 .create_app_with_did_key_async(
