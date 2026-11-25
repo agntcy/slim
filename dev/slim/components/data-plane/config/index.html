@@ -7500,15 +7500,20 @@ gateway automatically, which prevents gateway loops.</p>
 </div>
 </div>
 <div class="tabbed-block">
-<p>Automatically determine encoding/decoding based on context.</p>
+<p>Verify tokens with the keys that the issuer publishes. The keys are fetched from the issuer's JWKS endpoint when the node starts, which fails if the issuer is unreachable. A background task then refreshes them before they expire, retries with a backoff if the issuer is down, and refreshes early (at most every 30 s) when a token names a key id that is not cached.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">auth</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jwt</span>
 <span class="w">  </span><span class="nt">claims</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://issuer.example.com&quot;</span>
 <span class="w">    </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;remote-slim&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">  </span><span class="nt">duration</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;1h&quot;</span>
 <span class="w">  </span><span class="nt">key</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">autoresolve</span><span class="w">  </span><span class="c1"># Auto-detect encoding vs decoding</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">autoresolve</span><span class="w">  </span><span class="c1"># Fetch the issuer&#39;s keys</span>
 </code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code>claims.issuer</code> is required. Without it the configuration is rejected, unless <code>allow_any_issuer: true</code> is set. In that case keys are fetched from whichever issuer a token names, before the token is verified, so any sender can make the node send a request to a URL of its choosing.</p>
+</div>
 </div>
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><span class="nt">auth</span><span class="p">:</span>
@@ -7524,7 +7529,7 @@ gateway automatically, which prevents gateway loops.</p>
 <ul>
 <li><code>encoding</code> for signing JWTs (typically client-side)</li>
 <li><code>decoding</code> for verifying JWTs (typically server-side)</li>
-<li><code>autoresolve</code> automatically determine based on context</li>
+<li><code>autoresolve</code> for verifying JWTs with the keys fetched from the issuer (<code>claims.issuer</code>, required unless <code>allow_any_issuer</code> is set)</li>
 </ul>
 <h4 id="key-formats">Key Formats</h4>
 <div class="tabbed-set tabbed-alternate" data-tabs="9:3"><input checked="checked" id="__tabbed_9_1" name="__tabbed_9" type="radio" /><input id="__tabbed_9_2" name="__tabbed_9" type="radio" /><input id="__tabbed_9_3" name="__tabbed_9" type="radio" /><div class="tabbed-labels"><label for="__tabbed_9_1">PEM Format</label><label for="__tabbed_9_2">JWK Format</label><label for="__tabbed_9_3">JWKS Format</label></div>
@@ -8882,6 +8887,7 @@ Method</a>.</p>
 <li><code>key.algorithm</code> - Required when <code>type</code> is <code>encoding</code> or <code>decoding</code></li>
 <li><code>key.format</code> - Required when <code>type</code> is <code>encoding</code> or <code>decoding</code> (values: <code>pem</code>, <code>jwk</code>, <code>jwks</code>)</li>
 <li><code>key.key.file</code> or <code>key.key.data</code> - Required: one must be provided</li>
+<li><code>claims.issuer</code> - Required when <code>type</code> is <code>autoresolve</code>, unless <code>allow_any_issuer: true</code></li>
 </ul>
 <h3 id="tls-source-types">TLS Source Types</h3>
 <table>
