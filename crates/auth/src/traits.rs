@@ -79,6 +79,10 @@ pub trait Verifier {
     /// Gets the claims from the token after verifying it, as [`Verifier::verify`] does:
     /// against the keys already held, returning [`AuthError::WouldBlockOn`] while they are
     /// not there yet.
+    ///
+    /// These are the claims of the token. A verifier that completes claims in
+    /// [`Verifier::get_extended_claims`] and caches the result may return those completed
+    /// claims here for a token it has already seen; it never fetches anything itself.
     fn get_claims<Claims>(&self, token: impl AsRef<str>) -> Result<Claims, AuthError>
     where
         Claims: DeserializeOwned + Send;
@@ -112,8 +116,9 @@ pub trait Verifier {
     ///   authenticate: a failed lookup returns the token's claims.
     /// - Keep the token's claims when they conflict with the extra data.
     ///
-    /// `get_claims`, `verify` and the other synchronous methods do not call it, and
-    /// return the token's claims only.
+    /// `get_claims`, `verify` and the other synchronous methods never call it. They do
+    /// not fetch extra data, though `get_claims` may return what an earlier call to this
+    /// method cached.
     async fn get_extended_claims<Claims>(
         &self,
         token: impl AsRef<str> + Send,
