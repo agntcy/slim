@@ -1142,6 +1142,8 @@ where
     /// first use). The id is reserved for the duration, so a repeated JoinRequest
     /// meanwhile is dropped, and the number of concurrent builds is bounded by the
     /// same slots as pre-session verification, since the sender is not yet verified.
+    /// A full slot pool drops the request before spawning, rather than queuing
+    /// an unverified message; the moderator can retransmit it.
     fn handle_join_request(
         self: &Arc<Self>,
         message: Message,
@@ -1152,13 +1154,18 @@ where
         // receive loop, so it is checked before a slot is taken.
         let local_name = self.get_local_name_for_session(message.get_slim_header().get_dst())?;
 
+        let permit = match self.pre_session_verify_slots.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(error) => {
+                debug!(%id, %error, "dropping join request: no pre-session slot available");
+                return Ok(());
+            }
+        };
+
         let layer = self.clone();
         tokio::spawn(
             async move {
-                let _permit = match layer.pre_session_verify_slots.clone().acquire_owned().await {
-                    Ok(p) => p,
-                    Err(_) => return,
-                };
+                let _permit = permit;
                 match layer
                     .process_join_request(message, id, session_type, local_name)
                     .await
@@ -2152,6 +2159,40 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(rx_slim.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_join_request_does_not_queue_without_a_pre_session_slot() {
+        let (session_layer, _rx_slim, _rx_app) = setup_session_layer();
+        let local_name = make_name(&["local", "app", "v1"]);
+        session_layer.add_app_name(local_name.clone(), 0);
+
+        let available = session_layer.pre_session_verify_slots.available_permits();
+        let _all_permits = session_layer
+            .pre_session_verify_slots
+            .clone()
+            .try_acquire_many_owned(u32::try_from(available).unwrap())
+            .unwrap();
+        let message = Message::builder()
+            .source(make_name(&["remote", "app", "v1"]))
+            .destination(local_name.with_id(session_layer.app_id()))
+            .session_type(ProtoSessionType::PointToPoint)
+            .session_message_type(ProtoSessionMessageType::JoinRequest)
+            .session_id(42)
+            .message_id(1)
+            .application_payload("", vec![])
+            .build_publish()
+            .unwrap();
+
+        let owners_before = Arc::strong_count(&session_layer);
+        session_layer
+            .handle_join_request(message, 42, ProtoSessionType::PointToPoint)
+            .unwrap();
+        assert_eq!(
+            Arc::strong_count(&session_layer),
+            owners_before,
+            "a saturated join request must not retain a task and its message"
+        );
     }
 
     #[tokio::test]
