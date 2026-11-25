@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.38](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.37...slim-tracing-v0.4.38) - 2026-11-25
+
+### Fixed
+
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
 ## [0.4.36](https://github.com/agntcy/slim/compare/slim-tracing-v0.4.35...slim-tracing-v0.4.36) - 2026-10-20
 
 ### Other
