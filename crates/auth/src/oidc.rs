@@ -1334,6 +1334,7 @@ mod tests {
     /// says so, as `verify` does, instead of reporting keys that are on their way.
     #[test]
     fn test_oidc_verifier_get_claims_before_initialize_is_an_error() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let verifier = OidcVerifier::new("https://example.com", "test-audience");
         let result: Result<TestClaims, _> = verifier.get_claims("any.token.value");
         assert!(matches!(result, Err(AuthError::OidcNotInitialized)));
@@ -1440,6 +1441,7 @@ mod tests {
     /// The task refreshes the key set at 80% of its TTL, with no request asking for it.
     #[tokio::test]
     async fn test_oidc_verifier_refreshes_the_jwks_on_its_own() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let mut verifier = OidcVerifier::new(mock_server.uri(), "test-audience")
             .with_jwks_ttl(Duration::from_millis(300));
@@ -1455,6 +1457,7 @@ mod tests {
     /// Calling `initialize` again does not start a second task.
     #[tokio::test]
     async fn test_oidc_verifier_initialize_twice_starts_one_task() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let mut verifier = OidcVerifier::new(mock_server.uri(), "test-audience");
         verifier.initialize().await.unwrap();
@@ -1465,6 +1468,7 @@ mod tests {
     /// Dropping the verifier stops the task: no more fetches.
     #[tokio::test]
     async fn test_oidc_verifier_dropping_it_stops_the_refresh() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let mut verifier = OidcVerifier::new(mock_server.uri(), "test-audience")
             .with_jwks_ttl(Duration::from_millis(250));
@@ -1494,6 +1498,7 @@ mod tests {
     /// issuer may have rotated), long before the TTL.
     #[tokio::test]
     async fn test_oidc_verifier_an_unknown_kid_refreshes_early() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
         let mut verifier = OidcVerifier::new(issuer_url.clone(), "test-audience");
@@ -1640,6 +1645,7 @@ mod tests {
 
     #[test]
     fn test_oidc_verifier_verify_before_initialize_is_an_error() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let verifier = OidcVerifier::new("https://example.com", "audience");
         let result = verifier.verify("any.token.value");
         assert!(matches!(result, Err(AuthError::OidcNotInitialized)));
@@ -1649,13 +1655,25 @@ mod tests {
     /// their way back (the task keeps trying): `WouldBlockOn`, not a misuse error.
     #[tokio::test]
     async fn test_oidc_verifier_expired_keys_during_an_outage_would_block() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let mut verifier = OidcVerifier::new(mock_server.uri(), "test-audience")
             .with_jwks_ttl(Duration::from_millis(200));
         verifier.initialize().await.unwrap();
 
-        drop(mock_server);
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        // The issuer stops answering: every mock is removed, so the refreshes get a 404.
+        // (Dropping the server would hand its port back to a pool that other tests draw
+        // from, and one of them could answer in its place.)
+        mock_server.reset().await;
+        eventually("the keys to expire", || async {
+            matches!(
+                verifier.verify("any.token.value"),
+                Err(AuthError::WouldBlockOn)
+            )
+        })
+        .await;
+        // And the task keeps trying: it is not reported as never initialized.
+        tokio::time::sleep(Duration::from_millis(300)).await;
         assert!(matches!(
             verifier.verify("any.token.value"),
             Err(AuthError::WouldBlockOn)

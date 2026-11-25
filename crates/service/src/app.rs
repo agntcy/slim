@@ -661,7 +661,7 @@ mod tests {
     }
 
     /// Helper: Create a test app with SharedSecret auth
-    fn create_test_app(
+    async fn create_test_app(
         service: &crate::service::Service,
         name: &ProtoName,
         secret: &str,
@@ -675,6 +675,7 @@ mod tests {
                 SharedSecret::new(secret, TEST_VALID_SECRET).unwrap(),
                 SharedSecret::new(secret, TEST_VALID_SECRET).unwrap(),
             )
+            .await
             .unwrap()
     }
 
@@ -899,7 +900,7 @@ mod tests {
     async fn test_create_session() {
         let service = create_test_service("create-session");
         let name = create_test_name("type");
-        let (app, _) = create_test_app(&service, &name, "a");
+        let (app, _) = create_test_app(&service, &name, "a").await;
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
@@ -930,7 +931,7 @@ mod tests {
     async fn test_delete_session() {
         let service = create_test_service("delete-session");
         let name = create_test_name("type");
-        let (app, _) = create_test_app(&service, &name, "a");
+        let (app, _) = create_test_app(&service, &name, "a").await;
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
@@ -962,7 +963,7 @@ mod tests {
     async fn test_session_weak_after_delete() {
         let service = create_test_service("weak-after-delete");
         let name = create_test_name("type");
-        let (app, _) = create_test_app(&service, &name, "a");
+        let (app, _) = create_test_app(&service, &name, "a").await;
 
         let config = SessionConfig {
             session_type: ProtoSessionType::PointToPoint,
@@ -1007,7 +1008,7 @@ mod tests {
         let service = create_test_service("handle-message-from-slim");
         let source = create_test_name("source");
         let dest = create_test_name("dest");
-        let (app, mut rx_app) = create_test_app(&service, &dest, "a");
+        let (app, mut rx_app) = create_test_app(&service, &dest, "a").await;
 
         let identity = SharedSecret::new("a", TEST_VALID_SECRET).unwrap();
 
@@ -1128,8 +1129,8 @@ mod tests {
         let dst = create_test_name("remote");
         let source = create_test_name("local");
 
-        let (sender_app, _) = create_test_app(&service, &source, "a");
-        let (receiver_app, mut receiver_notifications) = create_test_app(&service, &dst, "a");
+        let (sender_app, _) = create_test_app(&service, &source, "a").await;
+        let (receiver_app, mut receiver_notifications) = create_test_app(&service, &dst, "a").await;
 
         // Receiver subscribes to its own name to receive messages
         receiver_app.subscribe(&dst, None).await.unwrap();
@@ -1211,9 +1212,9 @@ mod tests {
         let publisher_name = ProtoName::from_strings(["org", "ns", config.publisher_suffix]);
 
         let (subscriber_app, mut subscriber_notifications) =
-            create_test_app(&service, &subscriber_name, "a");
+            create_test_app(&service, &subscriber_name, "a").await;
         let (publisher_app, _publisher_notifications) =
-            create_test_app(&service, &publisher_name, "a");
+            create_test_app(&service, &publisher_name, "a").await;
 
         // Generate subscription names based on configuration
         let subscription_names: Vec<ProtoName> = if config.subscription_names.len() == 1
@@ -1354,7 +1355,7 @@ mod tests {
         let moderator_name =
             ProtoName::from_strings(["org", "ns", config.moderator_suffix]).with_id(0);
         let (moderator_app, mut _moderator_notifications) =
-            create_test_app(&service, &moderator_name, "a");
+            create_test_app(&service, &moderator_name, "a").await;
 
         // Create participant apps and collect their notification channels
         let mut participant_apps = Vec::new();
@@ -1363,7 +1364,7 @@ mod tests {
 
         for suffix in &config.participant_suffixes {
             let participant_name = ProtoName::from_strings(["org", "ns", suffix]).with_id(0);
-            let (app, notifications) = create_test_app(&service, &participant_name, "a");
+            let (app, notifications) = create_test_app(&service, &participant_name, "a").await;
 
             participant_apps.push(app);
             participant_notifications.push(notifications);
@@ -1478,9 +1479,10 @@ mod tests {
         let sender_name = create_test_name("sender");
         let receiver_name = create_test_name("receiver");
 
-        let (sender_app, _sender_notifications) = create_test_app(&service, &sender_name, "a");
+        let (sender_app, _sender_notifications) =
+            create_test_app(&service, &sender_name, "a").await;
         let (receiver_app, mut receiver_notifications) =
-            create_test_app(&service, &receiver_name, "a");
+            create_test_app(&service, &receiver_name, "a").await;
 
         // Wait for subscription to be established
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1586,7 +1588,7 @@ mod tests {
 
     /// The app `org/ns/<suffix>` with its own shared-secret identity, and that
     /// identity's `sub`.
-    fn create_app_with_sub(
+    async fn create_app_with_sub(
         service: &crate::service::Service,
         suffix: &str,
     ) -> (
@@ -1598,6 +1600,7 @@ mod tests {
         let sub = identity.get_id().unwrap();
         let (app, notifications) = service
             .create_app(&create_test_name(suffix), identity.clone(), identity)
+            .await
             .unwrap();
         (app, notifications, sub)
     }
@@ -1616,8 +1619,9 @@ mod tests {
     #[tokio::test]
     async fn a_pinned_p2p_session_admits_only_the_expected_peer() {
         let service = create_test_service("pinned-p2p");
-        let (sender, _sender_events, _) = create_app_with_sub(&service, "sender");
-        let (receiver, _receiver_events, receiver_sub) = create_app_with_sub(&service, "receiver");
+        let (sender, _sender_events, _) = create_app_with_sub(&service, "sender").await;
+        let (receiver, _receiver_events, receiver_sub) =
+            create_app_with_sub(&service, "receiver").await;
         receiver
             .subscribe(&create_test_name("receiver"), None)
             .await
@@ -1666,9 +1670,10 @@ mod tests {
     #[tokio::test]
     async fn a_pinned_invite_admits_only_the_expected_member() {
         let service = create_test_service("pinned-group");
-        let (moderator, _moderator_events, _) = create_app_with_sub(&service, "moderator");
-        let (_member, mut member_events, member_sub) = create_app_with_sub(&service, "member");
-        let (_other, _other_events, _) = create_app_with_sub(&service, "other");
+        let (moderator, _moderator_events, _) = create_app_with_sub(&service, "moderator").await;
+        let (_member, mut member_events, member_sub) =
+            create_app_with_sub(&service, "member").await;
+        let (_other, _other_events, _) = create_app_with_sub(&service, "other").await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let group = create_and_complete_session(
@@ -1721,11 +1726,11 @@ mod tests {
         let channel_name = create_test_name("channel");
 
         let (moderator_app, _moderator_notifications) =
-            create_test_app(&service, &moderator_name, "a");
+            create_test_app(&service, &moderator_name, "a").await;
         let (_participant1_app, mut participant1_notifications) =
-            create_test_app(&service, &participant1_name, "a");
+            create_test_app(&service, &participant1_name, "a").await;
         let (_participant2_app, mut participant2_notifications) =
-            create_test_app(&service, &participant2_name, "a");
+            create_test_app(&service, &participant2_name, "a").await;
 
         // Wait for subscriptions to be established
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -1938,9 +1943,9 @@ mod tests {
         let moderator_name = create_test_name("moderator");
         let participant_name = create_test_name("participant");
 
-        let (moderator_app, _) = create_test_app(&service, &moderator_name, "moderator");
+        let (moderator_app, _) = create_test_app(&service, &moderator_name, "moderator").await;
         let (participant_app, mut participant_notifications) =
-            create_test_app(&service, &participant_name, "participant");
+            create_test_app(&service, &participant_name, "participant").await;
 
         let (_spy_tx, mut spy_rx) = create_spy(&service, &channel_name).await;
 

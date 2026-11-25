@@ -648,7 +648,7 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
         &local_name,
         AuthProvider::shared_secret(secret.clone()),
         AuthVerifier::shared_secret(secret),
-    )?;
+    ).await?;
 
     // The server subscribes to local_name itself when it starts serving
     let server = Server::new_with_connection_and_runtime(

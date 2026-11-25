@@ -37,7 +37,7 @@ Pass the `service` obtained from initialisation to create an app bound to a name
     let verifier = SharedSecret::new("myorg/default/my-service", "change-me-before-going-to-production")?;
 
     // Create the app — returns the app handle and a notification receiver
-    let (app, _rx) = service.create_app(&name, provider, verifier)?;
+    let (app, _rx) = service.create_app(&name, provider, verifier).await?;
     println!("App created");
     ```
 

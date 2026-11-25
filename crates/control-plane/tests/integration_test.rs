@@ -304,6 +304,7 @@ async fn start_subscribing_app(dp_port: u16, org: &str, ns: &str, component: &st
             SharedSecret::new(component, TEST_VALID_SECRET).unwrap(),
             SharedSecret::new(component, TEST_VALID_SECRET).unwrap(),
         )
+        .await
         .unwrap();
     app.subscribe(&name, Some(conn_id)).await.unwrap();
     // Leak app and rx so the subscription stays alive for the test duration.

@@ -53,7 +53,7 @@ agntcy-slim-mls = { path = "crates/mls", version = "0.6.1" }
 agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.3" }
 agntcy-slim-proto = { path = "crates/proto", version = "0.8.10" }
 agntcy-slim-rpc = { path = "crates/rpc", version = "3.5.1" }
-agntcy-slim-service = { path = "crates/service", version = "0.14.1", default-features = false }
+agntcy-slim-service = { path = "crates/service", version = "0.15.0", default-features = false }
 agntcy-slim-session = { path = "crates/session", version = "0.8.1" }
 agntcy-slim-signal = { path = "crates/signal", version = "0.1.42" }
 agntcy-slim-testing = { path = "crates/testing" }
