@@ -641,6 +641,13 @@ impl OidcVerifier {
         Ok(token_data.claims)
     }
 
+    /// The merged claims of `token` from the claim cache, if they are cached and current.
+    fn cached_claims(&self, token: &str) -> Option<serde_json::Value> {
+        let cache = self.claim_cache.as_ref()?;
+        let (claims, expiry) = cache.read().get(token)?.clone();
+        (Instant::now() < expiry).then_some(claims)
+    }
+
     /// Fetch userinfo claims; returns empty object on any error (best effort).
     async fn userinfo_claims(&self, token: &str) -> serde_json::Value {
         let Some(endpoint) = self.userinfo_endpoint.get() else {
@@ -702,11 +709,8 @@ impl Verifier for OidcVerifier {
     where
         Claims: serde::de::DeserializeOwned + Send,
     {
-        if let Some(cache) = &self.claim_cache
-            && let Some((cached_claims, expiry)) = cache.read().get(token.as_ref())
-            && Instant::now() < *expiry
-        {
-            return Ok(serde_json::from_value(cached_claims.clone())?);
+        if let Some(cached_claims) = self.cached_claims(token.as_ref()) {
+            return Ok(serde_json::from_value(cached_claims)?);
         }
         let Some(jwks) = self.cached_jwks() else {
             return Err(AuthError::WouldBlockOn);
@@ -715,8 +719,10 @@ impl Verifier for OidcVerifier {
         Ok(serde_json::from_value(claims)?)
     }
 
-    fn has_extended_claims(&self) -> bool {
-        true
+    /// `false` once the merged claims of `token` are cached: `get_claims` then returns
+    /// them, and nothing is left to fetch.
+    fn has_extended_claims(&self, token: impl AsRef<str>) -> bool {
+        self.cached_claims(token.as_ref()).is_none()
     }
 
     /// The verified claims merged with the userinfo endpoint's (best effort), cached for
@@ -729,11 +735,8 @@ impl Verifier for OidcVerifier {
         Claims: serde::de::DeserializeOwned + Send,
     {
         let token = token.as_ref();
-        if let Some(cache) = &self.claim_cache
-            && let Some((cached_claims, expiry)) = cache.read().get(token)
-            && Instant::now() < *expiry
-        {
-            return Ok(serde_json::from_value(cached_claims.clone())?);
+        if let Some(cached_claims) = self.cached_claims(token) {
+            return Ok(serde_json::from_value(cached_claims)?);
         }
 
         let Some(jwks) = self.cached_jwks() else {
@@ -1427,6 +1430,25 @@ mod tests {
         })
         .await
         .expect("the background fetch should fill the cache");
+    }
+
+    /// With a claim cache, a token whose merged claims are cached has nothing extended
+    /// left: `get_claims` returns them, and the middleware can serve it inline.
+    #[tokio::test]
+    async fn test_oidc_verifier_a_cached_token_has_no_extended_claims() {
+        let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let issuer_url = mock_server.uri();
+        let token = test_token(&private_key, &issuer_url);
+
+        let mut verifier = OidcVerifier::new(issuer_url, "test-audience")
+            .with_claim_cache(Duration::from_secs(60));
+        verifier.initialize().await.unwrap();
+
+        assert!(verifier.has_extended_claims(&token));
+        let extended: serde_json::Value = verifier.get_extended_claims(&token).await.unwrap();
+        assert!(!verifier.has_extended_claims(&token));
+        let cached: serde_json::Value = verifier.get_claims(&token).unwrap();
+        assert_eq!(cached, extended);
     }
 
     fn test_token(private_key: &str, issuer_url: &str) -> String {

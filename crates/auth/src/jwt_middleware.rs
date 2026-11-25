@@ -310,7 +310,7 @@ where
 
                 // Without extended claims, verification only reads cached keys: do it
                 // inline. It waits only when the keys are not cached yet.
-                if !self.verifier.has_extended_claims() {
+                if !self.verifier.has_extended_claims(&bearer_token) {
                     match self.verifier.get_claims::<Claim>(&bearer_token) {
                         Ok(claims) => {
                             req.extensions_mut().insert(claims);

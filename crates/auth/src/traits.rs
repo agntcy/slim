@@ -126,16 +126,19 @@ pub trait Verifier {
     }
 
     /// Whether [`Verifier::get_extended_claims`] returns more than
-    /// [`Verifier::get_claims`] does.
+    /// [`Verifier::get_claims`] does for `token`.
     ///
     /// A server middleware that sees `false` verifies with the synchronous `get_claims`,
     /// inline, and skips the asynchronous path (it still waits for signing keys that are
-    /// not cached yet). A verifier that sees `true` always goes through
-    /// `get_extended_claims`.
+    /// not cached yet). A verifier that sees `true` goes through `get_extended_claims`.
+    /// The answer is per token, so a verifier that caches its extended claims can say
+    /// `false` for a token whose claims it already holds, and `get_claims` then returns
+    /// them.
     ///
     /// The default is `false`. A verifier that overrides `get_extended_claims` must
-    /// return `true`: otherwise the middleware never calls the override.
-    fn has_extended_claims(&self) -> bool {
+    /// return `true` while it has something to add: otherwise the middleware never calls
+    /// the override.
+    fn has_extended_claims(&self, _token: impl AsRef<str>) -> bool {
         false
     }
 
