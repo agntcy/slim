@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.16...slim-datapath-v0.20.0) - 2026-11-25
+
+### Fixed
+
+- *(release)* bump datapath, proto and tracing to a new minor ([#2452](https://github.com/agntcy/slim/pull/2452))
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- release ([#2413](https://github.com/agntcy/slim/pull/2413))
+- *(deps)* update kube to 5.2 and k8s-openapi to 0.29 ([#2427](https://github.com/agntcy/slim/pull/2427))
+- generate test keys at test time instead of committing them ([#2428](https://github.com/agntcy/slim/pull/2428))
+- *(deps)* lock file maintenance ([#2242](https://github.com/agntcy/slim/pull/2242))
+
 ## [0.19.17](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.16...slim-datapath-v0.19.17) - 2026-11-25
 
 ### Fixed
