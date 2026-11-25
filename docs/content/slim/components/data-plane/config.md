@@ -677,7 +677,7 @@ All authentication options documented in this section can be used in any context
         Static JWT authentication is only available for clients.
 
 === "JWT - Autoresolve"
-    Verify tokens with the keys that the issuer publishes. The keys are fetched from the issuer's JWKS endpoint when the node starts, which fails if the issuer is unreachable.
+    Verify tokens with the keys that the issuer publishes. The keys are fetched from the issuer's JWKS endpoint when the node starts, which fails if the issuer is unreachable. A background task then refreshes them before they expire, retries with a backoff if the issuer is down, and refreshes early (at most every 30 s) when a token names a key id that is not cached.
   
     ```yaml
     auth:

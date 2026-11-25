@@ -653,9 +653,9 @@ impl Config {
     }
 
     /// Like [`ServerAuthenticator::get_server_layer`], but initializes the verifier
-    /// first, which fetches the issuer's signing keys. Verification only reads cached
-    /// keys, so a server that skips this rejects requests until a background fetch has
-    /// filled the cache.
+    /// first, which fetches the issuer's signing keys and starts the task that keeps them
+    /// fresh. Verification only reads cached keys, so a server built with
+    /// `get_server_layer` instead has no keys, and rejects every request.
     pub async fn get_initialized_server_layer(
         &self,
     ) -> Result<Stack<PolicyCheckLayer, ValidateJwtLayer<MetadataMap, OidcVerifier>>, ConfigAuthError>

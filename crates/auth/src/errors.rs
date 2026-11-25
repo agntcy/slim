@@ -59,6 +59,8 @@ pub enum AuthError {
     OidcDiscoveryUrlOriginMismatch { field: &'static str, url: String },
     #[error("OIDC issuer URL must use https (got: {0})")]
     OidcInsecureIssuerUrl(String),
+    #[error("OIDC verifier used before `initialize`: it has no signing keys")]
+    OidcNotInitialized,
     #[error("key not found: {0}")]
     OidcKeyNotFound(String),
     #[error("kid is missing and multiple keys are available")]

@@ -260,7 +260,7 @@ where
 }
 
 /// The claims of `token`. While the signing keys are not cached yet (`WouldBlockOn`),
-/// retry for up to `wait`: they are being fetched in the background.
+/// retry for up to `wait`: a task, or a fetch started by the verifier, is filling the cache.
 async fn claims_when_ready<V, Claim>(
     verifier: &V,
     token: &str,
