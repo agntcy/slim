@@ -531,10 +531,6 @@ impl Service {
         direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
         let slim_name: SlimName = name.as_ref().into();
-        let trusted_keys: slim_service::JwkSet =
-            serde_json::from_str(&trusted_keys).map_err(|e| SlimError::InvalidArgument {
-                message: format!("trusted_keys is not a JWKS: {e}"),
-            })?;
         let (app, rx) = self
             .inner
             .create_app_with_did_key_and_direction(

@@ -40,8 +40,6 @@ use {
 };
 
 // Session feature imports (work on both native and wasm32)
-#[cfg(all(feature = "session", not(target_arch = "wasm32")))]
-use jsonwebtoken::jwk::JwkSet;
 #[cfg(feature = "session")]
 use {
     crate::app::{App, bootstrap_app_with_direction},
@@ -624,11 +622,11 @@ impl Service {
     ///   The app's identity is the `did:key` of that key: its tokens carry it as issuer and
     ///   subject. [`slim_auth::did_key::ed25519_did_key_from_pkcs8_pem`] gives that
     ///   `did:key`.
-    /// - `trusted_keys` is the JWKS of the trust anchor: the public keys of the peers the
-    ///   app accepts, as `OKP` `Ed25519` JWKs. A token's subject must be the `did:key` of
-    ///   the key that signed it. It has to list the app's own key too, since MLS verifies
-    ///   the app's own token against it: the call fails otherwise, naming the `did:key` to
-    ///   add.
+    /// - `trusted_keys` is the JWKS (JSON) of the trust anchor: the public keys of the
+    ///   peers the app accepts, as `OKP` `Ed25519` JWKs. A token's subject must be the
+    ///   `did:key` of the key that signed it. It has to list the app's own key too, since
+    ///   MLS verifies the app's own token against it: the call fails otherwise, naming the
+    ///   `did:key` to add.
     ///
     /// The provider and the verifier are built from them and initialized by
     /// [`Self::create_app`]; the app sends and receives. See
@@ -638,7 +636,7 @@ impl Service {
         &self,
         app_name: &ProtoName,
         private_key_pem: &str,
-        trusted_keys: &JwkSet,
+        trusted_keys: &str,
     ) -> Result<
         (
             App<slim_auth::auth_provider::AuthProvider, slim_auth::auth_provider::AuthVerifier>,
@@ -661,7 +659,7 @@ impl Service {
         &self,
         app_name: &ProtoName,
         private_key_pem: &str,
-        trusted_keys: &JwkSet,
+        trusted_keys: &str,
         direction: Direction,
     ) -> Result<
         (
@@ -678,11 +676,10 @@ impl Service {
         };
         let auth = AuthConfig::Jwt {
             private_key: KeyData::Data(private_key_pem.to_string()),
-            trusted_keys: KeyData::Data(serde_json::to_string(trusted_keys).map_err(|e| {
-                ServiceError::InvalidConfig(format!("invalid did:key trust anchor: {e}"))
-            })?),
+            trusted_keys: KeyData::Data(trusted_keys.to_string()),
         };
-        // Reads the key, and checks that the trust anchor lists the app's own key.
+        // Reads the key, and checks that the trust anchor lists the app's own key. A trust
+        // anchor that is not a JWKS is reported when the verifier is built.
         auth.validate().map_err(invalid)?;
         let (provider, verifier) = auth
             .to_identity_configs(&app_name.to_string())
@@ -1142,14 +1139,14 @@ mod tests {
         )
     }
 
-    fn jwks_of(public_keys: &[&str]) -> JwkSet {
+    fn jwks_of(public_keys: &[&str]) -> String {
         let keys: Vec<String> = public_keys
             .iter()
             .map(|x| {
                 format!(r#"{{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","x":"{x}"}}"#)
             })
             .collect();
-        serde_json::from_str(&format!(r#"{{"keys":[{}]}}"#, keys.join(","))).unwrap()
+        format!(r#"{{"keys":[{}]}}"#, keys.join(","))
     }
 
     /// The helper builds the provider and the verifier from a PEM key and a JWKS that lists
@@ -1204,27 +1201,19 @@ mod tests {
         assert!(matches!(result, Err(ServiceError::InvalidConfig(_))));
     }
 
-    /// `Jwk` and `JwkSet` are re-exported from the crate root, so a caller builds the trust
-    /// anchor without a dependency on `jsonwebtoken`.
+    /// A trust anchor that is not a JWKS is an invalid configuration.
     #[tokio::test]
-    async fn test_create_app_with_did_key_from_the_reexported_jwk_types() {
+    async fn test_create_app_with_did_key_rejects_a_trust_anchor_that_is_not_a_jwks() {
         slim_config::tls::provider::initialize_crypto_provider();
         let service = Service::builder()
             .build("svc-did-key-4".to_string())
             .unwrap();
-        let own: crate::Jwk = serde_json::from_str(&format!(
-            r#"{{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","x":"{PUBLIC_1}"}}"#
-        ))
-        .unwrap();
+        let name = ProtoName::from_strings(["org", "ns", "did-app"]);
 
-        service
-            .create_app_with_did_key(
-                &ProtoName::from_strings(["org", "ns", "did-app"]),
-                &pem_of(SEED_1),
-                &crate::JwkSet { keys: vec![own] },
-            )
-            .await
-            .expect("an app whose trust anchor is built from the re-exported types");
+        let result = service
+            .create_app_with_did_key(&name, &pem_of(SEED_1), "not a jwks")
+            .await;
+        assert!(matches!(result, Err(ServiceError::InvalidConfig(_))));
     }
 
     #[tokio::test]
