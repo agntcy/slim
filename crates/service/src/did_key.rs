@@ -17,8 +17,9 @@ use std::str::FromStr;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-pub use jsonwebtoken::jwk::JwkSet;
-use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve, Jwk};
+use jsonwebtoken::jwk::{AlgorithmParameters, EllipticCurve};
+// The types of the trust anchor, from `jsonwebtoken`, so that callers need no dependency on it.
+pub use jsonwebtoken::jwk::{Jwk, JwkSet};
 use serde::Deserialize;
 use slim_auth::did_key::{ed25519_did_key, ed25519_public_key_from_pkcs8_pem};
 
@@ -35,7 +36,8 @@ fn invalid(message: impl fmt::Display) -> ServiceError {
     ServiceError::InvalidConfig(format!("invalid did:key identity: {message}"))
 }
 
-/// The private key of an identity, as a JWK (RFC 7517, RFC 8037): the members `kty`
+/// The private key of an identity, as a JWK (RFC 7517, RFC 8037). It is not a [`Jwk`]:
+/// that type only holds public keys, and has no member for `d`. The members are `kty`
 /// (`OKP`), `crv` (`Ed25519`) and `d`, the base64url-encoded 32-byte seed. `x`, the
 /// base64url-encoded public key, is optional; if present, it must belong to `d`.
 ///

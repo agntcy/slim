@@ -1162,6 +1162,32 @@ mod tests {
         assert_eq!(app.app_name().id(), slim_session::name_id::app_id(&did));
     }
 
+    /// `Jwk` and `JwkSet` are re-exported from the crate root, so a caller builds the trust
+    /// anchor without a dependency on `jsonwebtoken`.
+    #[tokio::test]
+    async fn test_create_app_with_did_key_from_the_reexported_jwk_types() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let service = Service::builder()
+            .build("svc-did-key-0".to_string())
+            .unwrap();
+        let peer: crate::Jwk = serde_json::from_str(&format!(
+            r#"{{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","x":"{PUBLIC_2}"}}"#
+        ))
+        .unwrap();
+
+        service
+            .create_app_with_did_key(
+                &ProtoName::from_strings(["org", "ns", "did-app"]),
+                &crate::PrivateJwk::from_json(&format!(
+                    r#"{{"kty":"OKP","crv":"Ed25519","d":"{SEED_1}"}}"#
+                ))
+                .unwrap(),
+                &crate::JwkSet { keys: vec![peer] },
+            )
+            .await
+            .expect("an app whose trust anchor is built from the re-exported types");
+    }
+
     /// An app that trusts nobody else still trusts its own key, which MLS needs.
     #[tokio::test]
     async fn test_create_app_with_did_key_trusts_its_own_key() {

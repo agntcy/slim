@@ -46,6 +46,9 @@ pub use slim_datapath::messages::utils::SlimHeaderFlags;
 
 // Local crate
 pub use errors::ServiceError;
+// The JWK types of a did:key identity, which the helper of `Service` takes
+#[cfg(not(target_arch = "wasm32"))]
+pub use did_key::{Jwk, JwkSet, PrivateJwk, did_key_of_private_key};
 #[cfg(feature = "session")]
 pub use errors::SubscriptionAckError;
 #[cfg(not(target_arch = "wasm32"))]
