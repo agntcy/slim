@@ -10,7 +10,8 @@
 //! - at 80% of the TTL, so the old keys are replaced before they expire;
 //! - after a failed fetch, with a backoff, while the old keys keep being served;
 //! - early when [`RefreshTask::request_refresh`] is called (a token named a key that is
-//!   not cached), at most once every [`MIN_FORCED_REFRESH`].
+//!   not cached), at most once every [`MIN_FORCED_REFRESH`]: a request that comes sooner
+//!   is deferred to the end of that window, not dropped.
 //!
 //! The task stops when the owner is dropped: dropping the [`RefreshTask`] cancels its
 //! token, which ends the timers and any request in flight. The task never owns what it
@@ -43,8 +44,13 @@ pub(crate) const MIN_FORCED_REFRESH: Duration = if cfg!(test) {
     Duration::from_secs(30)
 };
 
-/// A refresh never comes sooner than this after the previous one, whatever the TTL.
-const MIN_REFRESH_INTERVAL: Duration = Duration::from_millis(50);
+/// A refresh never comes sooner than this after the previous one, whatever the TTL: a
+/// TTL of zero must not turn the task into a loop that hammers the issuer.
+const MIN_REFRESH_INTERVAL: Duration = if cfg!(test) {
+    Duration::from_millis(50)
+} else {
+    Duration::from_secs(1)
+};
 
 /// When to refresh keys that live for `ttl`: at 80% of it.
 pub(crate) fn refresh_after(ttl: Duration) -> Duration {
@@ -114,8 +120,8 @@ impl RefreshTask {
     }
 
     /// Ask for a refresh before the timer: a token named a key the cache lacks. Does
-    /// nothing if the task is not running, and the task ignores it if it fetched less
-    /// than [`MIN_FORCED_REFRESH`] ago.
+    /// nothing if the task is not running. If the task attempted a fetch less than
+    /// [`MIN_FORCED_REFRESH`] ago, the refresh waits until that much time has passed.
     pub(crate) fn request_refresh(&self) {
         self.wake.notify_one();
     }
@@ -152,7 +158,11 @@ async fn refresh_loop<T, Fetch, FetchFut, Store>(
             _ = cancel.cancelled() => return,
             _ = tokio::time::sleep_until(due) => {}
             _ = wake.notified() => {
-                if last_attempt.elapsed() < MIN_FORCED_REFRESH {
+                let earliest = last_attempt + MIN_FORCED_REFRESH;
+                if Instant::now() < earliest {
+                    // Too soon: do not drop the request, bring the next refresh
+                    // forward to the earliest moment it is allowed.
+                    due = due.min(earliest);
                     continue;
                 }
             }
@@ -377,9 +387,10 @@ mod tests {
     }
 
     /// A requested refresh comes before the timer, but not within MIN_FORCED_REFRESH of
-    /// the previous attempt.
+    /// the previous attempt: one that comes sooner is deferred to the end of that window,
+    /// once, however often it is asked for.
     #[tokio::test]
-    async fn test_a_requested_refresh_is_rate_limited() {
+    async fn test_a_requested_refresh_is_deferred_to_the_end_of_the_window() {
         let task = RefreshTask::new();
         let source = Source::new();
         source
@@ -387,19 +398,114 @@ mod tests {
             .await
             .unwrap();
 
-        // Too soon after the first fetch: ignored, however often it is asked for.
         for _ in 0..5 {
             task.request_refresh();
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
-        assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            source.calls.load(Ordering::SeqCst),
+            1,
+            "not within the window"
+        );
 
-        // Later, it brings the next refresh forward, long before the 1 h timer.
-        tokio::time::sleep(MIN_FORCED_REFRESH).await;
+        until("the deferred refresh", || {
+            source.calls.load(Ordering::SeqCst) >= 2
+        })
+        .await;
+        tokio::time::sleep(MIN_FORCED_REFRESH / 2).await;
+        assert_eq!(
+            source.calls.load(Ordering::SeqCst),
+            2,
+            "once, not once per request"
+        );
+    }
+
+    /// Once the window has passed, a request is served at once, long before the timer.
+    #[tokio::test]
+    async fn test_a_requested_refresh_after_the_window_is_served_at_once() {
+        let task = RefreshTask::new();
+        let source = Source::new();
+        source
+            .start(&task, Duration::from_secs(3600))
+            .await
+            .unwrap();
+
+        tokio::time::sleep(MIN_FORCED_REFRESH + Duration::from_millis(50)).await;
         task.request_refresh();
         until("the requested refresh", || {
             source.calls.load(Ordering::SeqCst) >= 2
         })
         .await;
+    }
+
+    /// With time paused: keys are refreshed at 80% of the TTL, not sooner, not later.
+    #[tokio::test(start_paused = true)]
+    async fn test_refresh_comes_at_eighty_percent_of_the_ttl() {
+        let task = RefreshTask::new();
+        let source = Source::new();
+        source.start(&task, Duration::from_secs(100)).await.unwrap();
+        advance(Duration::ZERO).await; // let the task begin its schedule
+        assert_eq!(source.calls.load(Ordering::SeqCst), 1);
+
+        advance(Duration::from_secs(79)).await;
+        assert_eq!(source.calls.load(Ordering::SeqCst), 1, "at 79%");
+        advance(Duration::from_secs(2)).await;
+        assert_eq!(source.calls.load(Ordering::SeqCst), 2, "past 80%");
+
+        // And the schedule starts over from that refresh.
+        advance(Duration::from_secs(79)).await;
+        assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+        advance(Duration::from_secs(2)).await;
+        assert_eq!(source.calls.load(Ordering::SeqCst), 3);
+    }
+
+    /// With time paused: a failing refresh is retried after 1 s, 2 s, 4 s, ... and the wait
+    /// stops growing at 30 s; a success resets it.
+    #[tokio::test(start_paused = true)]
+    async fn test_the_backoff_doubles_up_to_its_cap_and_resets_on_success() {
+        let task = RefreshTask::new();
+        let source = Source::new();
+        source.start(&task, Duration::from_secs(10)).await.unwrap();
+        advance(Duration::ZERO).await; // let the task begin its schedule
+        source.failing.store(true, Ordering::SeqCst);
+
+        // The refresh is due at 8 s; each failure then waits 1, 2, 4, 8, 16, 30, 30 s.
+        advance(Duration::from_secs(9)).await;
+        let mut calls = source.calls.load(Ordering::SeqCst);
+        assert_eq!(calls, 2, "the first failed refresh");
+        for wait in [1u64, 2, 4, 8, 16, 30, 30] {
+            advance(Duration::from_secs(wait - 1)).await;
+            assert_eq!(
+                source.calls.load(Ordering::SeqCst),
+                calls,
+                "before {wait} s"
+            );
+            advance(Duration::from_secs(2)).await;
+            calls += 1;
+            assert_eq!(source.calls.load(Ordering::SeqCst), calls, "after {wait} s");
+        }
+
+        // A success resets the backoff: the next failure waits 1 s again.
+        source.failing.store(false, Ordering::SeqCst);
+        advance(Duration::from_secs(31)).await;
+        let stored = source.stored.load(Ordering::SeqCst);
+        assert!(stored >= 2, "the recovery is stored");
+        source.failing.store(true, Ordering::SeqCst);
+        advance(Duration::from_secs(9)).await;
+        calls = source.calls.load(Ordering::SeqCst);
+        advance(Duration::from_secs(2)).await;
+        assert_eq!(
+            source.calls.load(Ordering::SeqCst),
+            calls + 1,
+            "1 s after the first failure"
+        );
+    }
+
+    /// Move the paused clock forward and let the task run.
+    async fn advance(by: Duration) {
+        tokio::time::advance(by).await;
+        for _ in 0..5 {
+            tokio::task::yield_now().await;
+        }
     }
 }

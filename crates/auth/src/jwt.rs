@@ -1358,6 +1358,43 @@ mod tests {
         assert_eq!(jwks_requests(&mock_server).await, 1);
     }
 
+    /// Without a configured issuer (`allow_any_issuer`) there is no task: the keys of the
+    /// issuer a token names are fetched when that token misses, and the token succeeds on
+    /// a retry.
+    #[tokio::test]
+    async fn test_jwt_without_an_issuer_fetches_on_a_miss() {
+        initialize_crypto_provider();
+        let (key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let signer = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(key),
+            })
+            .build()
+            .unwrap();
+        let mut verifier = JwtBuilder::new()
+            .allow_any_issuer(true)
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        verifier.initialize().await.unwrap();
+        assert!(mock_server.received_requests().await.unwrap().is_empty());
+
+        let token = signer.sign_claims(&signer.create_claims()).unwrap();
+        assert!(matches!(
+            verifier.get_claims::<StandardClaims>(&token),
+            Err(AuthError::WouldBlockOn)
+        ));
+        let claims: StandardClaims = eventually(|| verifier.get_claims(&token)).await;
+        assert_eq!(claims.sub.unwrap(), "test-subject");
+    }
+
     /// Calling `initialize` again does not start a second task.
     #[tokio::test]
     async fn test_jwt_initialize_twice_fetches_once() {

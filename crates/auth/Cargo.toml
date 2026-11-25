@@ -94,6 +94,7 @@ tokio = { workspace = true, features = [
     "process",
     "fs",
     "time",
+    "test-util",
 ] }
 tokio-test = { workspace = true }
 tracing-test = { workspace = true }

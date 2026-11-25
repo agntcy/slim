@@ -478,11 +478,7 @@ impl KeyResolver {
         if self.is_static() {
             return Ok(());
         }
-        // Set first, so a token that arrives while the first keys are being fetched is
-        // left to this task instead of starting a fetch of its own.
-        let previous = self.followed.write().replace(issuer.to_string());
-        let result = self
-            .refresh
+        self.refresh
             .start(
                 self.default_jwks_ttl,
                 {
@@ -503,11 +499,11 @@ impl KeyResolver {
                     move |jwks| Self::store(&resolver, &issuer, jwks, ttl)
                 },
             )
-            .await;
-        if result.is_err() {
-            *self.followed.write() = previous;
-        }
-        result
+            .await?;
+        // Only once the task runs: an issuer whose first fetch failed has no task, and
+        // must keep fetching from the request path.
+        *self.followed.write() = Some(issuer.to_string());
+        Ok(())
     }
 
     /// Cache `jwks` for `issuer`. Returns whether the resolver still exists.
@@ -813,5 +809,38 @@ mod tests {
     async fn test_a_static_jwks_never_needs_a_refresh() {
         let resolver = KeyResolver::with_jwks(JwkSet { keys: vec![] });
         assert!(!resolver.needs_refresh("any-issuer"));
+    }
+
+    /// A failed `follow` leaves the issuer unfollowed, so its keys keep being fetched from
+    /// the request path, and a later `follow` can succeed.
+    #[tokio::test]
+    async fn test_a_failed_follow_leaves_the_issuer_unfollowed() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let resolver = Arc::new(KeyResolver::new());
+        assert!(resolver.follow("http://127.0.0.1:1").await.is_err());
+        assert!(!resolver.is_followed("http://127.0.0.1:1"));
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/jwks.json"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "keys": [{ "kty": "RSA", "kid": "k", "n": "some-modulus", "e": "AQAB" }]
+            })))
+            .mount(&server)
+            .await;
+        resolver.follow(&server.uri()).await.unwrap();
+        assert!(resolver.is_followed(&server.uri()));
+        assert!(resolver.has_kid(&server.uri(), "k"));
+    }
+
+    /// A static key set needs no task and no fetch: `follow` does nothing.
+    #[tokio::test]
+    async fn test_a_static_jwks_is_not_followed() {
+        let server = MockServer::start().await;
+        let resolver = Arc::new(KeyResolver::with_jwks(JwkSet { keys: vec![] }));
+        resolver.follow(&server.uri()).await.unwrap();
+        assert!(!resolver.is_followed(&server.uri()));
+        assert!(!resolver.refresh.is_running());
+        assert!(server.received_requests().await.unwrap().is_empty());
     }
 }
