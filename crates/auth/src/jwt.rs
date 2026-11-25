@@ -607,23 +607,35 @@ impl<V> Jwt<V> {
                 ));
             }
 
+            // The task of a followed issuer keeps its keys fresh; for any other issuer
+            // this fetches on a miss and at 80% of the TTL.
+            resolver.ensure_fresh(issuer);
+
             match resolver.cached_candidates(issuer, &token_data.header) {
                 Ok(k) => {
-                    // Refresh ahead of expiry, so keys do not run out under load.
-                    if resolver.needs_refresh(issuer) {
-                        resolver.refresh_in_background(issuer);
+                    // A key id the cached keys lack: the issuer may have rotated them.
+                    if let Some(kid) = &token_data.header.kid
+                        && !resolver.has_kid(issuer, kid)
+                    {
+                        resolver.request_key_refresh(issuer);
                     }
                     return Ok(k);
                 }
+                // Not cached yet (or expired). The keys are being fetched, so reject this
+                // token for now; verification is synchronous, a retry succeeds once they
+                // land.
                 Err(AuthError::JwksCacheMiss { .. } | AuthError::JwksCacheExpired { .. }) => {
-                    // Not cached yet: fetch in the background and reject this token.
-                    // Verification is synchronous, so a retry succeeds once it lands.
-                    resolver.refresh_in_background(issuer);
                     return Err(AuthError::WouldBlockOn);
                 }
-                // The keys are there but do not fit the token (or a static trust list
-                // has none): fetching would not change that.
-                Err(e) => return Err(e),
+                // No cached key fits the token: the issuer may have rotated its keys.
+                // Fetching from an unknown issuer would not change that, so only a
+                // followed one is refreshed.
+                Err(e) => {
+                    if matches!(e, AuthError::JwksNoSuitableKey) {
+                        resolver.request_key_refresh(issuer);
+                    }
+                    return Err(e);
+                }
             }
         }
 
@@ -742,7 +754,7 @@ impl Verifier for VerifierJwt {
     /// token first names one.
     async fn initialize(&mut self) -> Result<(), AuthError> {
         if let (Some(resolver), Some(issuer)) = (&self.key_resolver, &self.claims.iss) {
-            resolver.prefetch(issuer).await?;
+            resolver.follow(issuer).await?;
         }
         Ok(())
     }
@@ -1262,6 +1274,175 @@ mod tests {
             requests_after_initialize,
             "no fetch for a key that does not fit"
         );
+    }
+
+    /// How many times the mock issuer was asked for its key set.
+    async fn jwks_requests(server: &wiremock::MockServer) -> usize {
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path().ends_with("jwks.json"))
+            .count()
+    }
+
+    async fn wait_until<F, Fut>(what: &str, mut done: F)
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        time::timeout(Duration::from_secs(10), async {
+            while !done().await {
+                time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for {what}"));
+    }
+
+    /// A verifier for the issuer of `mock_server` whose keys live for `ttl`.
+    fn verifier_for(mock_server: &wiremock::MockServer, ttl: Duration) -> VerifierJwt {
+        JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap()
+            .with_key_resolver(KeyResolver::new().with_jwks_ttl(ttl))
+    }
+
+    /// The task refreshes the keys of the configured issuer at 80% of their TTL, with no
+    /// request asking for it.
+    #[tokio::test]
+    async fn test_jwt_keys_of_the_issuer_are_refreshed_on_their_own() {
+        initialize_crypto_provider();
+        let (_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let mut verifier = verifier_for(&mock_server, Duration::from_millis(300));
+        verifier.initialize().await.unwrap();
+        assert_eq!(jwks_requests(&mock_server).await, 1);
+
+        wait_until("three refreshes", || async {
+            jwks_requests(&mock_server).await >= 4
+        })
+        .await;
+    }
+
+    /// For a followed issuer the task does the fetching: neither a hit nor a miss starts
+    /// a fetch from the request path.
+    #[tokio::test]
+    async fn test_jwt_requests_do_not_fetch_for_a_followed_issuer() {
+        initialize_crypto_provider();
+        let (key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let mut verifier = verifier_for(&mock_server, Duration::from_secs(3600));
+        verifier.initialize().await.unwrap();
+        let signer = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(key),
+            })
+            .build()
+            .unwrap();
+        let token = signer.sign_claims(&signer.create_claims()).unwrap();
+
+        for _ in 0..5 {
+            let claims: StandardClaims = verifier.get_claims(&token).unwrap();
+            assert_eq!(claims.sub.unwrap(), "test-subject");
+        }
+        time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(jwks_requests(&mock_server).await, 1);
+    }
+
+    /// Calling `initialize` again does not start a second task.
+    #[tokio::test]
+    async fn test_jwt_initialize_twice_fetches_once() {
+        initialize_crypto_provider();
+        let (_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let mut verifier = verifier_for(&mock_server, Duration::from_secs(3600));
+        verifier.initialize().await.unwrap();
+        verifier.clone().initialize().await.unwrap();
+        assert_eq!(jwks_requests(&mock_server).await, 1);
+    }
+
+    /// Dropping the verifier stops the task: no more fetches.
+    #[tokio::test]
+    async fn test_jwt_dropping_the_verifier_stops_the_refresh() {
+        initialize_crypto_provider();
+        let (_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let mut verifier = verifier_for(&mock_server, Duration::from_millis(250));
+        verifier.initialize().await.unwrap();
+        wait_until("a refresh", || async {
+            jwks_requests(&mock_server).await >= 2
+        })
+        .await;
+
+        // A clone keeps the task alive; the last one to go stops it.
+        let clone = verifier.clone();
+        drop(verifier);
+        let before = jwks_requests(&mock_server).await;
+        wait_until("the clone to keep it refreshing", || async {
+            jwks_requests(&mock_server).await > before
+        })
+        .await;
+
+        drop(clone);
+        time::sleep(Duration::from_millis(100)).await;
+        let stopped_at = jwks_requests(&mock_server).await;
+        time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(jwks_requests(&mock_server).await, stopped_at);
+    }
+
+    /// A token with a key id the cached keys lack asks for an early refresh (the issuer may
+    /// have rotated its keys), long before the TTL, and not more often than every
+    /// MIN_FORCED_REFRESH.
+    #[tokio::test]
+    async fn test_jwt_an_unknown_kid_refreshes_early() {
+        initialize_crypto_provider();
+        let (key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let mut verifier = verifier_for(&mock_server, Duration::from_secs(3600));
+        verifier.initialize().await.unwrap();
+
+        let signer = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(key.clone()),
+            })
+            .build()
+            .unwrap();
+        // A token the verifier has seen is served from its token cache, never reaching
+        // the keys: each ask needs a token of its own.
+        let token_with_kid = |kid: &str| {
+            let mut header = jsonwebtoken::Header::new(Algorithm::RS256);
+            header.kid = Some(kid.to_string());
+            jsonwebtoken::encode(
+                &header,
+                &signer.create_claims(),
+                &jsonwebtoken::EncodingKey::from_rsa_pem(key.as_bytes()).unwrap(),
+            )
+            .unwrap()
+        };
+
+        // Too soon after the first fetch: rate-limited.
+        let _ = verifier.get_claims::<StandardClaims>(&token_with_kid("rotated-in"));
+        time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(jwks_requests(&mock_server).await, 1);
+
+        // Later, it is honoured.
+        time::sleep(crate::key_refresh::MIN_FORCED_REFRESH).await;
+        let _ = verifier.get_claims::<StandardClaims>(&token_with_kid("rotated-in-later"));
+        wait_until("the early refresh", || async {
+            jwks_requests(&mock_server).await >= 2
+        })
+        .await;
     }
 
     /// A token that names an issuer other than the configured one is rejected before any

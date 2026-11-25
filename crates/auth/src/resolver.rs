@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -17,6 +17,7 @@ use reqwest::{Client as ReqwestClient, StatusCode};
 use url::Url;
 
 use crate::errors::AuthError;
+use crate::key_refresh::RefreshTask;
 
 /// True iff `candidate` shares the same scheme, host, and port as `base`.
 pub(crate) fn same_origin(base: &Url, candidate: &Url) -> bool {
@@ -154,8 +155,14 @@ pub struct KeyResolver {
     client: ReqwestClient,
     jwks_cache: RwLock<HashMap<String, JwksCache>>,
     default_jwks_ttl: Duration,
-    /// Issuers whose JWKS is being fetched in the background right now.
+    /// Issuers whose JWKS is being fetched in the background right now: those that
+    /// are not `followed`.
     refreshing: RwLock<HashSet<String>>,
+    /// The issuer whose keys `refresh` keeps fresh, once [`Self::follow`] succeeded.
+    followed: RwLock<Option<String>>,
+    /// Keeps the keys of the followed issuer fresh, and stops when the resolver is
+    /// dropped.
+    refresh: RefreshTask,
 }
 
 /// Marks `issuer` as no longer being fetched when dropped.
@@ -197,6 +204,8 @@ impl KeyResolver {
             jwks_cache: RwLock::new(HashMap::new()),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
             refreshing: RwLock::new(HashSet::new()),
+            followed: RwLock::new(None),
+            refresh: RefreshTask::new(),
         }
     }
 
@@ -223,6 +232,8 @@ impl KeyResolver {
             jwks_cache: RwLock::new(cache),
             default_jwks_ttl: Duration::from_secs(3600), // 1 hour default TTL
             refreshing: RwLock::new(HashSet::new()),
+            followed: RwLock::new(None),
+            refresh: RefreshTask::new(),
         }
     }
 
@@ -290,7 +301,11 @@ impl KeyResolver {
 
         // Try to fetch the keys from the well-known JWKS endpoint (also caches it
         // with its `by_kid` index for subsequent O(1) lookups).
-        self.fetch_jwks(issuer).await?;
+        let jwks = download_jwks_of(&self.client, issuer).await?;
+        self.jwks_cache.write().insert(
+            issuer.to_string(),
+            JwksCache::new(jwks, Instant::now(), self.default_jwks_ttl),
+        );
         self.cached_candidates(issuer, token_header)
     }
 
@@ -435,9 +450,100 @@ impl KeyResolver {
         self.candidates_from_cache(cache_entry, token_header, false)
     }
 
+    /// Whether the keys of `issuer` are refreshed by the task started by [`Self::follow`].
+    fn is_followed(&self, issuer: &str) -> bool {
+        self.followed.read().as_deref() == Some(issuer)
+    }
+
+    /// Whether the resolver holds a fixed key set and never fetches.
+    pub(crate) fn is_static(&self) -> bool {
+        self.jwks_cache.read().contains_key(Self::STATIC_JWKS_ENTRY)
+    }
+
+    /// Whether the cached keys of `issuer` have a key with this `kid`.
+    pub(crate) fn has_kid(&self, issuer: &str, kid: &str) -> bool {
+        self.jwks_cache
+            .read()
+            .get(issuer)
+            .is_some_and(|entry| entry.by_kid.contains_key(kid))
+    }
+
+    /// Fetch the keys of `issuer` now, and keep them fresh from then on.
+    ///
+    /// Returns once the first keys are cached, and fails if they cannot be fetched. A
+    /// task then refreshes them at 80% of their TTL, retries a failed refresh with a
+    /// backoff, and stops when the resolver is dropped (see [`RefreshTask`]). Does nothing
+    /// for a static JWKS, which needs no fetch, and nothing if the task already runs.
+    pub(crate) async fn follow(self: &Arc<Self>, issuer: &str) -> Result<(), AuthError> {
+        if self.is_static() {
+            return Ok(());
+        }
+        // Set first, so a token that arrives while the first keys are being fetched is
+        // left to this task instead of starting a fetch of its own.
+        let previous = self.followed.write().replace(issuer.to_string());
+        let result = self
+            .refresh
+            .start(
+                self.default_jwks_ttl,
+                {
+                    // The task keeps a client and the issuer, not the resolver: dropping
+                    // the resolver must be able to cancel it.
+                    let (client, issuer) = (self.client.clone(), issuer.to_string());
+                    move || {
+                        let (client, issuer) = (client.clone(), issuer.clone());
+                        async move { download_jwks_of(&client, &issuer).await }
+                    }
+                },
+                {
+                    let (resolver, issuer, ttl) = (
+                        Arc::downgrade(self),
+                        issuer.to_string(),
+                        self.default_jwks_ttl,
+                    );
+                    move |jwks| Self::store(&resolver, &issuer, jwks, ttl)
+                },
+            )
+            .await;
+        if result.is_err() {
+            *self.followed.write() = previous;
+        }
+        result
+    }
+
+    /// Cache `jwks` for `issuer`. Returns whether the resolver still exists.
+    fn store(resolver: &Weak<Self>, issuer: &str, jwks: JwkSet, ttl: Duration) -> bool {
+        let Some(resolver) = resolver.upgrade() else {
+            return false;
+        };
+        resolver.jwks_cache.write().insert(
+            issuer.to_string(),
+            JwksCache::new(jwks, Instant::now(), ttl),
+        );
+        true
+    }
+
+    /// A token named a key that the cached keys of `issuer` lack: the issuer may have
+    /// rotated them. Asks the task for an early refresh, which it rate-limits. Does
+    /// nothing for an issuer that is not followed.
+    pub(crate) fn request_key_refresh(&self, issuer: &str) {
+        if self.is_followed(issuer) {
+            self.refresh.request_refresh();
+        }
+    }
+
+    /// Make sure the keys of an issuer that is not followed get fetched: a verifier
+    /// without a configured issuer (`allow_any_issuer`) learns its issuers from the
+    /// tokens, so it has no task to rely on and fetches on a miss or at 80% of the TTL.
+    /// The keys of a followed issuer are the task's business.
+    pub(crate) fn ensure_fresh(self: &Arc<Self>, issuer: &str) {
+        if !self.is_followed(issuer) && self.needs_refresh(issuer) {
+            self.refresh_in_background(issuer);
+        }
+    }
+
     /// Whether the cached JWKS of `issuer` is missing or past 80% of its TTL, so a
     /// refresh should start before keys run out. A static JWKS never needs one.
-    pub(crate) fn needs_refresh(&self, issuer: &str) -> bool {
+    fn needs_refresh(&self, issuer: &str) -> bool {
         let cache = self.jwks_cache.read();
         if cache.contains_key(Self::STATIC_JWKS_ENTRY) {
             return false;
@@ -450,10 +556,10 @@ impl KeyResolver {
 
     /// Fetch the JWKS of `issuer` in the background, without waiting for it.
     ///
-    /// Verification is synchronous and reads the cache only, so this is how a cold or
-    /// aging cache gets filled. At most one fetch per issuer runs at a time, and nothing
-    /// happens outside a Tokio runtime. A failed fetch is logged; the next miss tries again.
-    pub(crate) fn refresh_in_background(self: &Arc<Self>, issuer: &str) {
+    /// The path of an issuer that is not followed. At most one fetch per issuer runs at
+    /// a time, and nothing happens outside a Tokio runtime. A failed fetch is logged;
+    /// the next miss tries again.
+    fn refresh_in_background(self: &Arc<Self>, issuer: &str) {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
@@ -469,114 +575,108 @@ impl KeyResolver {
                 resolver: &resolver,
                 issuer: &issuer,
             };
-            if let Err(e) = resolver.fetch_jwks(&issuer).await {
-                tracing::warn!(%issuer, error = %e, "background JWKS fetch failed");
+            match download_jwks_of(&resolver.client, &issuer).await {
+                Ok(jwks) => {
+                    let ttl = resolver.default_jwks_ttl;
+                    Self::store(&Arc::downgrade(&resolver), &issuer, jwks, ttl);
+                }
+                Err(e) => tracing::warn!(%issuer, error = %e, "background JWKS fetch failed"),
             }
         });
     }
 
-    /// Fetch and cache the JWKS of `issuer` now, so the first token from it is verified
-    /// from the cache. Does nothing for a static JWKS, which needs no fetch.
-    pub(crate) async fn prefetch(&self, issuer: &str) -> Result<(), AuthError> {
-        if self.needs_refresh(issuer) {
-            self.fetch_jwks(issuer).await?;
-        }
-        Ok(())
-    }
-
-    /// Fetch JWKS from the issuer's endpoint
-    ///
-    /// This function will discover the JWKS URI (either via OpenID Connect Discovery
-    /// or the standard well-known endpoint), fetch the JWKS, and cache it for future use.
-    async fn fetch_jwks(&self, issuer: &str) -> Result<JwkSet, AuthError> {
-        // Build the JWKS URI (this now handles both OpenID discovery and fallback)
-        let jwks_uri = self.build_jwks_uri(issuer).await?;
-
-        // Fetch the JWKS
-        let jwks = self.fetch_jwks_from_uri(&jwks_uri).await?;
-
-        // Cache the JWKS
-        self.jwks_cache.write().insert(
-            issuer.to_string(),
-            JwksCache::new(jwks.clone(), Instant::now(), self.default_jwks_ttl),
-        );
-
-        Ok(jwks)
-    }
-
-    /// Build the JWKS URI from the issuer
-    ///
-    /// This function first tries to discover the JWKS URI via OpenID Connect Discovery
-    /// (.well-known/openid-configuration), and falls back to the standard .well-known/jwks.json
-    /// location if that fails.
+    /// Build the JWKS URI from the issuer.
+    #[cfg(test)]
     async fn build_jwks_uri(&self, issuer: &str) -> Result<String, AuthError> {
-        // Parse the issuer URL
-        // Use typed URL parse error propagation
-        let mut issuer_url = Url::parse(issuer)?;
+        build_jwks_uri(&self.client, issuer).await
+    }
 
-        // First try OpenID Connect Discovery endpoint
-        let mut openid_config_url = issuer_url.clone();
-        let mut openid_path = openid_config_url.path().trim_end_matches('/').to_owned();
-        openid_path.push_str("/.well-known/openid-configuration");
-        openid_config_url.set_path(&openid_path);
+    /// Fetch JWKS from the specified URI.
+    #[cfg(test)]
+    async fn fetch_jwks_from_uri(&self, uri: &str) -> Result<JwkSet, AuthError> {
+        fetch_jwks_from_uri(&self.client, uri).await
+    }
+}
 
-        // Try to fetch the OpenID configuration
-        let openid_config_response = self.client.get(openid_config_url.to_string()).send().await;
+/// Fetch the JWKS of `issuer`: discover its URI (OpenID Connect Discovery, or the standard
+/// well-known location), then download it.
+async fn download_jwks_of(client: &ReqwestClient, issuer: &str) -> Result<JwkSet, AuthError> {
+    let jwks_uri = build_jwks_uri(client, issuer).await?;
+    fetch_jwks_from_uri(client, &jwks_uri).await
+}
 
-        // If we successfully got the OpenID configuration, validate and extract the jwks_uri
-        if let Ok(response) = openid_config_response
-            && response.status() == StatusCode::OK
-            && let Ok(config) = response.json::<serde_json::Value>().await
+/// Build the JWKS URI from the issuer
+///
+/// This function first tries to discover the JWKS URI via OpenID Connect Discovery
+/// (.well-known/openid-configuration), and falls back to the standard .well-known/jwks.json
+/// location if that fails.
+async fn build_jwks_uri(client: &ReqwestClient, issuer: &str) -> Result<String, AuthError> {
+    // Parse the issuer URL
+    // Use typed URL parse error propagation
+    let mut issuer_url = Url::parse(issuer)?;
+
+    // First try OpenID Connect Discovery endpoint
+    let mut openid_config_url = issuer_url.clone();
+    let mut openid_path = openid_config_url.path().trim_end_matches('/').to_owned();
+    openid_path.push_str("/.well-known/openid-configuration");
+    openid_config_url.set_path(&openid_path);
+
+    // Try to fetch the OpenID configuration
+    let openid_config_response = client.get(openid_config_url.to_string()).send().await;
+
+    // If we successfully got the OpenID configuration, validate and extract the jwks_uri
+    if let Ok(response) = openid_config_response
+        && response.status() == StatusCode::OK
+        && let Ok(config) = response.json::<serde_json::Value>().await
+    {
+        // Validate 'issuer' field if present (required by OIDC spec).
+        if let Some(doc_issuer) = config.get("issuer").and_then(|v| v.as_str())
+            && doc_issuer.trim_end_matches('/') != issuer.trim_end_matches('/')
         {
-            // Validate 'issuer' field if present (required by OIDC spec).
-            if let Some(doc_issuer) = config.get("issuer").and_then(|v| v.as_str())
-                && doc_issuer.trim_end_matches('/') != issuer.trim_end_matches('/')
-            {
-                return Err(AuthError::OidcDiscoveryIssuerMismatch {
-                    expected: issuer.to_string(),
-                    got: doc_issuer.to_string(),
+            return Err(AuthError::OidcDiscoveryIssuerMismatch {
+                expected: issuer.to_string(),
+                got: doc_issuer.to_string(),
+            });
+        }
+        // Only use jwks_uri if it shares the same origin as the issuer.
+        if let Some(jwks_uri) = config.get("jwks_uri").and_then(|v| v.as_str()) {
+            let jwks_url = Url::parse(jwks_uri)?;
+            if same_origin(&issuer_url, &jwks_url) {
+                return Ok(jwks_uri.to_string());
+            } else {
+                return Err(AuthError::OidcDiscoveryUrlOriginMismatch {
+                    field: "jwks_uri",
+                    url: jwks_uri.to_string(),
                 });
             }
-            // Only use jwks_uri if it shares the same origin as the issuer.
-            if let Some(jwks_uri) = config.get("jwks_uri").and_then(|v| v.as_str()) {
-                let jwks_url = Url::parse(jwks_uri)?;
-                if same_origin(&issuer_url, &jwks_url) {
-                    return Ok(jwks_uri.to_string());
-                } else {
-                    return Err(AuthError::OidcDiscoveryUrlOriginMismatch {
-                        field: "jwks_uri",
-                        url: jwks_uri.to_string(),
-                    });
-                }
-            }
         }
-
-        // Fallback to standard well-known JWKS location
-        let mut path = issuer_url.path().trim_end_matches('/').to_owned();
-        path.push_str("/.well-known/jwks.json");
-        issuer_url.set_path(&path);
-
-        Ok(issuer_url.to_string())
     }
 
-    /// Fetch JWKS from the specified URI
-    async fn fetch_jwks_from_uri(&self, uri: &str) -> Result<JwkSet, AuthError> {
-        // Send the GET request using reqwest
-        let response = self.client.get(uri).send().await?;
+    // Fallback to standard well-known JWKS location
+    let mut path = issuer_url.path().trim_end_matches('/').to_owned();
+    path.push_str("/.well-known/jwks.json");
+    issuer_url.set_path(&path);
 
-        // Check the response status
-        if response.status() != StatusCode::OK {
-            return Err(AuthError::JwtFetchJwksFailed(response.status()));
-        }
+    Ok(issuer_url.to_string())
+}
 
-        // Get the response body as bytes
-        let body = response.bytes().await?;
+/// Fetch JWKS from the specified URI
+async fn fetch_jwks_from_uri(client: &ReqwestClient, uri: &str) -> Result<JwkSet, AuthError> {
+    // Send the GET request using reqwest
+    let response = client.get(uri).send().await?;
 
-        // Parse the JWKS
-        let jwks: JwkSet = serde_json::from_slice(&body)?;
-
-        Ok(jwks)
+    // Check the response status
+    if response.status() != StatusCode::OK {
+        return Err(AuthError::JwtFetchJwksFailed(response.status()));
     }
+
+    // Get the response body as bytes
+    let body = response.bytes().await?;
+
+    // Parse the JWKS
+    let jwks: JwkSet = serde_json::from_slice(&body)?;
+
+    Ok(jwks)
 }
 
 #[cfg(test)]

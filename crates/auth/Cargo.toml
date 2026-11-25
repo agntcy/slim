@@ -44,7 +44,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 # `sync` only: the mutex that serializes the writers of a custom provider is runtime-agnostic.
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }
 trait-variant = { workspace = true }
 web-time = { workspace = true }
@@ -65,7 +65,7 @@ notify = { workspace = true }
 pin-project = { workspace = true }
 regorus = { workspace = true }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tokio-util = { workspace = true }
 tower = { workspace = true }
 tower-layer = { workspace = true }
