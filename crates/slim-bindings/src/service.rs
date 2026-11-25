@@ -16,7 +16,7 @@ use slim_service::{KIND, Service as SlimService};
 use {
     crate::client_config::ClientConfig,
     crate::get_runtime,
-    crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig, JwtKeyData},
+    crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig},
     crate::server_config::ServerConfig,
     slim_auth::auth_provider::{AuthProvider, AuthVerifier},
     slim_auth::traits::TokenProvider,
@@ -510,12 +510,12 @@ impl Service {
     ///
     /// # Arguments
     /// * `name` - The base name for the app (without ID)
-    /// * `private_key` - The app's Ed25519 private key, a PKCS#8 PEM document, inline or
-    ///   as a file path. The app's identity is the `did:key` of that key.
-    /// * `trusted_keys` - The JWKS of the trust anchor: the public Ed25519 keys of the
-    ///   peers the app accepts, inline or as a file path. A token's subject must be the
-    ///   `did:key` of the key that signed it. The JWKS must hold the app's own key too,
-    ///   since MLS verifies the app's own token against it.
+    /// * `private_key_pem` - The app's Ed25519 private key, a PKCS#8 PEM document
+    ///   (`-----BEGIN PRIVATE KEY-----`). The app's identity is the `did:key` of that key.
+    /// * `trusted_keys` - The JWKS (JSON) of the trust anchor: the public Ed25519 keys of
+    ///   the peers the app accepts. A token's subject must be the `did:key` of the key
+    ///   that signed it. The JWKS must hold the app's own key too, since MLS verifies the
+    ///   app's own token against it.
     /// * `direction` - Traffic direction: Send, Recv, Bidirectional, or None
     ///
     /// # Returns
@@ -524,17 +524,21 @@ impl Service {
     pub async fn create_app_with_did_key_async(
         &self,
         name: Arc<Name>,
-        private_key: JwtKeyData,
-        trusted_keys: JwtKeyData,
+        private_key_pem: String,
+        trusted_keys: String,
         direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
         let slim_name: SlimName = name.as_ref().into();
+        let trusted_keys: jsonwebtoken::jwk::JwkSet =
+            serde_json::from_str(&trusted_keys).map_err(|e| SlimError::InvalidArgument {
+                message: format!("trusted_keys is not a JWKS: {e}"),
+            })?;
         let (app, rx) = self
             .inner
             .create_app_with_did_key_and_direction(
                 &slim_name,
-                private_key.into(),
-                trusted_keys.into(),
+                &private_key_pem,
+                &trusted_keys,
                 direction.into(),
             )
             .await?;
@@ -553,13 +557,13 @@ impl Service {
     pub fn create_app_with_did_key(
         &self,
         name: Arc<Name>,
-        private_key: JwtKeyData,
-        trusted_keys: JwtKeyData,
+        private_key_pem: String,
+        trusted_keys: String,
         direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
         get_runtime().block_on(self.create_app_with_did_key_async(
             name,
-            private_key,
+            private_key_pem,
             trusted_keys,
             direction,
         ))
@@ -1517,7 +1521,7 @@ mod tests {
 
     /// RFC 8032 section 7.1, test 1, as a PKCS#8 PEM, and its public key as a JWKS
     /// (the same key as RFC 8037 appendix A).
-    fn did_key_identity() -> (JwtKeyData, JwtKeyData) {
+    fn did_key_identity() -> (String, String) {
         let hex = "302e020100300506032b657004220420\
                    9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
         let der: Vec<u8> = (0..hex.len())
@@ -1529,12 +1533,7 @@ mod tests {
             "-----BEGIN PRIVATE KEY-----\n",
             "\n-----END PRIVATE KEY-----\n",
         );
-        (
-            JwtKeyData::Data { value: pem },
-            JwtKeyData::Data {
-                value: jwks_of("11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"),
-            },
-        )
+        (pem, jwks_of("11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"))
     }
 
     #[tokio::test]
@@ -1595,12 +1594,32 @@ mod tests {
                     "did-app".to_string(),
                 )),
                 private_key,
-                JwtKeyData::Data {
-                    value: jwks_of("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"),
-                },
+                jwks_of("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"),
                 crate::app::Direction::Bidirectional,
             )
             .await;
         assert!(result.is_err());
+    }
+
+    /// A trust anchor that is not a JWKS document is an invalid argument.
+    #[tokio::test]
+    async fn test_create_app_with_did_key_rejects_a_trust_anchor_that_is_not_a_jwks() {
+        slim_config::tls::provider::initialize_crypto_provider();
+        let service = Service::new("did-key-not-jwks".to_string());
+        let (private_key, _) = did_key_identity();
+
+        let result = service
+            .create_app_with_did_key_async(
+                Arc::new(Name::new(
+                    "org".to_string(),
+                    "ns".to_string(),
+                    "did-app".to_string(),
+                )),
+                private_key,
+                "not a jwks".to_string(),
+                crate::app::Direction::Bidirectional,
+            )
+            .await;
+        assert!(matches!(result, Err(SlimError::InvalidArgument { .. })));
     }
 }

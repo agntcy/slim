@@ -44,7 +44,7 @@ use slim_session::{Notification, SessionError as SlimSessionError};
 // Native-only surface: global Service, identity config records,
 // the runtime-agnostic timer, and the blocking FFI helpers.
 #[cfg(not(feature = "web"))]
-use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig, JwtKeyData};
+use crate::identity_config::{IdentityProviderConfig, IdentityVerifierConfig};
 #[cfg(not(feature = "web"))]
 use crate::{get_global_service, get_runtime};
 // `futures-timer` works on native and on the host metadata build; the browser
@@ -371,11 +371,11 @@ impl App {
     #[uniffi::constructor]
     pub fn new_with_did_key(
         name: Arc<Name>,
-        private_key: JwtKeyData,
-        trusted_keys: JwtKeyData,
+        private_key_pem: String,
+        trusted_keys: String,
         direction: Direction,
     ) -> Result<Arc<App>, SlimError> {
-        get_global_service().create_app_with_did_key(name, private_key, trusted_keys, direction)
+        get_global_service().create_app_with_did_key(name, private_key_pem, trusted_keys, direction)
     }
 
     /// Create a new App whose identity is a `did:key` (async version)
@@ -385,12 +385,12 @@ impl App {
     #[uniffi::constructor]
     pub async fn new_with_did_key_async(
         name: Arc<Name>,
-        private_key: JwtKeyData,
-        trusted_keys: JwtKeyData,
+        private_key_pem: String,
+        trusted_keys: String,
         direction: Direction,
     ) -> Result<Arc<App>, SlimError> {
         get_global_service()
-            .create_app_with_did_key_async(name, private_key, trusted_keys, direction)
+            .create_app_with_did_key_async(name, private_key_pem, trusted_keys, direction)
             .await
     }
 

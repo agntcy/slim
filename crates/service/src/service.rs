@@ -39,6 +39,10 @@ use {
     tracing::warn,
 };
 
+// The JWKS type of the trust anchor of a did:key identity
+#[cfg(all(feature = "session", not(target_arch = "wasm32")))]
+use jsonwebtoken::jwk::JwkSet;
+
 // Session feature imports (work on both native and wasm32)
 #[cfg(feature = "session")]
 use {
@@ -617,13 +621,13 @@ impl Service {
     /// Create an app whose identity is a `did:key`: it signs with an Ed25519 key and
     /// accepts the peers that a trust anchor lists.
     ///
-    /// - `private_key` is the app's Ed25519 private key, a PKCS#8 PEM document given
-    ///   inline or as a file path. The app's identity is the `did:key` of that key: its
-    ///   tokens carry it as issuer and subject.
-    /// - `trusted_keys` is the JWKS of the trust anchor, the public Ed25519 keys of the
-    ///   peers the app accepts, inline or as a file path. A token's subject must be the
-    ///   `did:key` of the key that signed it. The JWKS must hold the app's own key too:
-    ///   MLS verifies the app's own token against it, so a JWKS without it is rejected.
+    /// - `private_key_pem` is the app's Ed25519 private key, a PKCS#8 PEM document
+    ///   (`-----BEGIN PRIVATE KEY-----`). The app's identity is the `did:key` of that key:
+    ///   its tokens carry it as issuer and subject.
+    /// - `trusted_keys` is the JWKS of the trust anchor: the public Ed25519 keys of the
+    ///   peers the app accepts. A token's subject must be the `did:key` of the key that
+    ///   signed it. The JWKS must hold the app's own key too: MLS verifies the app's own
+    ///   token against it, so a JWKS without it is rejected.
     ///
     /// The provider and the verifier are built from these and initialized by
     /// [`Self::create_app`]; the app sends and receives. See
@@ -632,8 +636,8 @@ impl Service {
     pub async fn create_app_with_did_key(
         &self,
         app_name: &ProtoName,
-        private_key: slim_auth::jwt::KeyData,
-        trusted_keys: slim_auth::jwt::KeyData,
+        private_key_pem: &str,
+        trusted_keys: &JwkSet,
     ) -> Result<
         (
             App<slim_auth::auth_provider::AuthProvider, slim_auth::auth_provider::AuthVerifier>,
@@ -643,7 +647,7 @@ impl Service {
     > {
         self.create_app_with_did_key_and_direction(
             app_name,
-            private_key,
+            private_key_pem,
             trusted_keys,
             Direction::Bidirectional,
         )
@@ -655,8 +659,8 @@ impl Service {
     pub async fn create_app_with_did_key_and_direction(
         &self,
         app_name: &ProtoName,
-        private_key: slim_auth::jwt::KeyData,
-        trusted_keys: slim_auth::jwt::KeyData,
+        private_key_pem: &str,
+        trusted_keys: &JwkSet,
         direction: Direction,
     ) -> Result<
         (
@@ -665,14 +669,17 @@ impl Service {
         ),
         ServiceError,
     > {
+        use slim_auth::jwt::KeyData;
         use slim_config::auth::app_auth::AuthConfig;
 
         let invalid = |e: slim_config::auth::ConfigAuthError| {
             ServiceError::InvalidConfig(format!("invalid did:key identity: {}", e.chain()))
         };
         let auth = AuthConfig::Jwt {
-            private_key,
-            trusted_keys,
+            private_key: KeyData::Data(private_key_pem.to_string()),
+            trusted_keys: KeyData::Data(serde_json::to_string(trusted_keys).map_err(|e| {
+                ServiceError::InvalidConfig(format!("invalid did:key trust anchor: {e}"))
+            })?),
         };
         // Reads the key, and checks that the trust anchor lists the app's own key.
         auth.validate().map_err(invalid)?;
@@ -1116,15 +1123,16 @@ mod tests {
     }
 
     /// A JWKS with one Ed25519 key: `x` is its base64url-encoded public key.
-    fn jwks_of(x: &str) -> String {
-        format!(
+    fn jwks_of(x: &str) -> JwkSet {
+        serde_json::from_str(&format!(
             r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","alg":"EdDSA","use":"sig","x":"{x}"}}]}}"#
-        )
+        ))
+        .unwrap()
     }
 
     /// RFC 8032 section 7.1, test 1, as a PKCS#8 PEM, and its public key as a JWKS
     /// (the same key as RFC 8037 appendix A).
-    fn did_key_identity() -> (slim_auth::jwt::KeyData, String) {
+    fn did_key_identity() -> (String, JwkSet) {
         let hex = "302e020100300506032b657004220420\
                    9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
         let der: Vec<u8> = (0..hex.len())
@@ -1136,10 +1144,7 @@ mod tests {
             "-----BEGIN PRIVATE KEY-----\n",
             "\n-----END PRIVATE KEY-----\n",
         );
-        (
-            slim_auth::jwt::KeyData::Data(pem),
-            jwks_of("11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"),
-        )
+        (pem, jwks_of("11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"))
     }
 
     /// The helper builds the provider and the verifier from a private key and the JWKS
@@ -1152,7 +1157,7 @@ mod tests {
         let name = ProtoName::from_strings(["org", "ns", "did-app"]);
 
         let (app, _rx) = service
-            .create_app_with_did_key(&name, private_key, slim_auth::jwt::KeyData::Data(jwks))
+            .create_app_with_did_key(&name, &private_key, &jwks)
             .await
             .expect("an app with a did:key identity");
 
@@ -1179,7 +1184,7 @@ mod tests {
         let name = ProtoName::from_strings(["org", "ns", "did-app"]);
 
         let result = service
-            .create_app_with_did_key(&name, private_key, slim_auth::jwt::KeyData::Data(other))
+            .create_app_with_did_key(&name, &private_key, &other)
             .await;
         let Err(ServiceError::InvalidConfig(message)) = result else {
             panic!("expected an invalid configuration, got {:?}", result.err());
@@ -1187,9 +1192,9 @@ mod tests {
         assert!(message.contains("did:key:"), "{message}");
     }
 
-    /// A key file that cannot be read is an invalid configuration.
+    /// A private key that is not an Ed25519 PEM document is an invalid configuration.
     #[tokio::test]
-    async fn test_create_app_with_did_key_rejects_an_unreadable_key_file() {
+    async fn test_create_app_with_did_key_rejects_a_private_key_that_is_not_a_pem() {
         let (_, jwks) = did_key_identity();
         let service = Service::builder()
             .build("svc-did-key-3".to_string())
@@ -1197,11 +1202,7 @@ mod tests {
         let name = ProtoName::from_strings(["org", "ns", "did-app"]);
 
         let result = service
-            .create_app_with_did_key(
-                &name,
-                slim_auth::jwt::KeyData::File("/nonexistent/did-key.pem".to_string()),
-                slim_auth::jwt::KeyData::Data(jwks),
-            )
+            .create_app_with_did_key(&name, "not a PEM document", &jwks)
             .await;
         assert!(matches!(result, Err(ServiceError::InvalidConfig(_))));
     }
