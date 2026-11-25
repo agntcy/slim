@@ -2192,11 +2192,15 @@ async fn test_link_protected_auth_without_outbound_fails() {
 
     let cases = [
         ServerAuth::Basic(BasicConfig::new("user", "pass")),
-        ServerAuth::Jwt(JwtConfig::new(
-            Claims::default(),
-            Duration::from_secs(3600),
-            JwtKey::Autoresolve,
-        )),
+        // No issuer to fetch keys from: the test never presents a token.
+        ServerAuth::Jwt(
+            JwtConfig::new(
+                Claims::default(),
+                Duration::from_secs(3600),
+                JwtKey::Autoresolve,
+            )
+            .with_allow_any_issuer(true),
+        ),
     ];
     for protected in cases {
         let mut nodes = start_auth_link_nodes(protected, |_| vec![], None).await;

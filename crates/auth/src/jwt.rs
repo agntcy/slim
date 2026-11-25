@@ -596,6 +596,17 @@ impl<V> Jwt<V> {
                 .as_ref()
                 .ok_or(AuthError::JwtMissingIssuer)?;
 
+            // The issuer comes from the token, which is not verified yet: when the
+            // verifier has an issuer of its own, a token naming another one is rejected
+            // here, so it cannot start a fetch from a URL of its choosing.
+            if let Some(allowed) = &self.validation.iss
+                && !allowed.contains(issuer)
+            {
+                return Err(AuthError::JwtTokenInvalid(
+                    jsonwebtoken::errors::ErrorKind::InvalidIssuer.into(),
+                ));
+            }
+
             match resolver.cached_candidates(issuer, &token_data.header) {
                 Ok(k) => {
                     // Refresh ahead of expiry, so keys do not run out under load.
@@ -1250,6 +1261,52 @@ mod tests {
             mock_server.received_requests().await.unwrap().len(),
             requests_after_initialize,
             "no fetch for a key that does not fit"
+        );
+    }
+
+    /// A token that names an issuer other than the configured one is rejected before any
+    /// key is fetched, so it cannot make the node fetch from a URL it picked.
+    #[tokio::test]
+    async fn test_a_token_from_another_issuer_is_rejected_without_a_fetch() {
+        initialize_crypto_provider();
+
+        let (test_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let foreign_signer = JwtBuilder::new()
+            .issuer(mock_server.uri())
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .private_key(&Key {
+                algorithm: Algorithm::RS256,
+                format: KeyFormat::Pem,
+                key: KeyData::Data(test_key),
+            })
+            .build()
+            .unwrap();
+        let verifier = JwtBuilder::new()
+            .issuer("https://configured.example.com")
+            .audience(&["test-audience"])
+            .subject("test-subject")
+            .auto_resolve_keys(true)
+            .build()
+            .unwrap();
+        let token = foreign_signer
+            .sign_claims(&foreign_signer.create_claims())
+            .unwrap();
+
+        let result: Result<StandardClaims, _> = verifier.get_claims(&token);
+        assert!(
+            matches!(
+                &result,
+                Err(AuthError::JwtTokenInvalid(e))
+                    if matches!(e.kind(), jsonwebtoken::errors::ErrorKind::InvalidIssuer)
+            ),
+            "got {result:?}"
+        );
+        // A fetch would be a detached task: give it time to reach the server.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            mock_server.received_requests().await.unwrap().is_empty(),
+            "the issuer named by the token must not be contacted"
         );
     }
 

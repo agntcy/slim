@@ -467,6 +467,11 @@
     "Config3": {
       "type": "object",
       "properties": {
+        "allow_any_issuer": {
+          "description": "For `autoresolve` without `claims.issuer`: fetch keys from whichever issuer a\ntoken names, before the token is verified. Any sender can then make the node\nsend a request to a URL of its choosing. Defaults to `false`, in which case a\nverifier with `autoresolve` and no issuer is an error.",
+          "type": "boolean",
+          "default": false
+        },
         "claims": {
           "description": "Claims",
           "$ref": "#/$defs/Claims",
@@ -483,7 +488,7 @@
           "default": "1h"
         },
         "key": {
-          "description": "One of: `encoding`, `decoding`, or `autoresolve`\nEncoding key is used for signing JWTs (client-side).\nDecoding key is used for verifying JWTs (server-side).\nAutoresolve is used to automatically resolve the key based on the claims.",
+          "description": "One of: `encoding`, `decoding`, or `autoresolve`\nEncoding key is used for signing JWTs (client-side).\nDecoding key is used for verifying JWTs (server-side).\nAutoresolve fetches the keys of the issuer (`claims.issuer`) from its JWKS\nendpoint, and needs that issuer to be set unless `allow_any_issuer` is.",
           "$ref": "#/$defs/JwtKey"
         }
       },
