@@ -949,6 +949,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#didkey" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        did:key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#spire-spiffe" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5213,6 +5224,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#didkey" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        did:key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#spire-spiffe" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5416,6 +5438,33 @@
 - Each application has a distinct identity tied to the <code>sub</code> claim set by the issuer
 - Stateless verification — receivers only need the issuer's public key</p>
 <p><strong>Use when:</strong> Service-to-service authentication with an existing identity provider, or when per-application credential differentiation is needed without a full PKI.</p>
+<h3 id="didkey">did:key</h3>
+<p>The application's identity is the <a href="https://w3c-ccg.github.io/did-key-spec/"><code>did:key</code></a> of an Ed25519 key that it holds. When the application sends a message, SLIM signs a short-lived JWT with that key (<code>EdDSA</code>) whose issuer and subject are the <code>did:key</code>. A receiver verifies it against a <strong>trust anchor</strong>, the JWKS of the public keys of the applications it accepts, and checks that the token's subject is the <code>did:key</code> of the key that signed it. No identity provider, certificate authority or shared secret is involved: an application is identified by its key, and the receiver decides whose keys it trusts.</p>
+<p>An application is created from two inputs:</p>
+<ul>
+<li><strong>The private key</strong>: an Ed25519 key as a PKCS#8 PEM document (<code>-----BEGIN PRIVATE KEY-----</code>), such as <code>openssl genpkey -algorithm ed25519</code> writes. The application's identity is its <code>did:key</code>.</li>
+<li><strong>The trust anchor</strong>: a JWKS (JSON) with one <code>OKP</code> <code>Ed25519</code> JWK (<code>{"kty":"OKP","crv":"Ed25519","x":"…"}</code>) per application that it accepts. It has to list the application's own key too, because MLS verifies the application's own token against it. SLIM rejects a JWKS that doesn't, and the error names the <code>did:key</code> to add.</li>
+</ul>
+<p>In Rust, with <code>slim-service</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kd">let</span><span class="w"> </span><span class="p">(</span><span class="n">app</span><span class="p">,</span><span class="w"> </span><span class="n">notifications</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">service</span>
+<span class="w">    </span><span class="p">.</span><span class="n">create_app_with_did_key</span><span class="p">(</span><span class="o">&amp;</span><span class="n">app_name</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">private_key_pem</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">trusted_keys_jwks</span><span class="p">)</span>
+<span class="w">    </span><span class="p">.</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
+</code></pre></div>
+<p><code>create_app_with_did_key_and_direction</code> also takes the traffic direction. The <code>slim-bindings</code> crate exposes the same helper as <code>Service.create_app_with_did_key</code> and <code>create_app_with_did_key_async</code>, and as the <code>App</code> constructors <code>new_with_did_key</code> and <code>new_with_did_key_async</code>, with the two keys as strings. <code>did_key_of_private_key</code> returns the <code>did:key</code> of a private key, which is the identity that peers list in their trust anchor. In every case the identity is initialized when the application is created.</p>
+<p>To try it, the Rust <code>sender</code> and <code>receiver</code> examples of <code>slim-bindings</code> take <code>--private-key</code> (a PEM file) and <code>--trusted-keys</code> (a JWKS file) instead of a shared secret, and <code>examples/did_key/generate-keys.sh</code> writes one key per application and a JWKS that lists them all:</p>
+<div class="highlight"><pre><span></span><code>crates/slim-bindings/examples/did_key/generate-keys.sh<span class="w"> </span>/tmp/keys<span class="w"> </span>alice<span class="w"> </span>bob
+cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>receiver<span class="w"> </span>--<span class="w"> </span>--local<span class="w"> </span>agntcy/ns/alice<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--private-key<span class="w"> </span>/tmp/keys/alice.pem<span class="w"> </span>--trusted-keys<span class="w"> </span>/tmp/keys/trusted-keys.jwks
+cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>sender<span class="w"> </span>--<span class="w"> </span>--local<span class="w"> </span>agntcy/ns/bob<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--private-key<span class="w"> </span>/tmp/keys/bob.pem<span class="w"> </span>--trusted-keys<span class="w"> </span>/tmp/keys/trusted-keys.jwks<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--session-type<span class="w"> </span>p2p<span class="w"> </span>--participants<span class="w"> </span>agntcy/ns/alice
+</code></pre></div>
+<p><strong>Properties:</strong>
+- Each application has its own credential, so with MLS and identity binding set to <code>enforce</code>, one compromised application can't impersonate the others
+- The identity is the key itself: there is nothing to issue, renew or revoke centrally. Removing a key from a trust anchor stops that application from being accepted by those that use it
+- Only Ed25519 keys are supported
+- The members of a group session verify each other, so every member's trust anchor must list every other member. A peer that is not in an application's trust anchor can't start a session with it</p>
+<p><strong>Use when:</strong> You want per-application credentials without running an identity provider or a SPIRE deployment, and the set of applications that trust each other can be distributed as a list of public keys.</p>
 <h3 id="spire-spiffe">SPIRE / SPIFFE</h3>
 <p><a href="https://spiffe.io/">SPIFFE</a> (Secure Production Identity Framework For Everyone) is a standard for workload identity. <a href="https://spiffe.io/docs/latest/spire-about/">SPIRE</a> is its reference implementation, issuing JWT-SVIDs to workloads via a local agent socket.</p>
 <p>SLIM integrates with SPIRE by consuming JWT-SVIDs from the SPIRE Workload API. The SPIFFE ID embedded in the JWT-SVID (e.g. <code>spiffe://domain.test/ns/default/sa/my-app</code>) is the application's identity. When a session receives a message, it validates the JWT-SVID against the SPIRE trust bundle (JWT bundle set) — if valid, the SPIFFE ID is accepted as the sender's identity.</p>
@@ -5456,6 +5505,13 @@
 <td>Token expiry</td>
 <td>No</td>
 <td>Simple production, no IdP</td>
+</tr>
+<tr>
+<td>did:key</td>
+<td><code>did:key</code> of the application's Ed25519 key</td>
+<td>Replace the key and the trust anchors</td>
+<td>No</td>
+<td>Per-application keys without an IdP</td>
 </tr>
 <tr>
 <td>SPIRE</td>
