@@ -5920,7 +5920,7 @@
 <span class="w">    </span><span class="o">&amp;</span><span class="n">local_name</span><span class="p">,</span>
 <span class="w">    </span><span class="n">AuthProvider</span><span class="p">::</span><span class="n">shared_secret</span><span class="p">(</span><span class="n">secret</span><span class="p">.</span><span class="n">clone</span><span class="p">()),</span>
 <span class="w">    </span><span class="n">AuthVerifier</span><span class="p">::</span><span class="n">shared_secret</span><span class="p">(</span><span class="n">secret</span><span class="p">),</span>
-<span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 
 <span class="c1">// The server subscribes to local_name itself when it starts serving</span>
 <span class="kd">let</span><span class="w"> </span><span class="n">server</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Server</span><span class="p">::</span><span class="n">new_with_connection_and_runtime</span><span class="p">(</span>

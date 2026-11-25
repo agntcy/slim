@@ -5404,7 +5404,7 @@
 <span class="w">        </span><span class="n">verifier</span><span class="p">,</span>
 <span class="w">        </span><span class="n">Direction</span><span class="p">::</span><span class="n">Bidirectional</span><span class="p">,</span>
 <span class="w">        </span><span class="nb">Some</span><span class="p">(</span><span class="n">persistence</span><span class="p">),</span>
-<span class="w">    </span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="w">    </span><span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="w">    </span><span class="n">app</span><span class="p">.</span><span class="n">subscribe</span><span class="p">(</span><span class="o">&amp;</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">)).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;App ready with persistence: myorg/default/my-service&quot;</span><span class="p">);</span>
 
@@ -5654,7 +5654,7 @@
 <span class="w">    </span><span class="n">verifier</span><span class="p">,</span>
 <span class="w">    </span><span class="n">Direction</span><span class="p">::</span><span class="n">Bidirectional</span><span class="p">,</span>
 <span class="w">    </span><span class="nb">Some</span><span class="p">(</span><span class="n">persistence</span><span class="p">),</span>
-<span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="p">).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 <span class="n">app</span><span class="p">.</span><span class="n">subscribe</span><span class="p">(</span><span class="o">&amp;</span><span class="n">name</span><span class="p">,</span><span class="w"> </span><span class="nb">Some</span><span class="p">(</span><span class="n">conn_id</span><span class="p">)).</span><span class="k">await</span><span class="o">?</span><span class="p">;</span>
 
 <span class="c1">// Restore all previously active sessions</span>
