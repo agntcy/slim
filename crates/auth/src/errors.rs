@@ -32,6 +32,11 @@ pub enum AuthError {
     JwtMissingDecodingKeyOrKeyResolver,
     #[error("missing 'iss' in JWT claims")]
     JwtMissingIssuer,
+    #[error(
+        "automatic key resolution needs a configured issuer (`claims.issuer`), \
+         or `allow_any_issuer` to fetch keys from whichever issuer a token names"
+    )]
+    JwtAutoResolveNeedsIssuer,
     #[error("no key resolver available")]
     JwtNoKeyResolver,
     #[error("no static JWT token configured")]
