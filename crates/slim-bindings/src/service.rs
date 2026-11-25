@@ -622,12 +622,15 @@ impl Service {
     ) -> Result<Arc<crate::app::App>, SlimError> {
         let base_name: SlimName = name.as_ref().into();
         let identity = SharedSecret::new(&name.to_string(), &secret)?;
-        let (app, rx) = self.inner.create_app_with_direction(
-            &base_name,
-            AuthProvider::SharedSecret(identity.clone()),
-            AuthVerifier::SharedSecret(identity),
-            direction.into(),
-        )?;
+        let (app, rx) = self
+            .inner
+            .create_app_with_direction(
+                &base_name,
+                AuthProvider::SharedSecret(identity.clone()),
+                AuthVerifier::SharedSecret(identity),
+                direction.into(),
+            )
+            .await?;
         Ok(Arc::new(crate::app::App::from_parts(
             Arc::new(app),
             Arc::new(tokio::sync::RwLock::new(rx)),
