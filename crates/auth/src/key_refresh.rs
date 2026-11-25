@@ -127,7 +127,6 @@ impl RefreshTask {
     }
 
     /// Whether [`RefreshTask::start`] succeeded and the task is still running.
-    #[cfg(test)]
     pub(crate) fn is_running(&self) -> bool {
         self.worker
             .try_lock()

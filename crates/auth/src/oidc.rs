@@ -546,6 +546,21 @@ impl OidcVerifier {
         fetch_oidc_jwks(&self.http_client, &self.issuer_url, &self.userinfo_endpoint).await
     }
 
+    /// Why there are no keys to verify with: the verifier was never initialized (a
+    /// mistake no retry fixes), or the keys are on their way, or expired while the issuer
+    /// is unreachable (`WouldBlockOn`: the task keeps trying).
+    fn no_keys(&self) -> AuthError {
+        if self.refresh.is_running() {
+            AuthError::WouldBlockOn
+        } else {
+            tracing::error!(
+                issuer = %self.issuer_url,
+                "OIDC verifier used before `initialize`: call it before verifying"
+            );
+            AuthError::OidcNotInitialized
+        }
+    }
+
     /// The cached JWKS, if it is still valid. The refresh task keeps it that way.
     fn cached_jwks(&self) -> Option<JwkSet> {
         self.jwks_cache.get(&self.issuer_url)
@@ -619,8 +634,9 @@ impl Verifier for OidcVerifier {
     /// the verifier (and its clones) is dropped. Returns once the first keys are cached,
     /// and fails if they cannot be fetched.
     ///
-    /// Verification reads the cache only: until `initialize` succeeded, it reports
-    /// `WouldBlockOn`.
+    /// Verification reads the cache only, so `initialize` is required: until it succeeded,
+    /// verification fails with [`AuthError::OidcNotInitialized`], which no retry fixes.
+    /// (`WouldBlockOn` is for keys that are on their way, after `initialize`.)
     async fn initialize(&mut self) -> Result<(), AuthError> {
         let (client, issuer, userinfo_endpoint) = (
             self.http_client.clone(),
@@ -654,7 +670,7 @@ impl Verifier for OidcVerifier {
                 self.verify_token_util(token.as_ref(), &jwks)?;
                 Ok(())
             }
-            None => Err(AuthError::WouldBlockOn),
+            None => Err(self.no_keys()),
         }
     }
 
@@ -682,7 +698,7 @@ impl Verifier for OidcVerifier {
             return Ok(serde_json::from_value(cached_claims)?);
         }
         let Some(jwks) = self.cached_jwks() else {
-            return Err(AuthError::WouldBlockOn);
+            return Err(self.no_keys());
         };
         let claims = self.verify_token_util(token.as_ref(), &jwks)?;
         Ok(serde_json::from_value(claims)?)
@@ -709,7 +725,7 @@ impl Verifier for OidcVerifier {
         }
 
         let Some(jwks) = self.cached_jwks() else {
-            return Err(AuthError::WouldBlockOn);
+            return Err(self.no_keys());
         };
         let mut claims = self.verify_token_util(token, &jwks)?;
         let extra = self.userinfo_claims(token).await;
@@ -1314,13 +1330,13 @@ mod tests {
         }
     }
 
-    /// Without cached keys, `get_claims` has nothing to verify against: it reports
-    /// `WouldBlockOn`, as `verify` does.
+    /// A verifier that was never initialized has no keys and never will: `get_claims`
+    /// says so, as `verify` does, instead of reporting keys that are on their way.
     #[test]
-    fn test_oidc_verifier_get_claims_without_cache_returns_would_block() {
+    fn test_oidc_verifier_get_claims_before_initialize_is_an_error() {
         let verifier = OidcVerifier::new("https://example.com", "test-audience");
         let result: Result<TestClaims, _> = verifier.get_claims("any.token.value");
-        assert!(matches!(result, Err(AuthError::WouldBlockOn)));
+        assert!(matches!(result, Err(AuthError::OidcNotInitialized)));
     }
 
     /// `initialize` fails when the keys cannot be fetched, so a server does not start
@@ -1407,6 +1423,7 @@ mod tests {
     /// keys are not there, and nothing is fetched on its behalf.
     #[tokio::test]
     async fn test_oidc_verifier_without_initialize_never_fetches() {
+        slim_config::tls::provider::initialize_crypto_provider();
         let (private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
         let issuer_url = mock_server.uri();
         let token = test_token(&private_key, &issuer_url);
@@ -1414,7 +1431,7 @@ mod tests {
         let verifier = OidcVerifier::new(issuer_url, "test-audience");
         assert!(matches!(
             verifier.verify(&token),
-            Err(AuthError::WouldBlockOn)
+            Err(AuthError::OidcNotInitialized)
         ));
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(mock_server.received_requests().await.unwrap().is_empty());
@@ -1622,10 +1639,26 @@ mod tests {
     }
 
     #[test]
-    fn test_oidc_verifier_verify_without_cache_returns_would_block() {
+    fn test_oidc_verifier_verify_before_initialize_is_an_error() {
         let verifier = OidcVerifier::new("https://example.com", "audience");
-        // No JWKS cache — must return WouldBlockOn
         let result = verifier.verify("any.token.value");
-        assert!(matches!(result, Err(AuthError::WouldBlockOn)));
+        assert!(matches!(result, Err(AuthError::OidcNotInitialized)));
+    }
+
+    /// After `initialize`, keys that expired while the issuer is unreachable are on
+    /// their way back (the task keeps trying): `WouldBlockOn`, not a misuse error.
+    #[tokio::test]
+    async fn test_oidc_verifier_expired_keys_during_an_outage_would_block() {
+        let (_private_key, mock_server, _alg) = setup_test_jwt_resolver(Algorithm::RS256).await;
+        let mut verifier = OidcVerifier::new(mock_server.uri(), "test-audience")
+            .with_jwks_ttl(Duration::from_millis(200));
+        verifier.initialize().await.unwrap();
+
+        drop(mock_server);
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(matches!(
+            verifier.verify("any.token.value"),
+            Err(AuthError::WouldBlockOn)
+        ));
     }
 }
