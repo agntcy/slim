@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1](https://github.com/agntcy/slim/compare/slim-v3.5.0...slim-v3.5.1) - 2026-11-25
+
+### Fixed
+
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(release)* split workspace version into node and app version groups ([#2433](https://github.com/agntcy/slim/pull/2433))
+- generate test keys at test time instead of committing them ([#2428](https://github.com/agntcy/slim/pull/2428))
+- mark committed keys as test-only ([#2417](https://github.com/agntcy/slim/pull/2417))
+
 ## [3.4.6](https://github.com/agntcy/slim/compare/slim-v3.4.5...slim-v3.4.6) - 2026-10-20
 
 ### Other

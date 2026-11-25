@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1](https://github.com/agntcy/slim/compare/slimctl-v3.5.0...slimctl-v3.5.1) - 2026-11-25
+
+### Fixed
+
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(service)* initialize the identity in create_app ([#2450](https://github.com/agntcy/slim/pull/2450))
+- *(release)* split workspace version into node and app version groups ([#2433](https://github.com/agntcy/slim/pull/2433))
+
 ## [3.4.6](https://github.com/agntcy/slim/compare/slimctl-v3.4.5...slimctl-v3.4.6) - 2026-10-20
 
 ### Other

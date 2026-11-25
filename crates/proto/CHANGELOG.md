@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.10](https://github.com/agntcy/slim/compare/slim-proto-v0.8.9...slim-proto-v0.8.10) - 2026-11-25
+
+### Fixed
+
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(deps)* lock file maintenance ([#2242](https://github.com/agntcy/slim/pull/2242))
+
 ## [0.8.8](https://github.com/agntcy/slim/compare/slim-proto-v0.8.7...slim-proto-v0.8.8) - 2026-10-20
 
 ### Other

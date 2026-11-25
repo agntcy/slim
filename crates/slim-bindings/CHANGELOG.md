@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1](https://github.com/agntcy/slim/compare/slim-bindings-v3.5.0...slim-bindings-v3.5.1) - 2026-11-25
+
+### Fixed
+
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(service)* initialize the identity in create_app ([#2450](https://github.com/agntcy/slim/pull/2450))
+- *(auth)* make Verifier::verify and get_claims synchronous ([#2438](https://github.com/agntcy/slim/pull/2438))
+- remove opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358)) ([#2434](https://github.com/agntcy/slim/pull/2434))
+- *(release)* split workspace version into node and app version groups ([#2433](https://github.com/agntcy/slim/pull/2433))
+
 ## [3.4.4](https://github.com/agntcy/slim/compare/slim-bindings-v3.4.3...slim-bindings-v3.4.4) - 2026-10-18
 
 ### Fixed

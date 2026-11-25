@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/agntcy/slim/compare/slim-config-v0.17.11...slim-config-v0.18.0) - 2026-11-25
+
+### Fixed
+
+- *(auth)* require an issuer for automatic key resolution ([#2444](https://github.com/agntcy/slim/pull/2444))
+- *(release)* bump crate versions past the yanked releases ([#2412](https://github.com/agntcy/slim/pull/2412))
+- revert "chore: release" ([#2410](https://github.com/agntcy/slim/pull/2410))
+
+### Other
+
+- *(auth)* refresh signing keys from a task owned by each verifier ([#2449](https://github.com/agntcy/slim/pull/2449))
+- *(auth)* make Verifier::verify and get_claims synchronous ([#2438](https://github.com/agntcy/slim/pull/2438))
+- remove opt-in self-certified did:key admission ([#2358](https://github.com/agntcy/slim/pull/2358)) ([#2434](https://github.com/agntcy/slim/pull/2434))
+- generate test keys at test time instead of committing them ([#2428](https://github.com/agntcy/slim/pull/2428))
+- mark committed keys as test-only ([#2417](https://github.com/agntcy/slim/pull/2417))
+
 ## [0.17.10](https://github.com/agntcy/slim/compare/slim-config-v0.17.9...slim-config-v0.17.10) - 2026-10-20
 
 ### Other
