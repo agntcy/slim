@@ -948,7 +948,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b744eed18cd75d814effdf2aba2880f912abe0fe1c327b361341d31aba9a7005"
 dependencies = [
- "bindgen 0.73.2",
+ "bindgen",
  "cc",
  "cmake",
  "dunce",
@@ -959,9 +959,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.18.1"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b281d307588d634de920874890732659e2e7672f72b5e10e81badc1a8a83621e"
+checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
 dependencies = [
  "aws-lc-fips-sys",
  "aws-lc-sys",
@@ -971,11 +971,11 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.45.0"
+version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bff6c3b54fad79a2e60b8102caf565819711497c1f5f092f49508e2f5c31b27"
+checksum = "8bfbe32ac36b3c428696ce315464181bc4029d689fd58e3f2a4e58c252242f52"
 dependencies = [
- "bindgen 0.72.1",
+ "bindgen",
  "cc",
  "cmake",
  "dunce",
@@ -1098,26 +1098,6 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.72.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
-dependencies = [
- "bitflags",
- "cexpr",
- "clang-sys",
- "itertools 0.13.0",
- "log",
- "prettyplease 0.2.37",
- "proc-macro2",
- "quote",
- "regex",
- "rustc-hash",
- "shlex 1.3.0",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "bindgen"
 version = "0.73.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "787ef8ef523575546b106a58213d6e6b06198a05c2f757258c68a74273670cfa"
@@ -1131,7 +1111,7 @@ dependencies = [
  "quote",
  "regex",
  "rustc-hash",
- "shlex 2.0.1",
+ "shlex",
  "syn 3.0.10",
 ]
 
@@ -1366,7 +1346,7 @@ dependencies = [
  "find-msvc-tools",
  "jobserver",
  "libc",
- "shlex 2.0.1",
+ "shlex",
 ]
 
 [[package]]
@@ -3846,7 +3826,7 @@ dependencies = [
  "maybe-async",
  "mls-rs-codec",
  "mls-rs-core",
- "mls-rs-identity-x509 0.23.0",
+ "mls-rs-identity-x509",
  "portable-atomic",
  "portable-atomic-util",
  "rand_core 0.10.1",
@@ -3901,33 +3881,18 @@ dependencies = [
 
 [[package]]
 name = "mls-rs-crypto-awslc"
-version = "0.26.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ef778ced473553363cf0de75cb01856a6b713b85a23a13ada94229035eb46e5"
+checksum = "9a9200d8987cfdba02f4cd1afa83c19b831987e007e18810103bb5dceeb6ad64"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
  "aws-lc-sys",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-hpke 0.21.1",
+ "mls-rs-crypto-hpke",
  "mls-rs-crypto-traits",
- "mls-rs-identity-x509 0.21.0",
- "thiserror 2.0.21",
- "zeroize",
-]
-
-[[package]]
-name = "mls-rs-crypto-hpke"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e8db2641ced4b36457c9a231c13bea8b6be6f9ea586b0f39423676ca01c432a"
-dependencies = [
- "async-trait",
- "cfg-if",
- "maybe-async",
- "mls-rs-core",
- "mls-rs-crypto-traits",
+ "mls-rs-identity-x509",
  "thiserror 2.0.21",
  "zeroize",
 ]
@@ -3971,7 +3936,7 @@ dependencies = [
  "js-sys",
  "maybe-async",
  "mls-rs-core",
- "mls-rs-crypto-hpke 0.22.0",
+ "mls-rs-crypto-hpke",
  "mls-rs-crypto-traits",
  "serde",
  "serde-wasm-bindgen",
@@ -3980,19 +3945,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "zeroize",
-]
-
-[[package]]
-name = "mls-rs-identity-x509"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec1ecb6a61a296b8240cea19171477293663dcc6540353dc8cbcda2d9f61039b"
-dependencies = [
- "async-trait",
- "maybe-async",
- "mls-rs-core",
- "thiserror 2.0.21",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -5862,12 +5814,6 @@ checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
 ]
-
-[[package]]
-name = "shlex"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shlex"
