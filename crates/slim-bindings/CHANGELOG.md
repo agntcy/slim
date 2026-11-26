@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.2](https://github.com/agntcy/slim/compare/slim-bindings-v3.5.1...slim-bindings-v3.5.2) - 2026-11-26
+
+### Fixed
+
+- *(bindings)* run the async did:key helper on the bindings runtime ([#2464](https://github.com/agntcy/slim/pull/2464))
+
 ## [3.5.1](https://github.com/agntcy/slim/compare/slim-bindings-v3.5.0...slim-bindings-v3.5.1) - 2026-11-25
 
 ### Fixed

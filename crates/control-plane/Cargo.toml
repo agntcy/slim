@@ -3,7 +3,7 @@
 
 [package]
 name = "agntcy-slim-control-plane"
-version = "3.5.1"
+version = "3.5.2"
 edition = { workspace = true }
 license = { workspace = true }
 description = "Rust implementation of the SLIM control plane (northbound + southbound gRPC servers)."
