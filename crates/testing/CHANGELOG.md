@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.4](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.3...slim-testutils-v0.7.4) (2026-11-26)
+
+
+### Features
+
+* **service,bindings:** create an app from a did:key and a trust anchor ([#2456](https://github.com/agntcy/slim/issues/2456)) ([548ad98](https://github.com/agntcy/slim/commit/548ad98c867b0ea26f18d6d670e9a38df50c8888))
+
 ## [0.7.3](https://github.com/agntcy/slim/compare/slim-testutils-v0.7.2...slim-testutils-v0.7.3) (2026-10-12)
 
 
