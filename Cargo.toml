@@ -97,7 +97,7 @@ futures-timer = "3.0.3"
 
 getrandom = { version = "0.4", features = ["wasm_js"] }
 # Browser WebSocket transport for the wasm32 build of the data plane.
-gloo-net = { version = "0.7", default-features = false, features = [
+gloo-net = { version = "0.8", default-features = false, features = [
     "websocket",
 ] }
 h2 = "0.4.7"
