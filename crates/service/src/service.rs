@@ -671,10 +671,6 @@ impl Service {
         use slim_auth::jwt::KeyData;
         use slim_config::auth::app_auth::AuthConfig;
 
-        // The JWT verifier builds an HTTP client, which needs the TLS crypto provider. The
-        // caller of this helper (an example, a binding) has no reason to know that.
-        slim_config::tls::provider::initialize_crypto_provider();
-
         let invalid = |e: slim_config::auth::ConfigAuthError| {
             ServiceError::InvalidConfig(format!("invalid did:key identity: {}", e.chain()))
         };

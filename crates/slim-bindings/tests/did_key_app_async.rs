@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! `App::new_with_did_key_async` must not need the caller to install the TLS crypto
+//! `App::new_with_did_key_async` works without the caller setting up a Tokio runtime or the TLS crypto
 //! provider. Its own test binary: the provider is process-global.
 
 #![cfg(not(target_arch = "wasm32"))]
@@ -20,7 +20,7 @@ fn app_name() -> Arc<Name> {
 }
 
 #[tokio::test]
-async fn app_new_with_did_key_async_installs_the_crypto_provider() {
+async fn app_new_with_did_key_async_works_without_setup() {
     let app = App::new_with_did_key_async(
         app_name(),
         ed25519_pem_of_seed(SEED),

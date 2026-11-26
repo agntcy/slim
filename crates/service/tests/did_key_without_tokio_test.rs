@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The async did:key APIs need a Tokio runtime: the app they create spawns tasks. Called
-//! from a plain executor, they panic instead of failing in some other way.
+//! from a plain executor, they panic instead of failing in some other way. The crypto
+//! provider is installed first: the JWT verifier needs one, and it is not what is tested.
 
 use slim_config::component::id::ID;
 use slim_datapath::api::ProtoName;
@@ -24,6 +25,7 @@ fn app_name() -> ProtoName {
 #[test]
 #[should_panic(expected = "no reactor running")]
 fn create_app_with_did_key_panics_without_tokio() {
+    slim_config::tls::provider::initialize_crypto_provider();
     let _ = futures::executor::block_on(service("svc-did-key-no-tokio").create_app_with_did_key(
         &app_name(),
         &ed25519_pem_of_seed(SEED),
@@ -34,6 +36,7 @@ fn create_app_with_did_key_panics_without_tokio() {
 #[test]
 #[should_panic(expected = "no reactor running")]
 fn create_app_with_did_key_and_direction_panics_without_tokio() {
+    slim_config::tls::provider::initialize_crypto_provider();
     let _ = futures::executor::block_on(
         service("svc-did-key-direction-no-tokio").create_app_with_did_key_and_direction(
             &app_name(),

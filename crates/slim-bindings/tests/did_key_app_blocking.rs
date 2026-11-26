@@ -1,7 +1,7 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! `App::new_with_did_key` must not need the caller to install the TLS crypto provider,
+//! `App::new_with_did_key` works without the caller setting up a Tokio runtime or the TLS crypto provider,
 //! and runs without a Tokio runtime of the caller. Its own test binary: the provider is
 //! process-global.
 
@@ -21,7 +21,7 @@ fn app_name() -> Arc<Name> {
 }
 
 #[test]
-fn app_new_with_did_key_installs_the_crypto_provider() {
+fn app_new_with_did_key_works_without_setup() {
     let app = App::new_with_did_key(
         app_name(),
         ed25519_pem_of_seed(SEED),
