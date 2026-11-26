@@ -335,11 +335,16 @@
     "aliases": []
   },
   {
-    "version": "slim-v3.5.1",
-    "title": "slim-v3.5.1",
+    "version": "slim-v3.5.2",
+    "title": "slim-v3.5.2",
     "aliases": [
       "latest"
     ]
+  },
+  {
+    "version": "slim-v3.5.1",
+    "title": "slim-v3.5.1",
+    "aliases": []
   },
   {
     "version": "slim-v3.5.0",
