@@ -531,15 +531,21 @@ impl Service {
         direction: crate::app::Direction,
     ) -> Result<Arc<crate::app::App>, SlimError> {
         let slim_name: SlimName = name.as_ref().into();
-        let (app, rx) = self
-            .inner
-            .create_app_with_did_key_and_direction(
-                &slim_name,
-                &private_key_pem,
-                &trusted_keys,
-                direction.into(),
-            )
-            .await?;
+        let service = self.inner.clone();
+        // Spawn on the runtime so a tokio context exists when called from a UniFFI async context.
+        let handle = get_runtime().spawn(async move {
+            service
+                .create_app_with_did_key_and_direction(
+                    &slim_name,
+                    &private_key_pem,
+                    &trusted_keys,
+                    direction.into(),
+                )
+                .await
+        });
+        let (app, rx) = handle.await.map_err(|e| SlimError::InternalError {
+            message: format!("create_app_with_did_key task failed: {e}"),
+        })??;
 
         Ok(Arc::new(crate::app::App::from_parts(
             Arc::new(app),

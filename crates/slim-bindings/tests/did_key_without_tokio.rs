@@ -1,9 +1,9 @@
 // Copyright AGNTCY Contributors (https://github.com/agntcy)
 // SPDX-License-Identifier: Apache-2.0
 
-//! The async did:key APIs need a Tokio runtime. Called from a plain executor, they panic
-//! instead of failing in some other way. (The blocking ones run on the runtime of the
-//! bindings: see the other did_key tests.)
+//! The async did:key APIs run on the runtime of the bindings, so they work when they are
+//! polled outside Tokio, as UniFFI does for a foreign-language caller. (The Rust
+//! `slim_service` API does not: it panics without a Tokio runtime.)
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -21,24 +21,26 @@ fn app_name() -> Arc<Name> {
 }
 
 #[test]
-#[should_panic(expected = "no reactor running")]
-fn service_create_app_with_did_key_async_panics_without_tokio() {
+fn service_create_app_with_did_key_async_works_without_tokio() {
     let service = Service::new("did-key-service-no-tokio".into());
-    let _ = futures::executor::block_on(service.create_app_with_did_key_async(
+    let app = futures::executor::block_on(service.create_app_with_did_key_async(
         app_name(),
         ed25519_pem_of_seed(SEED),
         ed25519_jwks_of(&[PUBLIC]),
         Direction::Bidirectional,
-    ));
+    ))
+    .expect("an app with a did:key identity");
+    assert!(!app.id().is_empty());
 }
 
 #[test]
-#[should_panic(expected = "no reactor running")]
-fn app_new_with_did_key_async_panics_without_tokio() {
-    let _ = futures::executor::block_on(App::new_with_did_key_async(
+fn app_new_with_did_key_async_works_without_tokio() {
+    let app = futures::executor::block_on(App::new_with_did_key_async(
         app_name(),
         ed25519_pem_of_seed(SEED),
         ed25519_jwks_of(&[PUBLIC]),
         Direction::Bidirectional,
-    ));
+    ))
+    .expect("an app with a did:key identity");
+    assert!(!app.id().is_empty());
 }
