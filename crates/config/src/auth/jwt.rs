@@ -249,6 +249,7 @@ impl Config {
                 let custom_claims = self.custom_claims();
                 self.jwt_builder()
                     .private_key(key)
+                    .token_duration(self.duration())
                     .custom_claims(custom_claims)
                     .build()
             }
@@ -338,7 +339,7 @@ mod tests {
     use slim_auth::jwt::KeyData;
     use slim_auth::jwt::KeyFormat;
     use slim_auth::metadata::MetadataMap;
-    use slim_auth::traits::Signer;
+    use slim_auth::traits::{Signer, StandardClaims, Verifier};
     use tower::{Service, ServiceBuilder};
 
     use super::*;
@@ -500,6 +501,21 @@ mod tests {
             "expected signer to be created: {:?}",
             signer.err()
         );
+    }
+
+    #[test]
+    fn test_signed_token_lifetime_follows_duration() {
+        let duration = Duration::from_secs(120);
+        let token = Config::new(Claims::default(), duration, hs256_encoding_key())
+            .get_provider()
+            .unwrap()
+            .sign_standard_claims()
+            .unwrap();
+        let verifier = Config::new(Claims::default(), duration, hs256_decoding_key())
+            .get_verifier()
+            .unwrap();
+        let claims: StandardClaims = verifier.get_claims(&token).unwrap();
+        assert_eq!(claims.exp - claims.iat.unwrap(), duration.as_secs());
     }
 
     #[test]
