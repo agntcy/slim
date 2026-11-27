@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.2](https://github.com/agntcy/slim/compare/slim-auth-v0.19.1...slim-auth-v0.19.2) - 2026-11-27
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.19.1](https://github.com/agntcy/slim/compare/slim-auth-v0.19.0...slim-auth-v0.19.1) - 2026-11-26
 
 ### Other
