@@ -57,7 +57,7 @@ Start with [Connecting to SLIM](./tutorials/tutorial-connect.md).
 | `OidcConfig` | OIDC transport authentication settings |
 | `OidcPolicyConfig` | Claim-based access policy (`CEL`, `REGO`, `REGO_FILE`) |
 
-UniFFI async methods require registering the running event loop with `uniffi_set_event_loop` before calling any async API.
+Call `slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())` once at startup. It is required when serving SLIMRPC: the Python async handlers are invoked from Rust and fail with `RuntimeError: no running event loop` without it. Plain async calls work without it, but registering it is harmless.
 
 ### Session Configuration
 
@@ -76,7 +76,7 @@ session_config = slim_bindings.SessionConfig(
 session = await app.create_session_and_wait_async(session_config, remote_name)
 ```
 
-`SessionConfig` and `MlsSettings` take keyword arguments only and define no defaults, so every field must be passed. `max_retries=None` and `interval=None` fall back to the SLIM defaults, and `mls_settings=None` disables MLS.
+`SessionConfig` and `MlsSettings` take keyword arguments only and define no defaults, so every field must be passed. `max_retries=None` and `interval=None` give fire-and-forget delivery (no acknowledgements, no retransmission), and `mls_settings=None` disables MLS.
 
 ## Transport Authentication
 
@@ -152,14 +152,12 @@ await service.run_server_async(server_config)
     "type": "oidc",
     "issuer_url": "https://auth.example.com",
     "client_id": "my-client",
-    "client_secret": "s3cr3t",
-    "audience": "slim",
-    "policy": { "cel": "\"admin\" in claims.groups" }
+    "client_secret": "s3cr3t"
   }
 }
 ```
 
-The schema matches the [client configuration schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json) in the slim repository.
+The format follows the [client configuration schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json) in the slim repository. The generated schema does not yet list the `oidc` auth type; its field names follow [`crates/config/src/client.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/client.rs) and [`crates/config/src/auth/oidc.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/auth/oidc.rs).
 
 ## SLIMRPC
 
@@ -171,8 +169,8 @@ The [slim-bindings/python](https://github.com/agntcy/slim-bindings/tree/main/pyt
 
 | Example | Description |
 |---|---|
-| `examples/point_to_point` | 1:1 messaging with request/reply |
-| `examples/group` | Group sessions with moderator/participant roles |
+| `examples/point_to_point.py` | 1:1 messaging with request/reply |
+| `examples/group.py` | Group sessions with moderator/participant roles |
 | `examples/slimrpc/simple` | Protobuf RPC over SLIM |
 
 **Point-to-point:**
@@ -196,9 +194,12 @@ task python:examples:rpc:client
 |---|---|---|
 | Linux | x86_64 | Supported |
 | Linux | aarch64 | Supported |
+| Linux (musl) | x86_64 | Supported |
+| Linux (musl) | aarch64 | Supported |
 | macOS | x86_64 | Supported |
 | macOS | aarch64 (Apple Silicon) | Supported |
 | Windows | x86_64 | Supported |
+| Windows | aarch64 | Supported |
 
 Wheels bundle the correct native library for each platform automatically.
 

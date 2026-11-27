@@ -7,6 +7,7 @@ The SLIM Kotlin SDK (`io.agntcy.slim:slim-bindings-kotlin`) provides an idiomati
 | | |
 |---|---|
 | **Runtime** | JDK 17 or higher |
+| **Kotlin** | 2.1 or newer (the artifact is built with Kotlin 2.2.0) |
 | **Package** | [`slim-bindings-kotlin`](https://central.sonatype.com/artifact/io.agntcy.slim/slim-bindings-kotlin) on Maven Central |
 | **Build tools** | Gradle 8.5+ (wrapper included) |
 | **Examples** | [kotlin/examples](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples) in slim-bindings |
@@ -161,14 +162,12 @@ service.runServerAsync(serverConfig)
     "type": "oidc",
     "issuer_url": "https://auth.example.com",
     "client_id": "my-client",
-    "client_secret": "s3cr3t",
-    "audience": "slim",
-    "policy": { "cel": "\"admin\" in claims.groups" }
+    "client_secret": "s3cr3t"
   }
 }
 ```
 
-The schema matches the [client configuration schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json) in the slim repository.
+The format follows the [client configuration schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json) in the slim repository. The generated schema does not yet list the `oidc` auth type; its field names follow [`crates/config/src/client.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/client.rs) and [`crates/config/src/auth/oidc.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/auth/oidc.rs).
 
 ## SLIMRPC
 
@@ -211,6 +210,7 @@ task examples:rpc:client
 | macOS | x86_64 | Supported |
 | macOS | aarch64 (Apple Silicon) | Supported |
 | Windows | x86_64 | Supported |
+| Windows | aarch64 | Supported |
 
 ## Building from Source
 

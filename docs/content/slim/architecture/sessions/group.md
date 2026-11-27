@@ -158,9 +158,9 @@ If a participant's local MLS epoch is out of sync with the current group epoch w
 
 Group sessions can be configured to persist their state to an encrypted, SQLite-backed key-value store (provided by the `agntcy-slim-persistence` crate). When persistence is enabled:
 
-- MLS group state and session metadata survive application restarts
-- On restart, the session layer restores from the store and the participant can re-enter the group without repeating the discovery, invite, and welcome handshake
-- The state store is encrypted at rest; the encryption key is derived from the application's identity material
+- MLS group state and session metadata survive application restarts.
+- On restart, the session layer restores from the store and the participant can re-enter the group without repeating the discovery, invite, and welcome handshake.
+- The state store is encrypted at rest (AES-256-GCM) with a key derived from a passphrase or raw key you supply; without one, the key is derived from the public app name, which detects tampering but does not keep the store confidential.
 
 Persistence is optional and configured at the app level when building the session. When disabled (the default), all session state is in-memory and lost on process exit.
 

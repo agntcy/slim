@@ -10,6 +10,11 @@ site_name: SLIM
 site_url: !ENV [MKDOCS_SITE_URL, 'http://127.0.0.1:8000/']
 
 docs_dir: ../content
+# Not pages: the slim-graph README conflicts with its index.html, and _snippets
+# are only pulled into other pages by include-markdown.
+exclude_docs: |
+  slim-graph/README.md
+  slim/components/sdk/tutorials/_snippets/
 
 repo_name: agntcy/slim
 repo_url: https://github.com/agntcy/slim

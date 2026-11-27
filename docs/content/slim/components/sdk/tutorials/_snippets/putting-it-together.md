@@ -154,7 +154,7 @@
 
         const localName = new slimBindings.Name("myorg", "default", "my-service");
         const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");
-        await app.subscribeAsync(localName, BigInt(connId));
+        await app.subscribeAsync(localName, connId);
 
         console.log(`App ready: ${localName}, id=${app.id()}`);
         // app and connId are passed to create_session in the next tutorial
@@ -191,7 +191,7 @@
     const service = slimBindings.getGlobalService();
 
     const config = slimBindings.newInsecureClientConfig("http://192.168.1.x:46357");
-    const connId = service.connect(config);
+    const connId = await service.connectAsync(config);
 
     const localName = new slimBindings.Name("myorg", "default", "my-service");
     const app = service.createAppWithSecret(localName, "change-me-before-going-to-production");

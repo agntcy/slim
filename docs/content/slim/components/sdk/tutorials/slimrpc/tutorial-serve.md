@@ -17,6 +17,8 @@ syntax = "proto3";
 
 package example_service;
 
+option go_package = "example/types";
+
 service Test {
   rpc ExampleUnaryUnary(ExampleRequest)          returns (ExampleResponse);
   rpc ExampleUnaryStream(ExampleRequest)         returns (stream ExampleResponse);
@@ -193,7 +195,7 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
           - import_extension=js
     ```
 
-    This generates `types/example_pb.ts` (protobuf-es message types) and `types/example_slimrpc.ts` containing `TestServicer`, `registerTestServicer`, `TestClient`, and `TestGroupClient`.
+    This generates `types/example_pb.ts` (protobuf-es message types) and `types/example_slimrpc.ts` containing `TestServicer`, `registerTestServicer`, `TestClient`, and `TestGroupClient`. The generated code needs the protobuf-es runtime: `npm install @bufbuild/protobuf` (v2).
 
 === ".NET"
 
@@ -211,7 +213,13 @@ Create a `buf.gen.yaml` to generate SLIMRPC stubs alongside the standard protobu
         opt: base_namespace=ExampleService,types_namespace=ExampleService
     ```
 
-    This generates the C# protobuf classes and `example_slimrpc.cs` containing `TestClient`, `ITestServer`, `UnimplementedTestServer`, and `TestServerRegistration`.
+    This generates the C# protobuf classes and `example_slimrpc.cs` containing `TestClient`, `TestGroupClient`, `ITestServer`, `UnimplementedTestServer`, and `TestServerRegistration`.
+
+    The generated code needs the SLIMRPC runtime, which ships as a separate NuGet package (it pulls in `Agntcy.Slim` and `Google.Protobuf`):
+
+    ```bash
+    dotnet add package Agntcy.Slim.SlimRpc
+    ```
 
 Run code generation:
 
@@ -721,8 +729,12 @@ Create a SLIMRPC server, register your implementation, and start serving. The se
 === "Python"
 
     ```python
+    import asyncio
     import slim_bindings
     from example_service.example_pb2_slimrpc import add_TestServicer_to_server
+
+    # Required: handlers are invoked from Rust and need the running event loop
+    slim_bindings.uniffi_set_event_loop(asyncio.get_running_loop())
 
     # app and conn_id come from the prerequisite tutorials
     rpc_server = slim_bindings.Server.new_with_connection(app, local_name, conn_id)
@@ -804,7 +816,8 @@ Complete server examples for each language:
 
 - [Python server example](https://github.com/agntcy/slim-bindings/blob/main/python/examples/slimrpc/simple/server.py)
 - [Go server example](https://github.com/agntcy/slim-bindings/blob/main/go/examples/slimrpc/simple/cmd/server/server.go)
-- [Java/Kotlin server example](https://github.com/agntcy/slim-bindings/tree/main/kotlin/examples/slimrpc/simple)
+- [Java server example](https://github.com/agntcy/slim-bindings/blob/main/java/examples/slimrpc/simple/src/main/java/com/example_service/example/server/SlimrpcServerMain.java)
+- [Kotlin server example](https://github.com/agntcy/slim-bindings/blob/main/kotlin/examples/slimrpc/simple/src/main/kotlin/com/example_service/example/server/SlimrpcServerMain.kt)
 - [Node.js server example](https://github.com/agntcy/slim-bindings/blob/main/node/examples/slimrpc/simple/server.ts)
 - [.NET server example](https://github.com/agntcy/slim-bindings/tree/main/dotnet/Slim.Examples.SlimRpc)
 

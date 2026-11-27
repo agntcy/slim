@@ -82,6 +82,12 @@ Separate from the app identity passed to `CreateAppWithSecret`, the gRPC connect
 
 ### OIDC (client credentials)
 
+Optional fields are pointers. The OIDC snippets use a small package-level helper to take the address of a literal:
+
+```go
+func ptr[T any](v T) *T { return &v }
+```
+
 ```go
 timeout := 30 * time.Second
 var auth slim.ClientAuthenticationConfig = slim.ClientAuthenticationConfigOidc{
@@ -135,14 +141,12 @@ config.Auth = &auth
     "type": "oidc",
     "issuer_url": "https://auth.example.com",
     "client_id": "my-client",
-    "client_secret": "s3cr3t",
-    "audience": "slim",
-    "policy": { "cel": "\"admin\" in claims.groups" }
+    "client_secret": "s3cr3t"
   }
 }
 ```
 
-The schema matches the [client configuration schema](https://github.com/agntcy/slim/blob/slim-v2.0.0/crates/config/src/schema/client-config.schema.json) in the slim repository.
+The format follows the [client configuration schema](https://github.com/agntcy/slim/blob/main/crates/config/src/schema/client-config.schema.json) in the slim repository. The generated schema does not yet list the `oidc` auth type; its field names follow [`crates/config/src/client.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/client.rs) and [`crates/config/src/auth/oidc.rs`](https://github.com/agntcy/slim/blob/main/crates/config/src/auth/oidc.rs).
 
 ## SLIMRPC
 
