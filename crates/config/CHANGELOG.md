@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2](https://github.com/agntcy/slim/compare/slim-config-v0.18.1...slim-config-v0.18.2) - 2026-11-27
+
+### Fixed
+
+- *(auth)* apply the configured duration to JWT signers ([#2472](https://github.com/agntcy/slim/pull/2472))
+
 ## [0.18.1](https://github.com/agntcy/slim/compare/slim-config-v0.18.0...slim-config-v0.18.1) - 2026-11-26
 
 ### Other
