@@ -11,7 +11,7 @@ use super::tables::{ConnType, MatchFilter};
 use crate::api::{EncodedName, ProtoName};
 use crate::connection::Connection;
 use crate::errors::DataPathError;
-use crate::logical_connection::LogicalConnectionTable;
+use crate::logical_connection::{LogicalConnectionTable, is_logical};
 use crate::tables::default_gateway::{DefaultGateway, Gateway};
 use tracing::{debug, warn};
 
@@ -67,9 +67,39 @@ where
     /// Group a physical connection under the logical connection for `group_key`.
     ///
     /// Returns the logical id that routing state for this connection must be
-    /// registered under.
+    /// registered under. When a reconnect moved the connection out of a group
+    /// that is now empty, that group's routes are removed: they were learned
+    /// from a remote that has since restarted.
     pub fn attach_sub_connection(&self, conn_index: u64, group_key: &str) -> u64 {
-        self.logical_connections.attach(conn_index, group_key)
+        let outcome = self.logical_connections.attach(conn_index, group_key);
+        if let Some(stale) = outcome.emptied {
+            debug!(
+                %conn_index, %stale, logical_id = %outcome.logical_id,
+                "sub-connection moved to a new logical connection; removing the old one's routes",
+            );
+            self.subscription_table.remove_routes_to(stale);
+        }
+        outcome.logical_id
+    }
+
+    /// Take `conn_index` out of its logical connection, when a reconnect
+    /// negotiated no grouping key. Routes of a group this empties are removed.
+    pub fn ungroup_sub_connection(&self, conn_index: u64) {
+        let outcome = self.logical_connections.detach(conn_index);
+        if outcome.was_last && is_logical(outcome.logical_id) {
+            self.subscription_table.remove_routes_to(outcome.logical_id);
+        }
+    }
+
+    /// Stop sending on `conn_index` until it is re-attached, so traffic to its
+    /// logical connection moves to a sibling while it reconnects.
+    pub fn mark_sub_connection_down(&self, conn_index: u64) -> bool {
+        self.logical_connections.mark_down(conn_index)
+    }
+
+    /// Another sub-connection of the logical connection `conn_index` belongs to.
+    pub fn sibling_sub_connection(&self, conn_index: u64) -> Option<u64> {
+        self.logical_connections.sibling(conn_index)
     }
 
     /// The routing id for `conn_index` — its logical connection when grouped,

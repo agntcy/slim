@@ -1513,6 +1513,7 @@ pub struct ProtoMessageBuilder {
     payload: Option<Content>,
     metadata: HashMap<String, String>,
     subscription_id: Option<u64>,
+    instance_id: Option<String>,
 }
 
 impl ProtoMessageBuilder {
@@ -1529,7 +1530,14 @@ impl ProtoMessageBuilder {
             payload: None,
             metadata: HashMap::new(),
             subscription_id: None,
+            instance_id: None,
         }
+    }
+
+    /// Process instance id advertised by [`Self::build_link_negotiation`].
+    pub fn instance_id(mut self, instance_id: impl Into<String>) -> Self {
+        self.instance_id = Some(instance_id.into());
+        self
     }
 
     pub fn source(mut self, source: ProtoName) -> Self {
@@ -1758,7 +1766,6 @@ impl ProtoMessageBuilder {
         connection_type: LinkConnectionType,
         node_id: impl Into<String>,
         deployment_name: impl Into<String>,
-        instance_id: impl Into<String>,
     ) -> ProtoMessage {
         let link = ProtoLink {
             link_type: Some(ProtoLinkType::LinkNegotiation(LinkNegotiationPayload {
@@ -1770,7 +1777,7 @@ impl ProtoMessageBuilder {
                 node_id: node_id.into(),
                 deployment_name: deployment_name.into(),
                 link_kem_payload,
-                instance_id: instance_id.into(),
+                instance_id: self.instance_id.unwrap_or_default(),
             })),
         };
         ProtoMessage::new(self.metadata, ProtoLinkMessageType(link))
@@ -2474,17 +2481,18 @@ mod message_tests {
 
     #[test]
     fn test_build_link_negotiation_request() {
-        let msg = ProtoMessage::builder().build_link_negotiation(
-            "my-id",
-            "1.2.3",
-            false,
-            None,
-            None,
-            LinkConnectionType::Remote,
-            "",
-            "",
-            "instance-1",
-        );
+        let msg = ProtoMessage::builder()
+            .instance_id("instance-1")
+            .build_link_negotiation(
+                "my-id",
+                "1.2.3",
+                false,
+                None,
+                None,
+                LinkConnectionType::Remote,
+                "",
+                "",
+            );
         assert!(msg.is_link());
         assert!(!msg.is_publish());
         assert!(!msg.is_subscribe());
@@ -2506,10 +2514,10 @@ mod message_tests {
             LinkConnectionType::Remote,
             "",
             "",
-            "",
         );
         assert!(msg.is_link());
         assert!(msg.validate().is_ok());
+        assert_eq!(msg.get_link_negotiation_payload().unwrap().instance_id, "");
     }
 
     #[test]

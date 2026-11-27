@@ -117,6 +117,18 @@ impl RemoteSync {
         map.remove(&conn).unwrap_or_default()
     }
 
+    /// Track `subs` as forwarded on `conn`, merging with what it already has.
+    ///
+    /// Used when a sub-connection of a logical connection drops: the remote
+    /// still holds those subscriptions, and the surviving sibling is the
+    /// connection that will replay them if it reconnects.
+    pub fn adopt(&self, conn: u64, subs: HashSet<SubscriptionInfo>) {
+        if subs.is_empty() {
+            return;
+        }
+        self.table.write().entry(conn).or_default().extend(subs);
+    }
+
     /// Snapshot the subscriptions forwarded on a connection (for client-side reconnect).
     /// Unlike `on_connection_drop`, this does NOT remove them from the table.
     pub fn get_subscriptions_for_reconnect(&self, conn: u64) -> HashSet<SubscriptionInfo> {

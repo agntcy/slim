@@ -16,8 +16,10 @@
 //! a remote identity are grouped under one id, the routing tables are keyed on that
 //! id, and excluding "the connection this arrived on" excludes the whole peer.
 //!
-//! Sends use one live sub-connection (the first in attach order). Configurable
-//! selection policies are intentionally out of scope here.
+//! Sends use one live sub-connection (the first in attach order that is not
+//! down). A sub-connection is down from the moment its stream ends until it is
+//! re-attached after a successful reconnect, so siblings carry the traffic in
+//! between. Configurable selection policies are intentionally out of scope here.
 //!
 //! # Identity space
 //!
@@ -34,8 +36,8 @@
 //! physical id. That is what makes single-connection deployments behave exactly as
 //! they did before: the logical id *is* the physical id, and no lookup changes.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -58,11 +60,21 @@ struct LogicalConn {
     key: String,
     /// Physical connection ids, in attach order. Sends use the first live entry.
     sub_conns: Vec<u64>,
+    /// Sub-connections whose stream ended and that are waiting to reconnect.
+    down: HashSet<u64>,
 }
 
 impl LogicalConn {
     fn select(&self) -> Option<u64> {
-        self.sub_conns.first().copied()
+        self.sub_conns
+            .iter()
+            .copied()
+            .find(|c| !self.down.contains(c))
+    }
+
+    fn remove(&mut self, physical: u64) {
+        self.sub_conns.retain(|&c| c != physical);
+        self.down.remove(&physical);
     }
 }
 
@@ -75,6 +87,16 @@ struct Snapshot {
     by_key: HashMap<String, u64>,
     /// Physical id → logical id. Only grouped connections appear here.
     phys_to_logical: HashMap<u64, u64>,
+}
+
+/// What happened when a physical connection was attached to a group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttachOutcome {
+    /// The logical connection the physical connection now belongs to.
+    pub logical_id: u64,
+    /// The group the physical connection was moved out of, when that left it
+    /// empty. Its routing state is stale and must be torn down.
+    pub emptied: Option<u64>,
 }
 
 /// What happened when a physical connection was detached from its group.
@@ -115,10 +137,16 @@ impl LogicalConnectionTable {
     }
 
     /// Group `physical` under the logical connection identified by `key`, creating
-    /// it if this is the first sub-connection. Returns the logical id.
-    pub fn attach(&self, physical: u64, key: &str) -> u64 {
+    /// it if this is the first sub-connection, and mark it live.
+    ///
+    /// A reconnect reuses its physical id, and may reach a restarted remote
+    /// with a new key. `physical` is then moved out of its previous group, and
+    /// that group is removed if it is left empty.
+    pub fn attach(&self, physical: u64, key: &str) -> AttachOutcome {
         let mut next_id = self.write_lock.lock();
         let mut snap = (**self.snapshot.load()).clone();
+
+        let emptied = Self::leave_previous_group(&mut snap, physical, key);
 
         let logical_id = match snap.by_key.entry(key.to_string()) {
             Entry::Occupied(e) => *e.get(),
@@ -131,6 +159,7 @@ impl LogicalConnectionTable {
                     LogicalConn {
                         key: key.to_string(),
                         sub_conns: Vec::new(),
+                        down: HashSet::new(),
                     },
                 );
                 id
@@ -146,17 +175,61 @@ impl LogicalConnectionTable {
         if !conn.sub_conns.contains(&physical) {
             conn.sub_conns.push(physical);
         }
+        conn.down.remove(&physical);
         let count = conn.sub_conns.len();
 
         snap.phys_to_logical.insert(physical, logical_id);
         self.snapshot.store(Arc::new(snap));
 
         debug!(
-            %physical, %logical_id, %key, sub_conns = count,
+            %physical, %logical_id, %key, sub_conns = count, ?emptied,
             "attached sub-connection to logical connection",
         );
 
-        logical_id
+        AttachOutcome {
+            logical_id,
+            emptied,
+        }
+    }
+
+    /// Remove `physical` from the group it is in, if that group's key is not
+    /// `key`. Returns the group's id when this left it empty.
+    fn leave_previous_group(snap: &mut Snapshot, physical: u64, key: &str) -> Option<u64> {
+        let previous = *snap.phys_to_logical.get(&physical)?;
+        let conn = snap.logical.get_mut(&previous)?;
+        if conn.key == key {
+            return None;
+        }
+        conn.remove(physical);
+        snap.phys_to_logical.remove(&physical);
+        if !conn.sub_conns.is_empty() {
+            return None;
+        }
+        let old_key = conn.key.clone();
+        snap.logical.remove(&previous);
+        snap.by_key.remove(&old_key);
+        Some(previous)
+    }
+
+    /// Mark `physical` as down so sends skip it until it is re-attached.
+    ///
+    /// Returns false when `physical` is not grouped, which leaves nothing to do:
+    /// an ungrouped connection is its own only route.
+    pub fn mark_down(&self, physical: u64) -> bool {
+        let _guard = self.write_lock.lock();
+        let mut snap = (**self.snapshot.load()).clone();
+
+        let Some(&logical_id) = snap.phys_to_logical.get(&physical) else {
+            return false;
+        };
+        let Some(conn) = snap.logical.get_mut(&logical_id) else {
+            return false;
+        };
+        conn.down.insert(physical);
+        self.snapshot.store(Arc::new(snap));
+
+        debug!(%physical, %logical_id, "sub-connection is down");
+        true
     }
 
     /// Remove `physical` from its logical connection.
@@ -177,7 +250,7 @@ impl LogicalConnectionTable {
 
         let mut was_last = false;
         if let Some(conn) = snap.logical.get_mut(&logical_id) {
-            conn.sub_conns.retain(|&c| c != physical);
+            conn.remove(physical);
             if conn.sub_conns.is_empty() {
                 let key = conn.key.clone();
                 snap.logical.remove(&logical_id);
@@ -219,8 +292,9 @@ impl LogicalConnectionTable {
 
     /// The physical connection a message addressed to `id` should be written to.
     ///
-    /// A physical `id` is returned as-is. A logical `id` expands to the first live
-    /// sub-connection. `None` means the logical connection has no live sockets.
+    /// A physical `id` is returned as-is. A logical `id` expands to the first
+    /// sub-connection that is not down. `None` means the logical connection has
+    /// no live sockets.
     pub fn select(&self, id: u64) -> Option<u64> {
         if !is_logical(id) {
             return Some(id);
@@ -245,6 +319,16 @@ impl LogicalConnectionTable {
             .get(&id)
             .map(|c| c.sub_conns.clone())
             .unwrap_or_default()
+    }
+
+    /// Another sub-connection in the same group as `physical`, preferring one
+    /// that is not down. `None` when `physical` is ungrouped or alone.
+    pub fn sibling(&self, physical: u64) -> Option<u64> {
+        let snap = self.snapshot.load();
+        let conn = snap.logical.get(snap.phys_to_logical.get(&physical)?)?;
+        let mut others = conn.sub_conns.iter().copied().filter(|&c| c != physical);
+        let first = others.clone().next();
+        others.find(|c| !conn.down.contains(c)).or(first)
     }
 
     /// Number of sub-connections grouped under `id`.
@@ -286,7 +370,7 @@ mod tests {
     #[test]
     fn logical_ids_never_collide_with_physical_ids() {
         let t = LogicalConnectionTable::new();
-        let id = t.attach(0, "peer-a");
+        let id = t.attach(0, "peer-a").logical_id;
         assert!(is_logical(id));
         assert!(id >= LOGICAL_ID_BASE);
         assert!(!is_logical(0));
@@ -296,8 +380,8 @@ mod tests {
     #[test]
     fn same_key_groups_under_one_logical_id() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a");
-        let b = t.attach(2, "peer-a");
+        let a = t.attach(1, "peer-a").logical_id;
+        let b = t.attach(2, "peer-a").logical_id;
         assert_eq!(a, b);
         assert_eq!(t.len(), 1);
         assert_eq!(t.sub_conn_count(a), 2);
@@ -308,8 +392,8 @@ mod tests {
     #[test]
     fn different_keys_get_different_logical_ids() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a");
-        let b = t.attach(2, "peer-b");
+        let a = t.attach(1, "peer-a").logical_id;
+        let b = t.attach(2, "peer-b").logical_id;
         assert_ne!(a, b);
         assert_eq!(t.len(), 2);
     }
@@ -317,22 +401,22 @@ mod tests {
     #[test]
     fn resolve_is_idempotent() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a");
+        let a = t.attach(1, "peer-a").logical_id;
         assert_eq!(t.resolve(t.resolve(1)), a);
     }
 
     #[test]
     fn attaching_the_same_physical_twice_does_not_duplicate() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a");
-        assert_eq!(t.attach(1, "peer-a"), a);
+        let a = t.attach(1, "peer-a").logical_id;
+        assert_eq!(t.attach(1, "peer-a").logical_id, a);
         assert_eq!(t.sub_conn_count(a), 1);
     }
 
     #[test]
     fn send_uses_the_first_live_sub_connection() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a");
+        let a = t.attach(1, "peer-a").logical_id;
         t.attach(2, "peer-a");
         t.attach(3, "peer-a");
 
@@ -349,7 +433,7 @@ mod tests {
     #[test]
     fn detach_reports_last_only_when_group_empties() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a");
+        let a = t.attach(1, "peer-a").logical_id;
         t.attach(2, "peer-a");
 
         let first = t.detach(1);
@@ -378,10 +462,10 @@ mod tests {
     #[test]
     fn key_is_reusable_after_the_group_empties() {
         let t = LogicalConnectionTable::new();
-        let a = t.attach(1, "peer-a");
+        let a = t.attach(1, "peer-a").logical_id;
         assert!(t.detach(1).was_last);
 
-        let b = t.attach(1, "peer-a");
+        let b = t.attach(1, "peer-a").logical_id;
         assert_ne!(a, b);
         assert_eq!(t.len(), 1);
     }
@@ -392,5 +476,107 @@ mod tests {
         assert!(t.select(LOGICAL_ID_BASE + 99).is_none());
         assert_eq!(t.sub_conn_count(LOGICAL_ID_BASE + 99), 0);
         assert!(t.sub_conns(LOGICAL_ID_BASE + 99).is_empty());
+    }
+
+    #[test]
+    fn select_skips_a_sub_connection_that_is_down() {
+        let t = LogicalConnectionTable::new();
+        let a = t.attach(1, "peer-a").logical_id;
+        t.attach(2, "peer-a");
+
+        assert!(t.mark_down(1));
+        assert_eq!(t.select(a), Some(2));
+        assert_eq!(
+            t.sub_conns(a),
+            vec![1, 2],
+            "a down sub-connection keeps its routes"
+        );
+        assert_eq!(t.resolve(1), a);
+    }
+
+    #[test]
+    fn select_is_empty_when_every_sub_connection_is_down() {
+        let t = LogicalConnectionTable::new();
+        let a = t.attach(1, "peer-a").logical_id;
+        t.attach(2, "peer-a");
+
+        t.mark_down(1);
+        t.mark_down(2);
+        assert!(t.select(a).is_none());
+    }
+
+    #[test]
+    fn mark_down_of_ungrouped_conn_is_a_no_op() {
+        let t = LogicalConnectionTable::new();
+        assert!(!t.mark_down(5));
+        assert_eq!(t.select(5), Some(5));
+    }
+
+    #[test]
+    fn reattach_with_the_same_key_marks_the_sub_connection_live_again() {
+        let t = LogicalConnectionTable::new();
+        let a = t.attach(1, "peer-a").logical_id;
+        t.attach(2, "peer-a");
+        t.mark_down(1);
+
+        let outcome = t.attach(1, "peer-a");
+        assert_eq!(outcome.logical_id, a);
+        assert_eq!(outcome.emptied, None);
+        assert_eq!(t.select(a), Some(1), "keeps its place in attach order");
+        assert_eq!(t.sub_conns(a), vec![1, 2]);
+    }
+
+    #[test]
+    fn reattach_with_a_new_key_leaves_and_removes_the_emptied_group() {
+        let t = LogicalConnectionTable::new();
+        let old = t.attach(1, "peer-a/instance-1").logical_id;
+        t.mark_down(1);
+
+        let outcome = t.attach(1, "peer-a/instance-2");
+        assert_ne!(outcome.logical_id, old);
+        assert_eq!(outcome.emptied, Some(old));
+        assert!(t.sub_conns(old).is_empty());
+        assert_eq!(t.resolve(1), outcome.logical_id);
+        assert_eq!(t.select(outcome.logical_id), Some(1));
+        assert_eq!(t.len(), 1);
+
+        let detached = t.detach(1);
+        assert_eq!(detached.logical_id, outcome.logical_id);
+        assert!(detached.was_last);
+        assert!(t.is_empty());
+    }
+
+    #[test]
+    fn reattach_with_a_new_key_keeps_a_group_that_still_has_sub_connections() {
+        let t = LogicalConnectionTable::new();
+        let old = t.attach(1, "peer-a/instance-1").logical_id;
+        t.attach(2, "peer-a/instance-1");
+
+        let outcome = t.attach(1, "peer-a/instance-2");
+        assert_eq!(outcome.emptied, None);
+        assert_eq!(t.sub_conns(old), vec![2]);
+        assert_eq!(t.sub_conns(outcome.logical_id), vec![1]);
+        assert_eq!(t.resolve(2), old);
+    }
+
+    #[test]
+    fn sibling_prefers_a_live_sub_connection() {
+        let t = LogicalConnectionTable::new();
+        t.attach(1, "peer-a");
+        t.attach(2, "peer-a");
+        t.attach(3, "peer-a");
+        t.mark_down(2);
+
+        assert_eq!(t.sibling(1), Some(3));
+        t.mark_down(3);
+        assert_eq!(t.sibling(1), Some(2), "falls back to a down sibling");
+        assert_eq!(t.sibling(9), None);
+    }
+
+    #[test]
+    fn sibling_of_a_lone_sub_connection_is_none() {
+        let t = LogicalConnectionTable::new();
+        t.attach(1, "peer-a");
+        assert_eq!(t.sibling(1), None);
     }
 }

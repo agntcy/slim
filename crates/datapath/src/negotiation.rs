@@ -88,17 +88,18 @@ where
 
         let link_id = connection.link_id().unwrap_or_default();
 
-        let negotiation_msg = ProtoMessage::builder().build_link_negotiation(
-            &link_id,
-            local_version(),
-            false,
-            Some(pk),
-            kem_payload,
-            conn_type_to_link(params.connection_type),
-            params.node_id,
-            params.deployment_name,
-            params.instance_id,
-        );
+        let negotiation_msg = ProtoMessage::builder()
+            .instance_id(params.instance_id)
+            .build_link_negotiation(
+                &link_id,
+                local_version(),
+                false,
+                Some(pk),
+                kem_payload,
+                conn_type_to_link(params.connection_type),
+                params.node_id,
+                params.deployment_name,
+            );
 
         connection.send(negotiation_msg).await.map_err(|e| {
             DataPathError::NegotiationError(format!(
@@ -345,17 +346,18 @@ where
             .unwrap_or(LinkConnectionType::Remote);
 
         // Send reply.
-        let reply = ProtoMessage::builder().build_link_negotiation(
-            link_id,
-            local_version(),
-            true,
-            server_reply_ecdh,
-            reply_kem_payload,
-            reply_conn_type,
-            params.node_id,
-            params.deployment_name,
-            params.instance_id,
-        );
+        let reply = ProtoMessage::builder()
+            .instance_id(params.instance_id)
+            .build_link_negotiation(
+                link_id,
+                local_version(),
+                true,
+                server_reply_ecdh,
+                reply_kem_payload,
+                reply_conn_type,
+                params.node_id,
+                params.deployment_name,
+            );
         connection.send(reply).await.map_err(|e| {
             DataPathError::NegotiationError(format!(
                 "failed to send link negotiation reply: {}",
