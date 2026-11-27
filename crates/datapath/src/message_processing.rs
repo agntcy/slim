@@ -55,6 +55,7 @@ use crate::connection::{Channel, Connection};
 use crate::errors::{DataPathError, MessageContext};
 use crate::forwarder::Forwarder;
 use crate::messages::utils::SlimHeaderFlags;
+use crate::negotiation::NegotiationResult;
 use crate::sync::peer as sync_peer;
 use crate::sync::remote::{RemoteSync, SubscriptionInfo};
 use crate::tables::connection_table::ConnectionTable;
@@ -101,6 +102,11 @@ struct MessageProcessorInternal {
     /// that both sides of a peer connection belong to the same deployment.
     /// Empty when no peer config is set.
     deployment_name: String,
+
+    /// Random identifier of this process, advertised in link negotiation so the
+    /// remote can group this process's connections without merging other
+    /// processes that share the same `service_id`.
+    instance_id: String,
 
     /// Default strict header MAC policy for server-accepted inter-node connections (see [`ServerConfig::require_header_mac`]).
     // Only read by the native gRPC/WebSocket-accept server paths.
@@ -195,6 +201,7 @@ impl MessageProcessor {
             remote_sync: RemoteSync::default(),
             service_id,
             deployment_name,
+            instance_id: uuid::Uuid::new_v4().to_string(),
             server_require_header_mac,
             server_enforce_pqc,
             negotiation_timeout,
@@ -667,17 +674,38 @@ impl MessageProcessor {
         #[cfg(not(feature = "otel_tracing"))] msg: Message,
         out_conn: u64,
     ) -> Result<(), DataPathError> {
+        let physical = self.select_physical(out_conn)?;
         #[cfg(feature = "otel_tracing")]
         otel_tracing::prepare_outbound_msg(
             &mut msg,
             "send_message",
             &self.internal.service_id,
-            otel_tracing::SpanTarget::Connection(out_conn),
+            otel_tracing::SpanTarget::Connection(physical),
         );
-        self.send_msg_raw(msg, out_conn).await
+        self.send_on_physical(msg, physical).await
     }
 
-    async fn send_msg_raw(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+    /// Write `msg` to `out_conn`.
+    async fn send_msg_raw(&self, msg: Message, out_conn: u64) -> Result<(), DataPathError> {
+        let physical = self.select_physical(out_conn)?;
+        self.send_on_physical(msg, physical).await
+    }
+
+    /// The socket a message addressed to `out_conn` is written to.
+    ///
+    /// A logical id is expanded to one live sub-connection here rather than
+    /// earlier because everything downstream is per-socket: the SLIM header MAC
+    /// is signed with the individual connection's HMAC session and link id.
+    fn select_physical(&self, out_conn: u64) -> Result<u64, DataPathError> {
+        self.forwarder()
+            .select_sub_connection(out_conn)
+            .ok_or_else(|| {
+                debug!(%out_conn, "logical connection has no live sub-connections");
+                DataPathError::ConnectionNotFound(out_conn)
+            })
+    }
+
+    async fn send_on_physical(&self, mut msg: Message, out_conn: u64) -> Result<(), DataPathError> {
         let connection = self.forwarder().get_connection(out_conn);
         match connection {
             Some(conn) => {
@@ -1555,6 +1583,78 @@ impl MessageProcessor {
         }
     }
 
+    /// Group a freshly negotiated connection under a logical connection.
+    ///
+    /// The grouping key is the remote's advertised `node_id` plus its
+    /// `instance_id`, which together mean "this SLIM process on the other end".
+    /// `node_id` alone is not enough: it comes from configuration, and separate
+    /// processes started from the same config (e.g. several apps using the
+    /// example client config) all advertise the same value. Merging them would
+    /// make loop prevention treat traffic between them as bouncing back to its
+    /// sender and drop it.
+    ///
+    /// Delete a dropped connection's state from all tables, returning the local
+    /// subscriptions it was the last route for.
+    ///
+    /// Subscriptions forwarded on a sub-connection of a logical connection
+    /// were registered on the remote process, not on that socket, so they are
+    /// handed to a surviving sibling for replay instead of being forgotten.
+    fn drop_connection_state(
+        &self,
+        conn_index: u64,
+        category: ConnType,
+    ) -> HashMap<ProtoName, HashSet<u64>> {
+        let survivor = self.forwarder().sibling_sub_connection(conn_index);
+        let local_subs = self.forwarder().on_connection_drop(conn_index, category);
+        let remote_subs = self.remote_sync().on_connection_drop(conn_index);
+        if let Some(survivor) = survivor {
+            debug!(
+                %conn_index, %survivor, count = remote_subs.len(),
+                "moving forwarded subscriptions to a surviving sub-connection",
+            );
+            self.remote_sync().adopt(survivor, remote_subs);
+        }
+        local_subs
+    }
+
+    /// When the remote advertised no `node_id` or no `instance_id` the
+    /// connection is left ungrouped and keeps using its physical id as its
+    /// routing id — the pre-existing behaviour. A reconnect reuses
+    /// `conn_index`, so a connection grouped before is taken out of its group.
+    fn attach_logical_connection(&self, conn_index: u64, result: &NegotiationResult) {
+        if result.remote_node_id.is_empty() || result.remote_instance_id.is_empty() {
+            debug!(
+                %conn_index,
+                "remote advertised no node_id or instance_id; leaving connection ungrouped",
+            );
+            self.forwarder().ungroup_sub_connection(conn_index);
+            return;
+        }
+
+        // Namespace by connection type: the same node reached as a Peer and as
+        // a Remote plays different roles in the forwarding rules (see
+        // `MatchFilter`), so those must stay separate entries.
+        let key = format!(
+            "{}/{}/{}",
+            result.connection_type.index(),
+            result.remote_node_id,
+            result.remote_instance_id,
+        );
+
+        let logical_id = self.forwarder().attach_sub_connection(conn_index, &key);
+
+        let count = self
+            .forwarder()
+            .logical_connections
+            .sub_conn_count(logical_id);
+        if count > 1 {
+            info!(
+                %conn_index, %logical_id, %key, sub_conns = count,
+                "joined existing logical connection",
+            );
+        }
+    }
+
     /// Perform link negotiation, register the connection, and handle peer upgrade.
     ///
     /// Returns `Some((conn_index, category))` on success or `None` on failure.
@@ -1574,6 +1674,7 @@ impl MessageProcessor {
         let params = crate::negotiation::NegotiationParams {
             node_id: &self.internal.service_id,
             deployment_name: &self.internal.deployment_name,
+            instance_id: &self.internal.instance_id,
             connection_type: category,
             enforce_pqc,
         };
@@ -1624,6 +1725,10 @@ impl MessageProcessor {
         };
 
         debug!(%idx, "connection registered after link negotiation");
+
+        // Group this physical connection with any sibling connections reaching the
+        // same remote node, so the routing tables see one entry per peer.
+        self.attach_logical_connection(idx, &result);
 
         // Handle connection-type-specific post-negotiation logic.
         let link_id = self
@@ -1858,6 +1963,7 @@ impl MessageProcessor {
             // when the task is dropped and we want to make sure that the rx
             // stream is closed as soon as possible
             drop(stream);
+            self_clone.forwarder().mark_sub_connection_down(conn_index);
 
             let mut connected = false;
 
@@ -1876,13 +1982,7 @@ impl MessageProcessor {
             }
 
             if !connected {
-                // Delete connection state from all tables.
-                let local_subs = self_clone
-                    .forwarder()
-                    .on_connection_drop(conn_index, category);
-                let _remote_subs = self_clone
-                    .remote_sync()
-                    .on_connection_drop(conn_index);
+                let local_subs = self_clone.drop_connection_state(conn_index, category);
 
                 // Remove peer connection from forwarder's peer list if applicable.
                 if matches!(category, ConnType::Peer) {
@@ -2205,6 +2305,7 @@ mod tests {
             connection_type: 0,
             node_id: String::new(),
             deployment_name: String::new(),
+            instance_id: String::new(),
         };
         // Unknown connection: handler returns Ok without panic.
         assert!(
@@ -2394,6 +2495,393 @@ mod tests {
                 .await
                 .is_err(),
             "message was forwarded back and would create a mutual gateway loop"
+        );
+    }
+
+    #[tokio::test]
+    async fn grouped_edge_sockets_do_not_loop_on_publish() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "mcast"]);
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor
+            .forwarder()
+            .attach_sub_connection(sock0, "3/peer-a");
+        processor
+            .forwarder()
+            .attach_sub_connection(sock1, "3/peer-a");
+
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock1, ConnType::Edge, true, 2)
+            .unwrap();
+
+        let result = processor
+            .process_message(make_publish(dest), sock0, ConnType::Edge)
+            .await;
+
+        assert_no_match(result);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), rx0.recv())
+                .await
+                .is_err(),
+            "must not bounce on the incoming socket"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), rx1.recv())
+                .await
+                .is_err(),
+            "must not bounce on a sibling sub-connection"
+        );
+    }
+
+    #[tokio::test]
+    async fn grouped_edge_send_uses_one_socket_and_survives_a_drop() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "routed"]);
+        let (local, _tx, _rx) = processor.register_local_connection(false).unwrap();
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor
+            .forwarder()
+            .attach_sub_connection(sock0, "3/peer-a");
+        processor
+            .forwarder()
+            .attach_sub_connection(sock1, "3/peer-a");
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+
+        processor
+            .process_message(make_publish(dest.clone()), local, ConnType::Local)
+            .await
+            .unwrap();
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), rx0.recv())
+                .await
+                .expect("first live sub-connection should receive")
+                .expect("channel open")
+                .is_ok()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), rx1.recv())
+                .await
+                .is_err(),
+            "only one sub-connection should be used"
+        );
+
+        processor
+            .forwarder()
+            .on_connection_drop(sock0, ConnType::Edge);
+        assert_eq!(
+            processor
+                .forwarder()
+                .physical_ids(processor.forwarder().routing_id(sock1)),
+            vec![sock1]
+        );
+
+        processor
+            .process_message(make_publish(dest), local, ConnType::Local)
+            .await
+            .unwrap();
+        assert!(rx1.recv().await.unwrap().is_ok());
+    }
+
+    fn edge_negotiation(node_id: &str, instance_id: &str) -> NegotiationResult {
+        NegotiationResult {
+            connection_type: ConnType::Edge,
+            remote_node_id: node_id.to_string(),
+            remote_instance_id: instance_id.to_string(),
+            remote_deployment_name: String::new(),
+        }
+    }
+
+    /// Apps started from the same config advertise the same node_id but are
+    /// separate processes: they must not be merged, or every message between
+    /// them is dropped as a loop.
+    #[tokio::test]
+    async fn edge_apps_sharing_node_id_from_different_processes_can_talk() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "server"]);
+
+        let (server, mut server_rx) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (client, _client_rx) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(server, &edge_negotiation("slim-client", "process-a"));
+        processor.attach_logical_connection(client, &edge_negotiation("slim-client", "process-b"));
+
+        assert_ne!(
+            processor.forwarder().routing_id(server),
+            processor.forwarder().routing_id(client),
+        );
+
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), server, ConnType::Edge, true, 1)
+            .unwrap();
+        processor
+            .process_message(make_publish(dest), client, ConnType::Edge)
+            .await
+            .unwrap();
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), server_rx.recv())
+                .await
+                .expect("server should receive the client's publish")
+                .expect("channel open")
+                .is_ok()
+        );
+    }
+
+    /// Connections from one process are still grouped, so a message never
+    /// bounces back to that process on a sibling connection.
+    #[tokio::test]
+    async fn edge_connections_from_one_process_are_grouped_and_do_not_loop() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "mcast"]);
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(sock0, &edge_negotiation("node-a", "process-a"));
+        processor.attach_logical_connection(sock1, &edge_negotiation("node-a", "process-a"));
+
+        assert_eq!(
+            processor.forwarder().routing_id(sock0),
+            processor.forwarder().routing_id(sock1),
+        );
+
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock1, ConnType::Edge, true, 2)
+            .unwrap();
+
+        assert_no_match(
+            processor
+                .process_message(make_publish(dest), sock0, ConnType::Edge)
+                .await,
+        );
+        for rx in [&mut rx0, &mut rx1] {
+            assert!(
+                tokio::time::timeout(Duration::from_millis(100), rx.recv())
+                    .await
+                    .is_err(),
+                "must not bounce back to the sending process",
+            );
+        }
+    }
+
+    /// Peers that don't send an instance_id keep the pre-logical-connection
+    /// behaviour: each connection routes under its own physical id.
+    #[tokio::test]
+    async fn connection_without_instance_id_stays_ungrouped() {
+        let processor = MessageProcessor::new();
+        let (sock0, _rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, _rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(sock0, &edge_negotiation("slim-client", ""));
+        processor.attach_logical_connection(sock1, &edge_negotiation("slim-client", ""));
+
+        assert_eq!(processor.forwarder().routing_id(sock0), sock0);
+        assert_eq!(processor.forwarder().routing_id(sock1), sock1);
+    }
+
+    fn is_routed(processor: &MessageProcessor, name: &ProtoName) -> bool {
+        let enc = name.name.expect("encoded name");
+        processor
+            .forwarder()
+            .on_publish_msg_match(enc, u64::MAX, u32::MAX, MatchFilter::ALL)
+            .is_ok()
+    }
+
+    /// While a sub-connection's stream is down and it is reconnecting, sends to
+    /// its logical connection go to a sibling; once re-attached it is used again.
+    #[tokio::test]
+    async fn send_skips_a_sub_connection_while_it_reconnects() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "routed"]);
+        let (local, _tx, _rx) = processor.register_local_connection(false).unwrap();
+
+        let (sock0, mut rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, mut rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let negotiation = edge_negotiation("node-a", "process-a");
+        processor.attach_logical_connection(sock0, &negotiation);
+        processor.attach_logical_connection(sock1, &negotiation);
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+
+        assert!(processor.forwarder().mark_sub_connection_down(sock0));
+        processor
+            .process_message(make_publish(dest.clone()), local, ConnType::Local)
+            .await
+            .unwrap();
+        assert!(rx1.recv().await.unwrap().is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), rx0.recv())
+                .await
+                .is_err(),
+            "must not write to a socket that is reconnecting"
+        );
+
+        processor.attach_logical_connection(sock0, &negotiation);
+        processor
+            .process_message(make_publish(dest), local, ConnType::Local)
+            .await
+            .unwrap();
+        assert!(rx0.recv().await.unwrap().is_ok());
+    }
+
+    /// A reconnect reuses `conn_index`. If the remote restarted it advertises a
+    /// new instance_id: the socket must leave its old group, and the routes the
+    /// old process had subscribed must go with it.
+    #[tokio::test]
+    async fn reconnect_with_a_new_instance_id_leaves_the_old_group() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "routed"]);
+
+        let (sock0, _rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(sock0, &edge_negotiation("node-a", "process-a"));
+        let old = processor.forwarder().routing_id(sock0);
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+        assert!(is_routed(&processor, &dest));
+
+        processor.forwarder().mark_sub_connection_down(sock0);
+        processor.attach_logical_connection(sock0, &edge_negotiation("node-a", "process-b"));
+
+        let new = processor.forwarder().routing_id(sock0);
+        assert_ne!(new, old);
+        assert!(processor.forwarder().physical_ids(old).is_empty());
+        assert_eq!(processor.forwarder().physical_ids(new), vec![sock0]);
+        assert!(
+            !is_routed(&processor, &dest),
+            "routes learned from the old process must be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconnect_with_a_new_instance_id_keeps_the_old_group_for_siblings() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "routed"]);
+
+        let (sock0, _rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, _rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let old_process = edge_negotiation("node-a", "process-a");
+        processor.attach_logical_connection(sock0, &old_process);
+        processor.attach_logical_connection(sock1, &old_process);
+        let old = processor.forwarder().routing_id(sock0);
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock1, ConnType::Edge, true, 1)
+            .unwrap();
+
+        processor.attach_logical_connection(sock0, &edge_negotiation("node-a", "process-b"));
+
+        assert_ne!(processor.forwarder().routing_id(sock0), old);
+        assert_eq!(processor.forwarder().physical_ids(old), vec![sock1]);
+        assert!(is_routed(&processor, &dest));
+    }
+
+    #[tokio::test]
+    async fn reconnect_without_instance_id_ungroups_the_connection() {
+        let processor = MessageProcessor::new();
+        let dest = ProtoName::from_strings(["org", "ns", "routed"]);
+
+        let (sock0, _rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.attach_logical_connection(sock0, &edge_negotiation("node-a", "process-a"));
+        processor
+            .forwarder()
+            .on_subscription_msg(dest.clone(), sock0, ConnType::Edge, true, 1)
+            .unwrap();
+
+        processor.attach_logical_connection(sock0, &edge_negotiation("node-a", ""));
+
+        assert_eq!(processor.forwarder().routing_id(sock0), sock0);
+        assert!(!is_routed(&processor, &dest));
+    }
+
+    /// Subscriptions forwarded on one sub-connection are held by the remote
+    /// process, so when that socket drops a sibling takes them over and will
+    /// replay them if it reconnects.
+    #[tokio::test]
+    async fn dropped_sub_connection_hands_forwarded_subscriptions_to_a_sibling() {
+        let processor = MessageProcessor::new();
+        let (sock0, _rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let (sock1, _rx1) = make_server_conn_of_type(&processor, ConnType::Edge);
+        let negotiation = edge_negotiation("node-a", "process-a");
+        processor.attach_logical_connection(sock0, &negotiation);
+        processor.attach_logical_connection(sock1, &negotiation);
+
+        let source = ProtoName::from_strings(["org", "default", "src"]);
+        let on_sock0 = ProtoName::from_strings(["org", "default", "a"]);
+        let on_sock1 = ProtoName::from_strings(["org", "default", "b"]);
+        let remote_sync = processor.remote_sync();
+        remote_sync.on_forwarded_subscription(
+            source.clone(),
+            on_sock0.clone(),
+            "id".into(),
+            sock0,
+            true,
+            1,
+        );
+        remote_sync.on_forwarded_subscription(
+            source,
+            on_sock1.clone(),
+            "id".into(),
+            sock1,
+            true,
+            2,
+        );
+
+        processor.drop_connection_state(sock0, ConnType::Edge);
+
+        assert!(
+            remote_sync
+                .get_subscriptions_for_reconnect(sock0)
+                .is_empty()
+        );
+        let mut replay: Vec<_> = remote_sync
+            .get_subscriptions_for_reconnect(sock1)
+            .iter()
+            .map(|s| s.name().clone())
+            .collect();
+        replay.sort_by_key(|n| n.to_string());
+        assert_eq!(replay, vec![on_sock0, on_sock1]);
+    }
+
+    #[tokio::test]
+    async fn dropped_ungrouped_connection_forgets_its_forwarded_subscriptions() {
+        let processor = MessageProcessor::new();
+        let (sock0, _rx0) = make_server_conn_of_type(&processor, ConnType::Edge);
+        processor.remote_sync().on_forwarded_subscription(
+            ProtoName::from_strings(["org", "default", "src"]),
+            ProtoName::from_strings(["org", "default", "a"]),
+            "id".into(),
+            sock0,
+            true,
+            1,
+        );
+
+        processor.drop_connection_state(sock0, ConnType::Edge);
+
+        assert!(
+            processor
+                .remote_sync()
+                .get_subscriptions_for_reconnect(sock0)
+                .is_empty()
         );
     }
 
