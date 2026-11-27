@@ -12,13 +12,12 @@ use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
 use slim_session::CompletionHandle;
 use slim_session::errors::SessionError;
-use tokio::sync::mpsc;
 
 use slim_datapath::api::ProtoName as Name;
 
 use super::{
-    Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler, STATUS_CODE_KEY,
-    SessionTx, StreamRpcHandler, StreamSource,
+    CallQueueRx, Context, RPC_ID_KEY, ReceivedMessage, RpcCode, RpcError, RpcHandler,
+    STATUS_CODE_KEY, SessionTx, StreamRpcHandler, StreamSource,
 };
 
 /// Handler information retrieved from registry
@@ -35,7 +34,7 @@ pub enum HandlerInfo {
 pub struct RpcSession<'a> {
     session_tx: &'a SessionTx,
     /// Present for stream-input handlers; absent for unary-input handlers.
-    session_rx: Option<mpsc::UnboundedReceiver<ReceivedMessage>>,
+    session_rx: Option<CallQueueRx>,
     method_path: &'a str,
     /// First message read from the wire, carrying the request payload and metadata.
     first_message: ReceivedMessage,
@@ -59,7 +58,7 @@ impl<'a> RpcSession<'a> {
     /// Create a session for a stream-input RPC (stream-unary, stream-stream).
     pub fn new_stream(
         session_tx: &'a SessionTx,
-        channel_rx: mpsc::UnboundedReceiver<ReceivedMessage>,
+        channel_rx: CallQueueRx,
         method_path: &'a str,
         first_message: ReceivedMessage,
     ) -> Self {

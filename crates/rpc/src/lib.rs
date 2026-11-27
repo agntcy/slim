@@ -129,6 +129,7 @@ pub fn build_method_subscription_name(
     Name::from_strings([c0, c1, &app_with_method])
 }
 
+mod call_queue;
 mod channel;
 mod codec;
 mod context;
@@ -160,6 +161,7 @@ where
     get_runtime().spawn(future)
 }
 
+pub use call_queue::{CALL_QUEUE_LEN, CallQueueRx};
 pub use channel::{Channel, MessageContext, MulticastItem, VerifiedMulticastItem};
 pub use codec::{Codec, Decoder, Encoder};
 pub use context::{Context, Metadata, SessionContext};
