@@ -41,25 +41,25 @@ resolver = "2"
 
 [workspace.dependencies]
 # Local dependencies
-agntcy-slim = { path = "crates/slim", version = "3.5.1" }
-agntcy-slim-auth = { path = "crates/auth", version = "0.19.0" }
-agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.5.1" }
-agntcy-slim-channel-manager = { path = "crates/channel-manager", version = "3.5.1" }
-agntcy-slim-config = { path = "crates/config", version = "0.18.0" }
-agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.5.1" }
-agntcy-slim-controller = { path = "crates/controller", version = "0.14.0" }
-agntcy-slim-datapath = { path = "crates/datapath", version = "0.20.0" }
-agntcy-slim-mls = { path = "crates/mls", version = "0.6.1" }
-agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.3" }
-agntcy-slim-proto = { path = "crates/proto", version = "0.9.0" }
-agntcy-slim-rpc = { path = "crates/rpc", version = "3.5.1" }
-agntcy-slim-service = { path = "crates/service", version = "0.15.0", default-features = false }
-agntcy-slim-session = { path = "crates/session", version = "0.8.1" }
-agntcy-slim-signal = { path = "crates/signal", version = "0.1.42" }
+agntcy-slim = { path = "crates/slim", version = "3.5.2" }
+agntcy-slim-auth = { path = "crates/auth", version = "0.19.1" }
+agntcy-slim-bindings = { path = "crates/slim-bindings", version = "3.5.2" }
+agntcy-slim-channel-manager = { path = "crates/channel-manager", version = "3.5.2" }
+agntcy-slim-config = { path = "crates/config", version = "0.18.1" }
+agntcy-slim-control-plane = { path = "crates/control-plane", version = "3.5.2" }
+agntcy-slim-controller = { path = "crates/controller", version = "0.14.1" }
+agntcy-slim-datapath = { path = "crates/datapath", version = "0.20.1" }
+agntcy-slim-mls = { path = "crates/mls", version = "0.6.2" }
+agntcy-slim-persistence = { path = "crates/persistence", version = "0.2.4" }
+agntcy-slim-proto = { path = "crates/proto", version = "0.9.1" }
+agntcy-slim-rpc = { path = "crates/rpc", version = "3.5.2" }
+agntcy-slim-service = { path = "crates/service", version = "0.15.1", default-features = false }
+agntcy-slim-session = { path = "crates/session", version = "0.8.2" }
+agntcy-slim-signal = { path = "crates/signal", version = "0.1.43" }
 agntcy-slim-testing = { path = "crates/testing" }
-agntcy-slim-tracing = { path = "crates/tracing", version = "0.5.0" }
-agntcy-slim-version = { path = "crates/version", version = "3.5.1" }
-agntcy-slimctl = { path = "crates/slimctl", version = "3.5.1" }
+agntcy-slim-tracing = { path = "crates/tracing", version = "0.5.1" }
+agntcy-slim-version = { path = "crates/version", version = "3.5.2" }
+agntcy-slimctl = { path = "crates/slimctl", version = "3.5.2" }
 anyhow = "1.0.103"
 
 arc-swap = "1.9.1"
@@ -78,7 +78,7 @@ clap = { version = "4.5.23", features = ["derive", "env"] }
 
 criterion = { version = "0.8", features = ["html_reports"] }
 diesel = { version = "2.3.10", features = ["sqlite"] }
-diesel-async = { version = "0.9", features = [
+diesel-async = { version = "0.10", features = [
     "sqlite",
     "deadpool",
     "migrations",
@@ -97,7 +97,7 @@ futures-timer = "3.0.3"
 
 getrandom = { version = "0.4", features = ["wasm_js"] }
 # Browser WebSocket transport for the wasm32 build of the data plane.
-gloo-net = { version = "0.7", default-features = false, features = [
+gloo-net = { version = "0.8", default-features = false, features = [
     "websocket",
 ] }
 h2 = "0.4.7"
@@ -134,7 +134,7 @@ lru = "0.19.0"
 maybe-async = "0.2.10"
 minijinja = { version = "2.24.0", features = ["json"] }
 ml-kem = { version = "0.3.2", default-features = false, features = ["alloc"] }
-mls-rs = { version = "0.56" }
+mls-rs = { version = "0.58" }
 mls-rs-core = { version = "0.27" }
 mls-rs-crypto-awslc = { version = "0.26.0" }
 # wasm32-only MLS crypto provider (browser SubtleCrypto, async-only).

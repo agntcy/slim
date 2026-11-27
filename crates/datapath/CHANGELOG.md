@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1](https://github.com/agntcy/slim/compare/slim-datapath-v0.20.0...slim-datapath-v0.20.1) - 2026-11-26
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.20.0](https://github.com/agntcy/slim/compare/slim-datapath-v0.19.16...slim-datapath-v0.20.0) - 2026-11-25
 
 ### Fixed

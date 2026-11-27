@@ -4,6 +4,6 @@
   "description": "Helper scripts for the container-security-scan workflow",
   "dependencies": {
     "@octokit/rest": "21.1.1",
-    "glob": "11.1.0"
+    "glob": "14.0.6"
   }
 }
